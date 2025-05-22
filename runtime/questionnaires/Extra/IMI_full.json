@@ -1,0 +1,138 @@
+{
+  "qTitle": "Intrinsic Motivation Inventory",
+  "qInstructions": "Please answer every question by clicking the point on the 1–7 scale that best matches your experience with the task.",
+  "qId": "IMI_full",
+  "questions": [
+    {
+      "pId": "page1",
+      "qType": "radio",
+      "qInstructions": "Choose one option for each statement:",
+      "qData": [
+        {
+          "qId": "q1",
+          "qText": "I tried very hard on this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q2",
+          "qText": "I thought this task was quite enjoyable.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q3",
+          "qText": "I think I am pretty good at this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q4",
+          "qText": "I didn't put much energy into this.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q5",
+          "qText": "I would describe this task as very interesting.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q6",
+          "qText": "I was pretty skilled at this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        }
+      ]
+    },
+    {
+      "pId": "page2",
+      "qType": "radio",
+      "qInstructions": "Choose one option for each statement:",
+      "qData": [
+        {
+          "qId": "q7",
+          "qText": "I thought this was a boring task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q8",
+          "qText": "It was important to me to do well at this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q9",
+          "qText": "After working at this task for a while, I felt pretty competent.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q10",
+          "qText": "While I was doing this task, I was thinking about how much I enjoyed it.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q11",
+          "qText": "I didn't try very hard to do well at this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q12",
+          "qText": "I put a lot of effort into this.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        }
+      ]
+    },
+    {
+      "pId": "page3",
+      "qType": "radio",
+      "qInstructions": "Choose one option for each statement:",
+      "qData": [
+        {
+          "qId": "q13",
+          "qText": "I enjoyed doing this task very much.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q14",
+          "qText": "This was a task that I couldn't do very well.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q15",
+          "qText": "I think I did pretty well at this task, compared to other participants.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q16",
+          "qText": "This task did not hold my attention at all.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q17",
+          "qText": "This task was fun to do.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        },
+        {
+          "qId": "q18",
+          "qText": "I am satisfied with my performance at this task.",
+          "qMandatory": "true",
+          "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"]
+        }
+      ]
+    }
+  ],
+  "qMessage": "You have completed the questionnaire.",
+  "qAcknowledgments": "Thank you for taking part! Press C to continue."
+}

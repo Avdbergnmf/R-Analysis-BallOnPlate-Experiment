@@ -1,0 +1,42 @@
+{
+  "qTitle": "Intrinsic Motivation Inventory",
+  "qInstructions": "Instructions: Please answer all 12 questions by clicking the point on the 1–7 scale that best represents your experience with the task.",
+  "qId": "IMI",
+  "questions": [
+    {
+      "pId": "page1",
+      "qType": "radio",
+      "qInstructions": "Please choose one option for each statement…",
+      "qData": [
+        { "qId": "q5",  "qText": "I am satisfied with my performance at this task.",                       "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q6",  "qText": "I thought this was a boring task.",                                         "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q1",  "qText": "While I was working on the task I was thinking about how much I enjoyed it.","qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q9",  "qText": "I put a lot of effort into this.",                                          "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] }
+      ]
+    },
+    {
+      "pId": "page2",
+      "qType": "radio",
+      "qInstructions": "Please choose one option for each statement…",
+      "qData": [
+        { "qId": "q2",  "qText": "I think I am pretty good at this task.",                                    "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q11", "qText": "It was important to me to do well at this task.",                           "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q4",  "qText": "This task was fun to do.",                                                  "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q10", "qText": "I didn't try very hard to do well at this task.",                           "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] }
+      ]
+    },
+    {
+      "pId": "page3",
+      "qType": "radio",
+      "qInstructions": "Please choose one option for each statement…",
+      "qData": [
+        { "qId": "q8",  "qText": "After working at this task for awhile I felt pretty competent.",            "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q12", "qText": "I didn't put much energy into this.",                                       "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q3",  "qText": "I found the task very interesting.",                                        "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] },
+        { "qId": "q7",  "qText": "I felt pretty skilled at this task.",                                       "qMandatory": "true", "qOptions": ["1 = not at all","2","3","4","5","6","7 = very much"] }
+      ]
+    }
+  ],
+  "qMessage": "You have completed the questionnaire.",
+  "qAcknowledgments": "Thank you very much for taking part in the experiment! Press C to continue."
+}

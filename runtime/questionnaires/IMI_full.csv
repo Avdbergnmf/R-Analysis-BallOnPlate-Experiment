@@ -1,0 +1,19 @@
+QuestionID,question,mirror,category
+q1,I tried very hard on this task.,false,effort_importance
+q2,I thought this task was quite enjoyable.,false,interest_enjoyment
+q3,I think I am pretty good at this task.,false,perceived_competence
+q4,I didn't put much energy into this.,true,effort_importance
+q5,I would describe this task as very interesting.,false,interest_enjoyment
+q6,I was pretty skilled at this task.,false,perceived_competence
+q7,I thought this was a boring task.,true,interest_enjoyment
+q8,It was important to me to do well at this task.,false,effort_importance
+q9,After working at this task for a while I felt pretty competent.,false,perceived_competence
+q10,While I was doing this task I was thinking about how much I enjoyed it.,false,interest_enjoyment
+q11,I didn't try very hard to do well at this task.,true,effort_importance
+q12,I put a lot of effort into this.,false,effort_importance
+q13,I enjoyed doing this task very much.,false,interest_enjoyment
+q14,This was a task that I couldn't do very well.,true,perceived_competence
+q15,I think I did pretty well at this task compared to other participants.,false,perceived_competence
+q16,This task did not hold my attention at all.,true,interest_enjoyment
+q17,This task was fun to do.,false,interest_enjoyment
+q18,I am satisfied with my performance at this task.,false,perceived_competence
