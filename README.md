@@ -1,4 +1,7 @@
 # Analysis Code - Rocker
+
+> NOTE: This is old code from [this repository/experiment](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2024-vfd-experiment), used as the basis for a new analysis code. The readme's and code right is the old version and will be edited to fit the new data / analyses.
+
 The code used for the analysis of ... .
 
 With the files in this repository, you are able to run the code from any device that is able to install and run [Docker](https://docs.docker.com/desktop/install/windows-install/#install-interactively).
