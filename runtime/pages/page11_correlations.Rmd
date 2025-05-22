@@ -1,0 +1,235 @@
+### Options
+
+```{r}
+selectInput("par", "Parametric data", 
+            choices = c("parametric", "nonparametric", "bayes", "robust"), 
+            selected = "parametric", multiple = FALSE)
+
+checkboxInput("getSummarizedData", "Calculate mean, sd, cv", value = TRUE)
+checkboxInput("averageData", "Average data across condition", value = TRUE)
+checkboxInput("diffData", "Calculate difference + means per participant", value = TRUE)
+checkboxInput("heatmap", "Plot heatmap", value = FALSE)
+numericInput("heatmap_bins", "Bins heatmaps", min = 0, max = Inf, value = 30, step = 1)
+
+# Add selectors for x and y inputs for the correlation plot
+selectizeInput("xVar", "X Variable for Correlation Plot", choices = muVars, selected = muVars[1], multiple = FALSE)
+selectizeInput("yVar", "Y Variable for Correlation Plot", choices = muVars, selected = muVars[2], multiple = FALSE)
+```
+
+```{r}
+checkboxInput("rm_clamped","Remove clamped offset values (for non-summarized data only)", value=TRUE)
+```
+
+Column
+--------------------------------------------
+
+### Correlation Plots  {data-height=500}
+This page allows you to run some correlation tests on the selected data based on the settings on the left.
+
+```{r}
+# Add plot output for the correlation plot
+imageOutput("correlation_plot")
+```
+
+
+### Correlation Results  {data-height=500}
+```{r}
+verbatimTextOutput("correlation_text")
+```
+
+### Homoscedasticity check
+You should look for a consistent spread of residuals across the range of fitted values. If the data visually appear to have constant variance, a formal test like BP is often unnecessary.
+
+
+```{r}
+imageOutput("homoscedasticity_plot")
+```
+
+```{r, context="server"}
+get_correlation_data <- reactive({
+  if (input$getSummarizedData) {
+    data <- get_mu_dyn_long()
+    if (input$averageData) {
+      data <- summarize_across_conditions(data)
+    }
+    if (input$diffData){
+      data <- calculate_vfd_difference(data)
+    }
+  }
+  else {
+    data <- filteredParams()
+
+    # Remove clamped data if the option is selected
+    if (input$rm_clamped) {
+    data <- data %>%
+      filter(!(heelStrikes.offset_x == 0.075 | heelStrikes.offset_x == -0.075 | heelStrikes.offset_z == 0.15 | heelStrikes.offset_z == -0.15))
+    }
+  }
+
+  return(data)
+})
+
+get_selected_value <- function(current_value, prev_choices, new_choices) {
+  # Check if previous choices exist and if the current value is in the previous choices
+  if (!is.null(prev_choices) && current_value %in% prev_choices) {
+    # Find the index of the currently selected variable in the previous choices
+    index <- match(current_value, prev_choices)
+    # Try to select the same index in the new choices, if it exists
+    if (index <= length(new_choices)) {
+      return(new_choices[index])
+    } else {
+      # Fallback to the first item if index is out of bounds
+      return(new_choices[1])
+    }
+  } else {
+    # Fallback to the first item if previous choices don't exist or current value is not in them
+    return(new_choices[1])
+  }
+}
+
+# Store previous numeric columns as a reactive value
+previous_numeric_cols <- reactiveVal()
+
+# Update the selectizeInput choices based on the filtered data for correlation plot
+observe({
+  # Get the latest data and numeric columns
+  data <- get_correlation_data()
+  numeric_cols <- names(data)[sapply(data, is.numeric)]
+  
+  # Retrieve previous numeric columns and update the stored value
+  prev_numeric_cols <- previous_numeric_cols()
+  
+  # Only proceed if numeric_cols have actually changed to avoid unnecessary updates
+  if (!identical(numeric_cols, prev_numeric_cols)) {
+    previous_numeric_cols(numeric_cols)  # Update reactive value to the current numeric_cols
+    
+    # Use isolate to prevent reactive dependencies within selected variables
+    s_xVar <- isolate(input$xVar)
+    s_yVar <- isolate(input$yVar)
+    
+    # Use the function to get selected values based on previous choices' positions
+    selected_xVar <- get_selected_value(s_xVar, prev_numeric_cols, numeric_cols)
+    selected_yVar <- get_selected_value(s_yVar, prev_numeric_cols, numeric_cols)
+    
+    # Update the selectize inputs only if there has been a change in choices
+    updateSelectizeInput(session, "xVar", choices = numeric_cols, selected = selected_xVar)
+    updateSelectizeInput(session, "yVar", choices = numeric_cols, selected = selected_yVar)
+  }
+})
+  
+output$correlation_text <- renderPrint({
+  dt <- get_correlation_data()
+  
+  cat("---CHECKING PARAMETRIC ASSUMPTIONS---\n")
+  # Check normality of the selected variables
+  cat("Number of datapoints: ", length(dt[[input$xVar]]))
+  shapiro_x <- shapiro.test(dt[[input$xVar]])
+  shapiro_y <- shapiro.test(dt[[input$yVar]])
+  print(shapiro_x)
+  print(shapiro_y)
+  
+    # Check homoscedasticity: Breusch-Pagan test
+  model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
+  bp_test <- bptest(model)
+  cat("Breusch-Pagan Test for Homoscedasticity:\n")
+  print(bp_test)
+
+  # Interpretation of homoscedasticity
+  if (bp_test$p.value > 0.05) {
+    cat("Interpretation: The p-value is", bp_test$p.value, 
+        "> 0.05, so we assume homoscedasticity.\n")
+  } else {
+    cat("Interpretation: The p-value is", bp_test$p.value, 
+        "< 0.05, indicating that the homoscedasticity assumption is violated.\n")
+  }
+  
+  cat("Also check plot:\n")
+  cat("  - The x-axis represents the fitted values, and the y-axis represents the residuals.\n  - Ideally, the residuals should be randomly scattered around the horizontal line at 0, without any clear pattern, indicating homoscedasticity.\n")
+  
+  # Determine correlation method based on input
+  cat("---CORRELATION RESULTS---\n\n")
+  method <- switch(input$par,
+                   parametric = "pearson",
+                   nonparametric = "spearman",
+                   bayes = "bayes",
+                   robust = "robust")
+  print(paste("Using method:",method))
+  # Calculate correlation
+  if (method == "bayes") {
+    correlation <- correlationBF(dt[[input$xVar]], dt[[input$yVar]])
+    result_text <- paste("Bayesian correlation between", input$xVar, "and", input$yVar, ":", correlation)
+    cat(result_text, "\n")
+  } else if (method == "robust") {
+    correlation <- pbcor(dt[[input$xVar]], dt[[input$yVar]])
+    result_text <- paste("Robust correlation between", input$xVar, "and", input$yVar, ":", correlation)
+    cat(result_text, "\n")
+  } else {
+    correlation <- cor.test(dt[[input$xVar]], dt[[input$yVar]], method = method)
+    result_text <- paste("Correlation between", input$xVar, "and", input$yVar, ":",
+                         correlation$estimate, "\n",
+                         "p-value:", correlation$p.value, "\n",
+                         "Confidence interval:", correlation$conf.int[1], "-", correlation$conf.int[2])
+    cat(result_text, "\n")
+    
+    # Additional information
+    if (abs(correlation$estimate) > 0.7) {
+      strength <- "strong"
+    } else if (abs(correlation$estimate) > 0.5) {
+      strength <- "moderate"
+    } else {
+      strength <- "weak"
+    }
+    
+    cat("The correlation is", strength, "\n")
+    
+    if (correlation$p.value < 0.05) {
+      cat("The correlation is statistically significant.\n")
+    } else {
+      cat("The correlation is not statistically significant.\n")
+    }
+  }
+})
+
+output$homoscedasticity_plot <- renderSVG({ reactive({
+  dt <- get_correlation_data()
+  
+  # Fit a linear model
+  model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
+  
+  # Get fitted values and residuals
+  fitted_vals <- fitted(model)
+  residuals <- resid(model)
+  
+  # Plot residuals vs. fitted values
+  plot(fitted_vals, residuals,
+       main = "Residuals vs Fitted Values",
+       xlab = "Fitted Values",
+       ylab = "Residuals",
+       pch = 19, col = "darkgrey")
+  
+  # Add a horizontal line at 0
+  abline(h = 0, col = "red", lwd = 2)
+  
+  # Add Loess smoothing line to check for any pattern in residuals
+  lines(lowess(fitted_vals, residuals), col = "blue", lwd = 2)
+}) })
+
+
+output$correlation_plot <- renderSVG({ reactive({
+  dt <- get_correlation_data()
+  
+  # Ensure the selected variables exist in the dataset
+  if (input$xVar %in% names(dt) && input$yVar %in% names(dt)) {
+    x_var <- sym(input$xVar)
+    y_var <- sym(input$yVar)
+    
+    #ggscatterstats(data = dt, x = !!x_var, y = !!y_var, type = input$par) + theme_minimal(base_size = input$baseSize)
+    plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
+  } else {
+    # Print a message if the variables are not found
+    plot.new()
+    text(0.5, 0.5, "Selected variables not found in the dataset", cex = 1.5, col = "red")
+  }
+}) 
+})
+```

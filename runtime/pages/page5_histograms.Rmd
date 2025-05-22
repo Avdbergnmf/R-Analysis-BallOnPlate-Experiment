@@ -1,0 +1,81 @@
+### Options
+
+```{r}
+selectizeInput("plot", "Plot",
+  choices = dataTypes, selected = dataTypes[1], multiple = FALSE
+)
+selectizeInput("group", "Group by",
+  choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE
+)
+selectizeInput("position", "Bar positions",
+  choices = c("stack", "identity", "dodge"), selected = "identity", multiple = FALSE
+)
+selectizeInput("split", "Split by",
+  choices = categoriesExtraInputs, selected = "None", multiple = FALSE
+)
+#checkboxInput("means", "Show means",
+#  value = TRUE
+#)
+
+numericInput("bin", "Bin width",
+  min = 0.001, max = 0.5, value = 0.01, step = 0.01
+)
+```
+
+Column
+--------------------------------------------
+
+### Histograms  {data-height=1500}
+Create histograms of the step results of the selected data.
+```{r}
+imageOutput("hist")
+```
+
+### Mean values
+
+
+```{r}
+tableOutput("splitMeanTable")
+tableOutput("overallMeanTable")
+```
+
+
+
+```{r, context="server"}
+plotCount <- reactive({
+  colName <- as.character(input$split)
+  return(uniqueN(allGaitParams[[colName]]))
+})
+
+plotHeight <- reactive(
+  if (input$split == "None") {
+    return(input$plotheight)
+  } else {
+    return(input$plotheight * plotCount())
+  }
+)
+
+output$hist <- renderSVG({ reactive({
+    make_histogram(filteredParams(), get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
+  })
+})
+
+# Add mean tables
+output$splitMeanTable <- renderTable({
+  req(input$plot, input$split)
+  plotVar <- input$plot
+  splitVar <- input$split
+  if (splitVar != "None") {
+    aggregate(filteredParams()[[plotVar]], by = list(filteredParams()[[splitVar]]), FUN = mean, na.rm = TRUE)
+  }
+})
+
+output$overallMeanTable <- renderTable({
+  req(input$plot)
+  plotVar <- input$plot
+  overallMean <- mean(filteredParams()[[plotVar]], na.rm = TRUE)
+  overallSD <- sd(filteredParams()[[plotVar]], na.rm = TRUE)
+  data.frame(Statistic = c("Mean", "SD"), Value = c(overallMean, overallSD))
+})
+```
+

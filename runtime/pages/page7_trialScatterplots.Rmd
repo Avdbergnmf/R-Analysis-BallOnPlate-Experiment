@@ -1,0 +1,59 @@
+### Options
+```{r,echo=FALSE}
+removePattern <- "heelStrikes\\.|toeOffs\\."
+muDataTypesFilt <- grep(removePattern, muDataTypes, value = TRUE, invert = TRUE)
+
+selectizeInput("muxscatter", "xscatter",
+  choices = muDataTypesFilt, selected = "stepWidths.sd", multiple = FALSE
+)
+selectizeInput("muyscatter", "yscatter",
+  choices = muDataTypesFilt, selected = "stepLengths.sd", multiple = FALSE
+)
+
+selectizeInput("groupScatter", "Group by",
+  choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE
+)
+
+checkboxInput("averageData_trial", "Average data across condition", value = FALSE)
+checkboxInput("diffData_trial", "Calculate difference + means per participant", value = FALSE)
+```
+
+Column
+--------------------------------------------
+
+### Scatterplot TrialData {data-height=1500}
+Create scatterplots of the aggregated results of the selected data (1 datapoint per foot per trial per participant).
+
+```{r}
+imageOutput("scatter_mu")
+```
+
+```{r, context="server"}
+# Function to get and possibly summarize the data
+get_scatter_data <- reactive({
+  data <- get_mu_dyn_long()
+  if (input$averageData_trial) {
+    data <- summarize_across_conditions(data)
+  }
+  if (input$diffData_trial){
+    data <- calculate_vfd_difference(data)
+  }
+  return(data)
+})
+
+output$scatter_mu <- renderSVG({ reactive({
+  make_scatter_plot_steps(get_scatter_data(), input$groupScatter, input$muxscatter, input$muyscatter, show_legend=TRUE, baseSize = input$baseSize)
+  })
+})
+
+
+# Update the selectizeInput choices based on the filtered data
+observe({
+  data <- get_scatter_data()
+  numeric_cols <- names(data)[sapply(data, is.numeric)]
+  
+  updateSelectizeInput(session, "muxscatter", choices = numeric_cols, selected = numeric_cols[1])
+  updateSelectizeInput(session, "muyscatter", choices = numeric_cols, selected = numeric_cols[2])
+})
+
+```

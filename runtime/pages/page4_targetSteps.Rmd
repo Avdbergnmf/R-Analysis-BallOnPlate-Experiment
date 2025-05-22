@@ -1,0 +1,49 @@
+
+### Options
+```{r,echo=FALSE}
+selectizeInput("targetPlotPlot", "Plot",
+  choices = dataTypesTargets, selected = dataTypesTargets[2], multiple = FALSE
+)
+selectizeInput("targetPlotGroup", "Group by",
+  choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE
+)
+selectizeInput("targetPlotPosition", "Bar positions",
+  choices = c("stack", "identity", "dodge"), selected = "stack", multiple = FALSE
+)
+selectizeInput("targetPlotSplit", "Split by",
+  choices = categoriesExtraInputs, selected = "None", multiple = FALSE
+)
+
+numericInput("targetPlotBin", "Bin width",
+  min = 0.001, max = 0.5, value = 1, step = 0.01
+)
+```
+
+Column
+--------------------------------------------
+
+### Histograms  {data-height=1000}
+Here we create a histogram and below a scatterplot of all the steps taken onto a target (not includiong the steps leading up to and succeeding the step onto the target).
+```{r}
+imageOutput("histTargets")
+```
+
+### Target Steps  {data-height=1000}
+```{r}
+imageOutput("targets")
+```
+
+
+```{r, context="server"}
+output$targets <- renderSVG({ reactive({
+    make_target_steps_plot(filteredTargetParams(), baseSize=input$baseSize)
+  })
+})
+
+output$histTargets <- renderPlot(
+  {
+    make_target_histogram(filteredTargetParams(), input$targetPlotGroup, input$targetPlotSplit, input$targetPlotPlot, input$targetPlotBin, input$targetPlotPosition, baseSize = input$baseSize)
+  },
+  height = reactive(plotHeight())
+)
+```

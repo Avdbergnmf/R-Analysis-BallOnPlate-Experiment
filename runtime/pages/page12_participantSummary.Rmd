@@ -1,0 +1,33 @@
+### Options
+
+```{r}
+selectizeInput("participantSummary", "participant",
+  choices = participants, selected = participants[1], multiple = TRUE)
+actionButton("addAllParticipants", "Add All Participants")
+```
+
+Column
+--------------------------------------------
+
+### Participant pool
+Get summary of participant demographics etc.
+
+(This was previously a place in which we could generate PDF reports of each participant (see old commits), but this feature required a lot of extra work to keep it running so it was removed.)
+```{r}
+tableOutput("participant_details_table")
+```
+
+
+```{r, context="server"}
+observeEvent(input$addAllParticipants, {
+  updateSelectizeInput(session, "participantSummary", selected = participants)
+})
+
+### Participant pool summary
+output$participant_details_table <- renderTable({
+  participants <- input$participantSummary#filterParticipants
+  participant_details <- calculate_participant_details(participants)
+  
+  return(participant_details)
+}, rownames = TRUE, options = list(pageLength = 100, scrollY = "500px"))
+```

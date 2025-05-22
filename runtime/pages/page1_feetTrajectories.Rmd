@@ -1,0 +1,51 @@
+
+
+
+### Plot Options
+```{r}
+trialNumbers = c(1,2,3,4,5,6)
+checkboxInput("filter", "Show filtered data",
+  value = FALSE)
+selectizeInput("participant", "participant",
+  choices = participants, selected = participants[1], multiple = FALSE)
+selectizeInput("trialNum", "Trial Number",
+  choices = trialNumbers, selected = trialNumbers[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+
+
+selectizeInput("xplot", "xplot",
+  choices = xOptions, selected = "time", multiple = FALSE)#xOptions[2]
+selectizeInput("yplot", "yplot",
+  choices = xOptions, selected = "pos_z", multiple = FALSE) #xOptions[3]
+
+# Add x and y limits inputs
+numericInput("xlim_min", "X-axis minimum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("xlim_max", "X-axis maximum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("ylim_min", "Y-axis minimum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("ylim_max", "Y-axis maximum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+```
+
+
+Column
+--------------------------------------------
+### Feet trajectories {data-height=1500}
+This overview shows the stepping data, including the detected heelstrike positions. This interface was used a lot to debug the step detection algorithm.
+```{r}
+imageOutput("FeetTraj")
+```
+
+```{r, context="server"}
+output$FeetTraj <- renderSVG({ reactive({
+    plot_steps(
+      filteredParams(), input$participant, as.numeric(input$trialNum),
+      input$xplot, input$yplot, input$filter, 
+      baseSize=input$baseSize,
+      xlim=c(input$xlim_min, input$xlim_max),
+      ylim=c(input$ylim_min, input$ylim_max)
+    )
+  })
+})
+```

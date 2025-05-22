@@ -1,0 +1,509 @@
+### Actions
+
+```{r}
+selectizeInput("participant", "participant",
+  choices = participants, selected = participants[1], multiple = FALSE)
+selectizeInput("trialNum", "Trial Number",
+  choices = trialNumbers, selected = trialNumbers[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+selectizeInput("xplot_16", "xplot",
+  choices = xOptions, selected = "time", multiple = FALSE)#xOptions[2]
+selectizeInput("yplot_16", "yplot",
+  choices = xOptions, selected = "pos_x", multiple = FALSE)#xOptions[3]
+
+# Add x and y limits inputs
+numericInput("xlim_min_16", "X-axis minimum",
+  min = -Inf, max = Inf, value = 0, step = 0.1)
+numericInput("xlim_max_16", "X-axis maximum",
+  min = -Inf, max = Inf, value = 20, step = 0.1)
+numericInput("ylim_min_16", "Y-axis minimum",
+  min = -Inf, max = Inf, value = -.5, step = 0.1)
+numericInput("ylim_max_16", "Y-axis maximum",
+  min = -Inf, max = Inf, value = .5, step = 0.1)
+# Add a reset button to reset the axis limits
+actionButton("reset_limits", "Reset Axis Limits")
+actionButton("refresh_plot", "Refresh Plot")
+```
+```{r}
+# Add a numeric input for the outlier matching threshold
+numericInput("outlier_threshold", "Outlier matching threshold (seconds)",
+  min = 0, max = 1, value = 0.1, step = 0.001)
+
+fileInput("importOutliers", "Import Outliers from CSV",
+  accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"))
+downloadButton("export_outliers", "Export Outliers to CSV")
+```
+
+```{r}
+#actionButton("confirm_selection", "Confirm Selected Points") # not using this atm.
+```
+
+```{r}
+actionButton("overwrite_outliers", "Overwrite Outliers")
+```
+.
+Autosaving:
+```{r}
+# Add these new inputs for autosave configuration
+numericInput("autosave_interval", "Autosave interval (minutes)",
+             value = 5, min = 1, max = 60, step = 1)
+checkboxInput("do_autosave", "Enable autosave", value = FALSE)
+```
+
+Save allGaitParams to RDS.
+```{r}
+downloadButton("save_rds", "Save current parameters to RDS.")
+```
+
+
+Column
+--------------------------------------------
+### Foot Trajectories {data-width=650 data-height=1500}
+This interface was used to manually select the incorrectly detected steps as outliers so they could be removed from the dataset.
+
+Click a heel strike to add it to outlier list. It's wise to enable the auto-saving feature if you wish to reproduce this, as this takes quite some time, and the interface crashes randomly from time to time. You can also browse to the saved outliers (in the `data_extra` folder) and load them to load this list into the interface.
+
+Also be aware that the data shown here is also based on the selection of data in the sidebar (this may already have some steps/trials filtered out).
+
+Finally, this also includes a button on the left to save the new outliers to a `.rds` file (you can use this to overwrite the original automatic calculation of the outliers, which is far from correct).
+
+```{r}
+plotlyOutput("manualOutlierPlot")
+```
+
+Column
+--------------------------------------------
+### Selected Outliers  {data-width=350 data-height=1500}
+
+```{r}
+# Add this new checkbox input above the DataTable
+checkboxInput("filter_outliers_table", "Filter table by current participant and trial", value = TRUE)
+```
+
+```{r}
+DT::dataTableOutput("selectedOutliersTable")
+```
+
+```{r, context="server"}
+# Initialize a reactive value for plot refresh trigger
+refresh_trigger <- reactiveVal(0)
+
+observeEvent(input$importOutliers, {
+  req(input$importOutliers)
+  tryCatch(
+    {
+      df <- read.csv(input$importOutliers$datapath, stringsAsFactors = FALSE)
+      if (all(c("participant", "trialNum", "heelStrikes.time") %in% colnames(df))) {
+        # Convert trialNum to numeric if it's not already
+        df$trialNum <- as.numeric(df$trialNum)
+        # Update the selected_outliers reactive value
+        selected_outliers(df)
+        showNotification("Outliers imported successfully", type = "message")
+        refresh_trigger(refresh_trigger() + 1)
+      } else {
+        showNotification("Invalid CSV format. Please ensure the file has 'participant', 'trialNum', and 'heelStrikes.time' columns.", type = "error")
+      }
+    },
+    error = function(e) {
+      showNotification(paste("Error importing outliers:", e$message), type = "error")
+    }
+  )
+})
+
+# Reactive value to store selected outliers
+selected_outliers <- reactiveVal(data.frame(
+  participant = character(),
+  trialNum = numeric(),
+  heelStrikes.time = numeric(),
+  stringsAsFactors = FALSE
+))
+
+# Add this new reactive to store the current outliers
+current_outliers <- reactive({
+  selected_outliers() %>%
+    filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+})
+
+# Reactive values to store current axis limits
+axis_limits <- reactiveValues(x = NULL, y = NULL)
+
+# Initialize axis limits when the app starts or when reset button is clicked
+observe({
+  # Initialize or reset axis limits to the input values
+  axis_limits$x <- c(input$xlim_min_16, input$xlim_max_16)
+  axis_limits$y <- c(input$ylim_min_16, input$ylim_max_16)
+})
+
+# Reset axis limits when the reset button is clicked
+observeEvent(input$reset_limits, {
+  # Reset axis limits to the input values
+  axis_limits$x <- c(input$xlim_min_16, input$xlim_max_16)
+  axis_limits$y <- c(input$ylim_min_16, input$ylim_max_16)
+  refresh_trigger(refresh_trigger() + 1)
+})
+
+
+# Set initial axis limits based on the inputs (inside a reactive context)
+observeEvent(input$refresh_plot, {
+  # Only set axis limits if they haven't been manually set yet
+  if (is.null(axis_limits$x)) {
+    axis_limits$x <- c(input$xlim_min_16, input$xlim_max_16)
+  }
+  if (is.null(axis_limits$y)) {
+    axis_limits$y <- c(input$ylim_min_16, input$ylim_max_16)
+  }
+  refresh_trigger(refresh_trigger() + 1)
+})
+
+# Observe changes in the plot's layout to update axis limits
+observeEvent(event_data("plotly_relayout"), {
+  relayout_data <- event_data("plotly_relayout")
+  #print(relayout_data)  # Debugging: see what Plotly sends on relayout
+
+  # Update x-axis limits
+  if (!is.null(relayout_data[["xaxis.range[0]"]]) && !is.null(relayout_data[["xaxis.range[1]"]])) {
+    axis_limits$x <- c(relayout_data[["xaxis.range[0]"]], relayout_data[["xaxis.range[1]"]])
+  } else if (!is.null(relayout_data$xaxis.range)) {
+    axis_limits$x <- relayout_data$xaxis.range
+  }
+
+  # Update y-axis limits
+  if (!is.null(relayout_data[["yaxis.range[0]"]]) && !is.null(relayout_data[["yaxis.range[1]"]])) {
+    axis_limits$y <- c(relayout_data[["yaxis.range[0]"]], relayout_data[["yaxis.range[1]"]])
+  } else if (!is.null(relayout_data$yaxis.range)) {
+    axis_limits$y <- relayout_data$yaxis.range
+  }
+})
+
+# Render the interactive plot
+output$manualOutlierPlot <- renderPlotly({
+  # Use the refresh button as a trigger
+  refresh_trigger()
+
+  # Get the current participant and trial from the sidebar inputs
+  current_participant <- input$participant
+  current_trial <- as.numeric(input$trialNum)
+  
+  # Create the base ggplot
+  p <- plot_steps(
+    filteredParams(), current_participant, current_trial,
+    input$xplot_16, input$yplot_16, input$filter, 
+    baseSize = input$baseSize
+  )
+
+  # Isolate the current_outliers to prevent automatic reactivity
+  isolate({
+    req(filteredParams())
+    
+    # Get the current data for this participant and trial
+    current_data <- filteredParams() %>%
+      filter(participant == current_participant & trialNum == current_trial)
+    
+    # Get current outliers
+    current_outliers_data <- current_outliers()
+    
+    # Identify matching heelstrikes in the current data
+    if (nrow(current_outliers_data) > 0) {
+      matching_heelstrikes <- current_data %>%
+        mutate(is_outlier = sapply(heelStrikes.time, function(t) {
+          any(abs(current_outliers_data$heelStrikes.time - t) <= input$outlier_threshold)
+        }))
+    } else {
+      matching_heelstrikes <- current_data %>%
+        mutate(is_outlier = FALSE)
+    }
+    
+    # Add a layer to highlight the outliers
+    p <- p + geom_point(data = matching_heelstrikes %>% filter(is_outlier), 
+                        aes(x = .data[[paste0("heelStrikes.", input$xplot_16)]],
+                            y = .data[[paste0("heelStrikes.", input$yplot_16)]]),
+                        color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
+    
+    # Convert to plotly, ensuring only `geom_point` layers are selectable
+    p <- ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
+      style(
+        hoverinfo = "none",
+        traces = which(sapply(.$x$data, function(d) d$type) == "scatter" & sapply(.$x$data, function(d) d$mode) == "lines")
+      ) %>%
+      layout(
+        dragmode = "pan",
+        xaxis = list(
+          range = axis_limits$x,
+          tickmode = "linear",
+          dtick = 1, # Set tick interval to 1 second
+          tick0 = 0  # Start ticks at 0
+        ),
+        yaxis = list(range = axis_limits$y)
+      ) %>%
+      event_register("plotly_click") %>% event_register("plotly_selected")
+    
+    return(p)
+  })
+})
+
+# Update selected outliers based on plot clicks
+observeEvent(event_data("plotly_click"), {
+  click_data <- event_data("plotly_click")
+  
+  if (!is.null(click_data)) {
+    current_participant <- input$participant
+    current_trial <- as.numeric(input$trialNum)
+    clicked_time <- click_data$x
+    
+    # Find the closest heel strike in filteredParams()
+    params <- filteredParams()
+    closest_step <- params[params$participant == current_participant &
+                               params$trialNum == current_trial, ] %>%
+      mutate(time_diff = abs(heelStrikes.time - clicked_time)) %>%
+      arrange(time_diff) %>%
+      slice(1)
+    
+    if (nrow(closest_step) > 0 && closest_step$time_diff <= 0.25) {
+      current_outliers <- selected_outliers()
+      
+      # Check if the clicked outlier already exists in the list
+      existing_outlier <- current_outliers %>%
+        filter(participant == closest_step$participant,
+               trialNum == closest_step$trialNum,
+               abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold)
+      
+      if (nrow(existing_outlier) > 0) {
+        # Show confirmation dialog for removing outlier
+        showModal(modalDialog(
+          title = "Confirm Outlier Removal",
+          "Are you sure you want to remove this outlier?",
+          footer = tagList(
+            modalButton("Cancel"),
+            actionButton("confirmRemove", "Remove")
+          )
+        ))
+        
+        # If confirmed, remove the outlier
+        observeEvent(input$confirmRemove, {
+          updated_outliers <- current_outliers %>%
+            filter(!(participant == closest_step$participant &
+                     trialNum == closest_step$trialNum &
+                     abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold))
+          selected_outliers(updated_outliers)
+          removeModal()
+          showNotification("Outlier removed", type = "message")
+          refresh_trigger(refresh_trigger() + 1)
+        })
+      } else {
+        # Add the outlier if it doesn't exist
+        new_outlier <- data.frame(
+          participant = closest_step$participant,
+          trialNum = closest_step$trialNum,
+          heelStrikes.time = closest_step$heelStrikes.time,
+          stringsAsFactors = FALSE
+        )
+        updated_outliers <- rbind(current_outliers, new_outlier)
+        selected_outliers(updated_outliers)
+        refresh_trigger(refresh_trigger() + 1)
+      }
+    }
+  }
+})
+
+# Create a reactive value to store the row to be removed
+selected_row_to_remove <- reactiveVal(NULL)
+
+# When a row is selected in the table
+observeEvent(input$selectedOutliersTable_rows_selected, {
+  selected_row <- input$selectedOutliersTable_rows_selected
+  if (!is.null(selected_row)) {
+    selected_row_to_remove(selected_row)
+    # Show confirmation dialog for removing outlier
+    showModal(modalDialog(
+      title = "Confirm Outlier Removal",
+      "Are you sure you want to remove this outlier?",
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirmRemove", "Remove")
+      )
+    ))
+  }
+})
+
+# Handle the confirmation of removal
+observeEvent(input$confirmRemove, {
+  selected_row <- selected_row_to_remove()
+  if (!is.null(selected_row)) {
+    current_outliers <- selected_outliers()
+    updated_outliers <- current_outliers[-selected_row, ]
+    selected_outliers(updated_outliers)
+    showNotification("Outlier removed", type = "message")
+    refresh_trigger(refresh_trigger() + 1)
+    # Reset the selected row
+    selected_row_to_remove(NULL)
+  }
+  removeModal()
+})
+
+# Cancel button logic (optional, but recommended)
+observeEvent(input$selectedOutliersTable_rows_selected, {
+  selected_row_to_remove(NULL)
+})
+
+# Render the selected outliers table
+output$selectedOutliersTable <- DT::renderDataTable({
+  # Apply filtering only if the checkbox is checked
+  current_participant <- input$participant
+  current_trial <- as.numeric(input$trialNum)
+  if (input$filter_outliers_table) {
+    filtered_outliers <- current_outliers()
+  } else {
+    filtered_outliers <- selected_outliers()
+  }
+  
+  filtered_outliers <- filtered_outliers %>%
+    dplyr::mutate(row_num = dplyr::row_number()) %>% 
+    dplyr::arrange(desc(row_num)) %>% 
+    dplyr::select(-row_num)
+  
+  DT::datatable(
+    filtered_outliers,
+    options = list(
+      pageLength = 100,
+      search = NULL #list(regex = TRUE, caseInsensitive = TRUE)
+    ),
+    selection = 'single'
+  ) %>%
+    DT::formatStyle(
+      columns = c('participant', 'trialNum'),
+      backgroundColor = DT::styleEqual(
+        c(current_participant, current_trial),
+        c('rgba(255, 255, 0, 0.5)', 'rgba(255, 255, 0, 0.5)')
+      )
+    )
+})
+
+# Export rotations to CSV
+output$export_outliers <- downloadHandler(
+  filename = function() {
+    paste("outliers-", Sys.Date(), ".csv", sep="")
+  },
+  content = function(file) {
+    write.csv(selected_outliers(), file, row.names = FALSE)
+  }
+)
+
+# Observer to overwrite outliers in allGaitParams
+observeEvent(input$overwrite_outliers, {
+  outliers_data <- selected_outliers()
+  
+  # Reset all outlier steps to FALSE
+  allGaitParams$heelStrikes.outlierSteps <<- FALSE
+  
+  # Mark steps as outliers if they match the selected outliers
+  for (i in seq_len(nrow(outliers_data))) {
+    match_indices <- which(
+      allGaitParams$participant == outliers_data$participant[i] &
+      allGaitParams$trialNum == outliers_data$trialNum[i] &
+      abs(allGaitParams$heelStrikes.time - outliers_data$heelStrikes.time[i]) <= input$outlier_threshold
+    )
+    
+    if (length(match_indices) > 0) {
+      # Take the first match if multiple are found within the time range
+      #allGaitParams$heelStrikes.outlierSteps[match_indices[1]] <<- TRUE % This results in problems when 2 outlier steps are within the threshold value, better to just remove both then.
+      # Take all matches
+      allGaitParams$heelStrikes.outlierSteps[match_indices] <<- TRUE
+    }
+  }
+  
+  # Increment the trigger to force an update of filteredGaitParams
+  refresh_trigger(refresh_trigger() + 1)
+  
+  showNotification("Outliers overwritten", type = "message")
+})
+
+# Handle multiple point selection
+observeEvent(input$confirm_selection, {
+  selected_data <- event_data("plotly_selected")
+  
+  if (!is.null(selected_data)) {
+    current_participant <- input$participant
+    current_trial <- as.numeric(input$trialNum)
+    
+    # Find the closest heel strikes for all selected points
+    params <- filteredParams()
+    new_outliers <- lapply(seq_len(nrow(selected_data)), function(i) {
+      clicked_time <- selected_data$x[i]
+      
+      closest_step <- params[params$participant == current_participant &
+                               params$trialNum == current_trial, ] %>%
+        mutate(time_diff = abs(heelStrikes.time - clicked_time)) %>%
+        arrange(time_diff) %>%
+        slice(1)
+      
+      if (nrow(closest_step) > 0 && closest_step$time_diff <= 0.25) {
+        data.frame(
+          participant = closest_step$participant,
+          trialNum = closest_step$trialNum,
+          heelStrikes.time = closest_step$heelStrikes.time,
+          stringsAsFactors = FALSE
+        )
+      } else {
+        NULL
+      }
+    })
+    
+    new_outliers <- do.call(rbind, new_outliers)
+    
+    if (!is.null(new_outliers) && nrow(new_outliers) > 0) {
+      current_outliers <- selected_outliers()
+      updated_outliers <- rbind(current_outliers, new_outliers)
+      updated_outliers <- unique(updated_outliers)  # Remove any duplicates
+      selected_outliers(updated_outliers)
+      showNotification(paste(nrow(new_outliers), "outlier(s) added"), type = "message")
+      refresh_trigger(refresh_trigger() + 1)
+    }
+  }
+})
+
+output$save_rds <- downloadHandler(
+  filename = function() {
+    file.path(dataExtraFolder, paste("allGaitParams-", Sys.Date(), ".rds", sep=""))
+  },
+  content = function(file) {
+    saveRDS(allGaitParams, file)
+  }
+)
+  
+
+# Modify the reactive timer to use the user-defined interval
+autoSaveTimer <- reactiveTimer(1000 * 60 * 5)  # Default to 5 minutes
+
+# Observe changes to the autosave interval
+observeEvent(input$autosave_interval, {
+  invalidateLater(1000 * 60 * input$autosave_interval)
+})
+
+# Modify the autosave observer
+observe({
+  # Only proceed if autosave is enabled
+  req(input$do_autosave)
+  
+  # Trigger the timer
+  autoSaveTimer()
+  
+  isolate({
+    # Get the current outliers data
+    outliers_data <- selected_outliers()
+  })
+  
+  # Generate a filename with timestamp
+  filename <- paste0("outliers_autosave_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
+  
+  # Define the full path for the file
+  filepath <- file.path(dataExtraFolder, filename)
+  
+  # Write the CSV file
+  write.csv(outliers_data, filepath, row.names = FALSE)
+  
+  # Show a notification
+  showNotification(paste("Outliers auto-saved to", filename), type = "message", duration = 5)
+  
+  # Schedule the next autosave
+  invalidateLater(1000 * 60 * input$autosave_interval)
+})
+```

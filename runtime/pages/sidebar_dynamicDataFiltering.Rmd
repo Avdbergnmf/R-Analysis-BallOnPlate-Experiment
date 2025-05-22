@@ -1,0 +1,49 @@
+#### Participant Filtering
+```{r}
+selectizeInput("filterParticipants", "Participants", choices = participants, selected = participants, multiple = TRUE)
+selectizeInput("filterStartCondition", "Started with Noise", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE)
+selectizeInput("filterNoticed", "Participants that noticed VFD", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE)
+```
+
+#### Trial Filtering
+```{r}
+selectizeInput("filterTrials", "Trials", choices = c(1,2,3,4,5,6), selected = c(1,2,3,4,5,6), multiple = TRUE)
+selectizeInput("filterVFD", "VFD", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE)
+selectizeInput("filterPractice", "Familiarization", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE)
+selectizeInput("filterConditionNumber", "Condition number", choices = c(1,2), selected = c(1,2), multiple = TRUE)
+
+selectizeInput("filterTrialsWithinCondition", "Trials (within condition)", choices = c(0,1,2), selected = c(0,1,2), multiple = TRUE)
+selectizeInput("filterTrialsWithoutPractice", "Trials (without practice)", choices = c(0,1,2,3,4), selected = c(0,1,2,3,4), multiple = TRUE)
+```
+
+#### Step Filtering
+```{r}
+selectizeInput("filterTargets", "Target Steps", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE)
+selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
+
+numericInput("slice_length", "Slice data (seconds)",  min = 0, max = 180, value = 180, step = 10)
+checkboxInput("remove_middle_slices", "Only keep first and last slice", value=FALSE)
+```
+
+#### Left vs Right Steps
+Note: you can also average across feet here, this takes the result of both feet of 1 participant in 1 trial and averages their values to create 1 value per trial per participant for the aggregated data (this step is done last, after calculating the results of the individual feet).
+```{r}
+selectizeInput("filterSide", "Side", choices = c("Left", "Right"), selected = c("Left", "Right"), multiple = TRUE)
+checkboxInput("avg_feet", "Average across feet", value = FALSE)
+checkboxInput("add_diff", "add diffFeet columns",value = FALSE)
+bsTooltip("add_diff", 
+          "Calculate difference of calculated metrics (mean, sd, cv) between left and right foot and add to summary table.", 
+          placement = "right", 
+          trigger = "hover")
+```
+
+#### Figure Options
+```{r}
+numericInput("plotheight", "Plot Height (pixels)",
+  min = 50, max = Inf, value = 500, step = 50)
+numericInput("plotwidth", "Plot Width (pixels)",
+  min = 50, max = Inf, value = 500, step = 50)
+
+numericInput("baseSize", "Base Size",
+  min = 1, max = Inf, value = 10, step = 1)
+```

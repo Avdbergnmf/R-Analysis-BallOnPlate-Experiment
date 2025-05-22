@@ -1,0 +1,22 @@
+### Options
+
+```{r}
+questionnaireList <- c("VEQ", "SSQ", "IMI")
+selectizeInput("plotQ", "Plot Questionnaire", choices = questionnaireList, selected = questionnaireList[1], multiple = FALSE)
+```
+
+Column
+--------------------------------------------
+
+### Questionnaire Boxplots  {data-height=1500}
+This page contains a simple custom plot to get an overview of all the questionnaire results including the individual subcategories (based on the selected data).
+```{r}
+imageOutput("q")
+```
+
+```{r, context="server"}
+output$q <- renderSVG({ reactive({
+  plot_questionnaire_data(filteredQResults_new(), input$plotQ, baseSize = input$baseSize)
+  })
+})
+```

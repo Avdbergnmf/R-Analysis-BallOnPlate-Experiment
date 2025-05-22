@@ -1,0 +1,12 @@
+runtime/data/
+/.vs
+runtime/.vs
+
+runtime/index_cache
+runtime/index_data
+runtime/index.html
+
+runtime/results/
+
+runtime/.Rhistory
+runtime/Rplots.pdf

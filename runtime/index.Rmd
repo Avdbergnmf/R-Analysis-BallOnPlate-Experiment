@@ -1,0 +1,171 @@
+---
+title: "VFD for gait variability"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll # scroll # fill
+runtime: shinyrmd
+---
+
+```{r setup, include=FALSE}
+rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
+
+source('source/setup.R')
+source('source/data_loading.R', local = FALSE)
+source('source/pre_processing.R', local = FALSE)
+
+source('source/find_foot_events.R', local = FALSE)
+
+## Get Results
+source('source/calc_all_gait_params.R', local = FALSE)
+source('source/get_questionnaire_results.R', local = FALSE)
+
+# File paths
+resultsFolder <- "results"
+agpFile <- file.path(resultsFolder, "allGaitParams.rds")
+atpFile <- file.path(resultsFolder, "allTargetParams.rds")
+aqrFile <- file.path(resultsFolder, "allQResults.rds")
+
+# Load or calculate the data
+allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
+allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params)
+allTargetParams <- load_or_calculate(atpFile, calc_all_target_params)
+
+dataTypes         <- setdiff(getTypes(allGaitParams), categories)
+dataTypesTargets  <- setdiff(getTypes(allTargetParams), categories)
+
+## Summary tables
+source('source/summaryparams.R', local = FALSE)
+mu <- get_full_mu_sliced(allGaitParams, allTargetParams, allQResults, categories, 180, avg_feet=FALSE, add_diff = TRUE)
+muDataTypes <- setdiff(getTypes(mu), categories)
+muVars <- colnames(mu)
+## Plotting code
+source('source/plotting.R', local = FALSE)
+```
+
+
+Sidebar {.sidebar}
+=====================================
+```{r, child='pages/sidebar_dynamicDataFiltering.Rmd'}
+```
+
+```{r, context="server", local=FALSE}
+source('source/get_filtered_data.R', local = TRUE)
+```
+
+
+```{r, context="server", local=FALSE}
+session$allowReconnect(TRUE)
+
+refresh_trigger <- reactiveVal(0) # used for refreshing filteredGaitParams after outlier update
+
+#Custom function used to render SVG's instead of png's
+renderSVG <- function(expr) {
+  renderImage({
+    # Dynamically get width and height from input
+    dpi <- 96
+    width_value <- input$plotwidth / dpi
+    height_value <- input$plotheight / dpi
+
+    file <- htmltools::capturePlot(
+      expr(), tempfile(fileext = ".svg"),
+      grDevices::svg,
+      width = width_value, height = height_value
+    )
+    list(src = file, deleteFile = TRUE)
+  }, deleteFile = TRUE)
+}
+```
+
+Data Dictionary.md {data-orientation=columns}
+=====================================
+```{r, echo=FALSE}
+shiny::includeMarkdown('data_dictionary.md')
+```
+
+Feet trajectories {data-orientation=columns}
+=====================================
+```{r, child='pages/page1_feetTrajectories.Rmd'}
+```
+
+Removed Steps
+=====================================
+```{r, child='pages/page2_removedSteps.Rmd'}
+```
+
+
+Raw tracker data {data-orientation=columns}
+=====================================
+```{r, child='pages/page3_rawTrackerData.Rmd'}
+```
+
+
+Target Steps
+=====================================
+```{r, child='pages/page4_targetSteps.Rmd'}
+```
+
+
+Histograms 
+=====================================
+```{r, child='pages/page5_histograms.Rmd'}
+```
+
+
+Scatterplots
+=====================================
+```{r, child='pages/page6_scatterplots.Rmd'}
+```
+
+
+Scatterplots TrialData
+=====================================
+```{r, child='pages/page7_trialScatterplots.Rmd'}
+```
+
+
+Questionnaires 
+=====================================
+```{r, child='pages/page8_questionnaires.Rmd'}
+```
+
+
+Boxplots 
+=====================================
+```{r, child='pages/page9_boxplots.Rmd'}
+```
+
+
+Statistics {data-icon="fa-chart-bar"}
+=====================================
+```{r, child='pages/page10_statistics.Rmd'}
+```
+
+
+Correlations {data-icon="fa-chart-line"}
+=====================================
+```{r, child='pages/page11_correlations.Rmd'}
+```
+
+
+Participant Summary {data-icon="fa-id-card-clip"}
+=====================================
+```{r, child='pages/page12_participantSummary.Rmd'}
+```
+
+
+Data Table {data-icon="fa-table"}
+=====================================
+```{r, child='pages/page13_table.Rmd'}
+```
+
+
+Y-Rotation Correction
+=====================================
+```{r, child='pages/page14_dataCorrection.Rmd'}
+```
+
+Manual Outlier Filtering
+=====================================
+```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
+```
