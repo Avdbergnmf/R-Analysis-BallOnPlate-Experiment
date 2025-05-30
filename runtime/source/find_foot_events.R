@@ -1,30 +1,5 @@
 ################ Data Manipulation ################
 
-# Find the final positions by: foot position + noise values & add it to the DF
-calc_final_pos <- function(footData, noiseData) {
-  # Ensure both datasets are sorted by time to maintain order after joining
-  footData <- footData %>% arrange(time)
-  noiseData <- noiseData %>%
-    select(time, offset_x, offset_y, offset_z) %>%
-    arrange(time)
-
-  # Join footData with noiseData by time
-  footData <- footData %>%
-    left_join(noiseData, by = "time") %>%
-    rowwise() %>%
-    mutate(
-      magnitude = sqrt(offset_x^2 + offset_y^2 + offset_z^2),
-      final_pos_x = pos_x + offset_x,
-      final_pos_y = pos_y + offset_y,
-      final_pos_z = pos_z + offset_z
-    ) %>%
-    ungroup()
-
-  return(footData)
-}
-
-
-
 detect_foot_events_coordinates <- function(footData, hipData) {
   ####### FILTER
   relFootPos <- footData$pos_z - hipData$pos_z
@@ -83,19 +58,32 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   # alternation checking
   N_removed_min <- 0
   N_removed_max <- 0
-  for (i in 1:(length(local_minima))) {
-    if (i <= length(local_minima) && i <= length(local_maxima)) {
-      while (local_maxima[i] < local_minima[i] && i <= length(local_minima) && i <= length(local_maxima)) {
+  # Fail gracefully: check for empty or too-short vectors before alternation checking
+  if (length(local_minima) == 0 || length(local_maxima) == 0) {
+    warning("No local minima or maxima found for alternation checking. Skipping alternation step.")
+  } else {
+    i <- 1
+    while (i <= length(local_minima) && i <= length(local_maxima)) {
+      # Check if indices are still valid
+      if (i > length(local_minima) || i > length(local_maxima)) break
+
+      # Remove maxima that come before their corresponding minima
+      while (i <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] < local_minima[i]) {
+        if (length(local_maxima) < i) break
         local_maxima <- local_maxima[-i] # remove the maximum, it is wrong
         N_removed_min <- N_removed_min + 1
+        if (length(local_maxima) < i) break
       }
-    }
 
-    if (i + 1 <= length(local_minima) && i <= length(local_maxima)) {
-      while (local_maxima[i] > local_minima[i + 1] && i + 1 <= length(local_minima) && i <= length(local_maxima)) {
+      # Remove minima that come after the next maxima
+      while ((i + 1) <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] > local_minima[i + 1]) {
+        if (length(local_minima) < (i + 1)) break
         local_minima <- local_minima[-(i + 1)] # remove the minimum, it is wrong
         N_removed_max <- N_removed_max + 1
+        if (length(local_minima) < (i + 1)) break
       }
+
+      i <- i + 1
     }
   }
 
@@ -138,12 +126,6 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   toeOffs <- data.frame(footData[local_minima, ])
   print(paste("--- ---totalsteps: ", length(heelStrikes$time)))
 
-  # We'd like to look at the derrivative of the offset (how much did it change during this step), so we add it to our dataframe here.
-  heelStrikes$diff_offset_x <- c(NA, diff(heelStrikes$offset_x)) # Change in offset relative to previous heelstrike
-  heelStrikes$diff_offset_z <- c(NA, diff(heelStrikes$offset_z)) # Change in offset relative to previous heelstrike
-  heelStrikes$derrivative_offset_x <- c(NA, diff(heelStrikes$offset_x) / diff(heelStrikes$time)) # Average rate of change in offset from heelstrike
-  heelStrikes$derrivative_offset_z <- c(NA, diff(heelStrikes$offset_z) / diff(heelStrikes$time)) # Average rate of change in offset from heelstrike
-
   # Centered heelstrike locations
   heelStrikes$centered_pos_x <- heelStrikes$pos_x - mean(heelStrikes$pos_x, na.rm = TRUE)
   heelStrikes$centered_pos_z <- heelStrikes$pos_z - mean(heelStrikes$pos_z, na.rm = TRUE)
@@ -152,16 +134,15 @@ detect_foot_events_coordinates <- function(footData, hipData) {
 }
 
 find_foot_events <- function(participant, trialNum) {
-  preprocessedData <- preprocess_data(participant, trialNum)
+  preprocessedData <- get_preprocessed_data(participant, trialNum, c("leftfoot", "rightfoot", "hip"))
 
-  leftFoot <- preprocessedData$leftFoot
-  rightFoot <- preprocessedData$rightFoot
+  leftfoot <- preprocessedData$leftfoot
+  rightfoot <- preprocessedData$rightfoot
   hip <- preprocessedData$hip
-  targetData <- preprocessedData$targetData
 
   # Detect toe-off and heelstrikes
-  footEventsLeft <- detect_foot_events_coordinates(leftFoot, hip)
-  footEventsRight <- detect_foot_events_coordinates(rightFoot, hip)
+  footEventsLeft <- detect_foot_events_coordinates(leftfoot, hip)
+  footEventsRight <- detect_foot_events_coordinates(rightfoot, hip)
 
   # Add a 'foot' column to each event dataframe
   footEventsLeft$heelStrikes$foot <- "Left"
@@ -198,22 +179,6 @@ find_foot_events <- function(participant, trialNum) {
   # Label step numbers. Assuming each heel strike represents a new step
   combinedHeelStrikes$step <- seq_len(nrow(combinedHeelStrikes))
   combinedToeOffs$step <- seq_len(nrow(combinedToeOffs))
-
-  # Check if we stepped onto a target
-  targetData <- targetData[order(targetData$time), ] # make sure we order by time
-  combinedHeelStrikes$target <- FALSE
-  for (i in 2:nrow(combinedHeelStrikes)) {
-    prevStepTime <- combinedHeelStrikes$time[i - 1]
-    stepTime <- combinedHeelStrikes$time[i]
-
-    # Find targets between the current heel strike and the next heel strike (or end of recording)
-    targetsInTime <- targetData[targetData$time > prevStepTime & targetData$time <= stepTime, ]
-
-    # Update the target_stepped_on flag if any targets were found
-    if (nrow(targetsInTime) > 0) {
-      combinedHeelStrikes$target[i] <- TRUE
-    }
-  }
 
   return(list(heelStrikes = combinedHeelStrikes, toeOffs = combinedToeOffs))
 }
@@ -263,20 +228,12 @@ calculate_gait_parameters <- function(participant, trialNum) {
   stepLengths <- relHeelStrikesData$actual_pos_z # Calculate step lengths
   speed <- stepLengths / stepTimes # Calculate speed
 
-  # We ignore the steps onto and away from a target
-  targetSteps <- heelStrikesData$target
-  targetSteps <- targetSteps | lead(heelStrikesData$target, default = FALSE) | lead(heelStrikesData$target, 2, default = FALSE) # add step before
-  targetSteps <- targetSteps | lag(heelStrikesData$target, default = FALSE) | lag(heelStrikesData$target, 2, default = FALSE) | lag(heelStrikesData$target, 3, default = FALSE) # add 3 steps after (until foot is placed back onto new position)
-  heelStrikesData$targetIgnoreSteps <- targetSteps
-
   # Initial outlier detection that doesn't work so well.
-  currentlyIgnoredSteps <- heelStrikesData$targetIgnoreSteps
-  heelStrikesData$outlierSteps <- detect_outliers_modified_z_scores(stepTimes, currentlyIgnoredSteps, 6) # another option: stepTimes > median(stepTimes) * 2 | stepTimes < median(stepTimes) * 0.5
-  currentlyIgnoredSteps <- currentlyIgnoredSteps | heelStrikesData$outlierSteps
+  heelStrikesData$outlierSteps <- detect_outliers_modified_z_scores(stepTimes, threshold = 6) # another option: stepTimes > median(stepTimes) * 2 | stepTimes < median(stepTimes) * 0.5
+  currentlyIgnoredSteps <- heelStrikesData$outlierSteps
   heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(speed, currentlyIgnoredSteps, 6)
   currentlyIgnoredSteps <- currentlyIgnoredSteps | heelStrikesData$outlierSteps
   heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(stepLengths, currentlyIgnoredSteps, 10)
-  heelStrikesData$outlierSteps[heelStrikesData$targetIgnoreSteps] <- FALSE # prevent overlap
 
   # Make a list of all the gait parameters
   gaitParams <- list(
@@ -312,19 +269,6 @@ calculate_gait_parameters <- function(participant, trialNum) {
   })
 
   return(gaitParams)
-}
-
-
-calculate_target_data <- function(participant, trial) {
-  # get the target tracker results
-  targetData <- get_t_data(participant, "steptargets", trial)
-  targetData$rel_x <- targetData$foot_x - targetData$target_x
-  targetData$rel_z <- targetData$foot_z - targetData$target_z
-
-  # calculate total target distance
-  targetData$targetDist <- sqrt(targetData$rel_x^2 + targetData$rel_z^2)
-
-  return(targetData)
 }
 
 refine_heelstrike <- function(footData, local_maxima, local_minima, smoothing_window = 5, change_threshold = 0.05) {

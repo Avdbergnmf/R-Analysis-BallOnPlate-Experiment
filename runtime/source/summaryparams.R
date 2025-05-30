@@ -108,7 +108,7 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
       values_from = value
     )
 
-  mu_full <- merge(allQResults, mu_wide, by = c("participant", "VFD"), all = TRUE)
+  mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
 
   # Create the new column using mutate and sapply
   mu_full <- add_category_columns(mu_full)
@@ -121,35 +121,11 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
 }
 
 
-get_full_mu <- function(allGaitParams, allTargetParams, allQResults, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
-  targetColumnsToAdd <- c("score", "targetDist", "rel_x", "rel_z")
-
+get_full_mu <- function(allGaitParams, allQResults, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
   # Join the columns
   muGait <- summarize_table(allGaitParams, allQResults, c(categories, "heelStrikes.foot"), avg_feet, add_diff) ##### Note that we add heelStrikes.foot here as a category, to make sure we summarize each foot individually
-  muTarget <- summarize_table(allTargetParams, allQResults, categories, FALSE, FALSE)
 
-  # Find columns that partially match the names listed in targetColumnsToAdd
-  matched_columns <- unlist(lapply(targetColumnsToAdd, function(x) grep(x, names(muTarget), value = TRUE)))
-
-  # Select only the columns we are interested in
-  matchByList <- c("participant", "trialNum")
-  muTarget <- muTarget %>% select(all_of(matchByList), all_of(matched_columns))
-
-  if (length(matched_columns) > 0) {
-    muTarget <- muTarget %>% select(all_of(matchByList), all_of(matched_columns))
-
-    # Rename matched columns with the prefix "target."
-    muTarget <- muTarget %>%
-      rename_with(~ paste0("target.", .), all_of(matched_columns))
-  } else {
-    # If no matched columns, select only matchByList columns to avoid errors
-    muTarget <- muTarget %>% select(all_of(matchByList))
-  }
-
-  # Combine the data frames
-  combined_mu <- merge(muGait, muTarget, by = matchByList, all = TRUE)
-
-  return(combined_mu)
+  return(muGait)
 }
 
 ### SUMMARIZE AGAIN AND CALCULATE DIFF, SO WE CAN USE FOR CORRELATIONN PLOT
@@ -232,7 +208,7 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
     ) %>%
     ungroup()
 
-  #data$slice_index <- as.ordered(data$slice_index)
+  # data$slice_index <- as.ordered(data$slice_index)
 
   # Identify which columns to summarize
   dataTypes <- setdiff(getTypes(data), categories)
@@ -270,7 +246,7 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
     )
 
   # Merge with allQResults (similar to summarize_table)
-  mu_full <- merge(allQResults, mu_wide, by = c("participant", "VFD"), all = TRUE)
+  mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
 
   # Add any category columns (if your pipeline expects them)
   mu_full <- add_category_columns(mu_full)
@@ -283,11 +259,8 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
 }
 
 
-get_full_mu_sliced <- function(allGaitParams, allTargetParams, allQResults, categories,
+get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
                                slice_length = 180, avg_feet = TRUE, add_diff = FALSE, remove_middle_slices = FALSE) {
-  # Columns you plan to add from the target data
-  targetColumnsToAdd <- c("score", "targetDist", "rel_x", "rel_z")
-
   # Summarize gait parameters in time slices
   # Note we include heelStrikes.foot in categories so that per-foot summaries are computed if needed
   muGait <- summarize_table_sliced(
@@ -300,47 +273,16 @@ get_full_mu_sliced <- function(allGaitParams, allTargetParams, allQResults, cate
     add_diff = add_diff
   )
 
-  # Summarize target parameters in time slices (usually no foot averaging here)
-  muTarget <- summarize_table_sliced(
-    data         = allTargetParams,
-    allQResults  = allQResults,
-    categories   = categories,
-    slice_length = slice_length,
-    time_col = "time",
-    avg_feet     = FALSE,
-    add_diff     = FALSE
-  )
-
-  # Identify columns that match any of the targetColumnsToAdd patterns
-  matched_columns <- unlist(
-    lapply(targetColumnsToAdd, function(x) grep(x, names(muTarget), value = TRUE))
-  )
-
-  # We'll merge on participant, trialNum, and slice_index
-  matchByList <- c("participant", "trialNum", "slice_index")
-
-  # Select and rename target columns, if present
-  if (length(matched_columns) > 0) {
-    muTarget <- muTarget %>%
-      select(all_of(matchByList), all_of(matched_columns)) %>%
-      rename_with(~ paste0("target.", .), all_of(matched_columns))
-  } else {
-    muTarget <- muTarget %>% select(all_of(matchByList))
-  }
-
-  # Combine gait and target data
-  combined_mu <- merge(muGait, muTarget, by = matchByList, all = TRUE)
-  combined_mu <- filter_incomplete_slices(combined_mu)
 
   if (remove_middle_slices) {
     # remove all but the first and the last slice.
-    combined_mu <- combined_mu %>%
+    muGait <- muGait %>%
       group_by(trialNum) %>%
       filter(slice_index == min(slice_index, na.rm = TRUE) | slice_index == max(slice_index, na.rm = TRUE)) %>%
       ungroup()
   }
 
-  return(combined_mu)
+  return(muGait)
 }
 
 filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever reason another slice might be detected for some of the participants, we filter those out here.
@@ -370,24 +312,9 @@ filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever rea
     # Remove those slices from your data_sliced
     data_sliced <- data_sliced %>%
       anti_join(bad_slices %>% select(trialNum, slice_index),
-                by = c("trialNum", "slice_index"))
+        by = c("trialNum", "slice_index")
+      )
   }
 
   return(data_sliced)
-}
-
-###### To reply to reviewer
-
-calcVFDdiff <- function(data, col) {
-  result <- data %>%
-    group_by(participant, VFD) %>%
-    summarise(mean_val = mean(.data[[col]], na.rm = TRUE), .groups = "drop") %>%
-    pivot_wider(names_from = VFD, 
-                values_from = mean_val, 
-                names_prefix = "VFD_") %>%
-    mutate(diff = VFD_TRUE - VFD_FALSE,
-           startingCondition = sapply(participant, started_with_noise))
-  
-  result %>% summarise(mean_diff = mean(diff, na.rm = TRUE), sd_diff = sd(diff, na.rm = TRUE)) %>% with(cat(sprintf("Mean diff: %.5f, SD: %.5f\n", mean_diff, sd_diff)))
-  return(result)
 }

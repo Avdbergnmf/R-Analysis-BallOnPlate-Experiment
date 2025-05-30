@@ -1,12 +1,12 @@
 ####### DEFINITIONS
 
-allTrials <- c(1, 2, 3, 4, 5, 6) # VFD conditions
+allTrials <- c(1, 2, 5, 7, 8, 9, 10)
 # Getting types for later use
 xOptions <- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
 xOptions2D <- colnames(get_t_data(participants[1], "leftfoot", 1)) # options for pos rot trackers
-categories <- c("participant", "VFD", "trialNum") #  "heelStrikes.foot"
+categories <- c("participant", "condition", "trialNum") #  "heelStrikes.foot"
 # categoriesInputs <- append(categories, "None")
-columns_to_not_summarize <- c("practice", "startedWithNoise", "conditionNumber", "trialNumWithoutPractice", "trialNumWithinCondition", "noticed") # these are categorical columns we may want to use for our statistics but we dont want to summarize in our mu table
+columns_to_not_summarize <- c("visualizations", "perturbations") # these are categorical columns we may want to use for our statistics but we dont want to summarize in our mu table
 categoriesExtra <- c(categories, columns_to_not_summarize)
 categoriesExtraInputs <- append(categoriesExtra, c("heelStrikes.foot", "slice_index", "None"))
 
@@ -45,18 +45,12 @@ add_category_columns <- function(data) {
   participant <- as.character(data$participant)
 
   # Add categorical columns
-  data$VFD <- as.factor(mapply(has_vfd, participant, trial))
-  data$practice <- as.factor(mapply(is_practice, participant, trial))
-  data$startedWithNoise <- as.factor(sapply(participant, started_with_noise))
-  data$noticed <- as.factor(sapply(participant, noticed_vfd))
-
-  # Add demographic columns
+  data$perturbations <- as.factor(mapply(has_perturbations, participant, trial))
+  data$visualizations <- as.factor(mapply(has_visualizations, participant, trial))
+  data$task <- as.factor(mapply(has_task, participant, trial))
   data$treadmillSpeed <- as.numeric(mapply(get_move_speed, participant))
 
-  # numerical categories
-  data$conditionNumber <- as.ordered(c(1, 1, 1, 2, 2, 2)[trial])
-  data$trialNumWithinCondition <- as.ordered(c(0, 1, 2, 0, 1, 2)[trial]) # outputs T1 & T4 as T0, T2 and T5 as T1, and T2 and T6 as T2
-  data$trialNumWithoutPractice <- as.ordered(c(0, 1, 2, 0, 3, 4)[trial]) # outputs T1 & T4 as T0, T2 as T1, T3 as T2, T5 as T3, and T6 as T4
+  data$condition <- as.factor(sapply(participant, condition_number))
 
   return(data)
 }
@@ -144,9 +138,5 @@ get_data_from_loop <- function(get_data_function, ...) {
 
 
 calc_all_gait_params <- function() {
-  return(get_data_from_loop_parallel(calculate_gait_parameters))
-}
-
-calc_all_target_params <- function() {
-  return(get_data_from_loop(calculate_target_data))
+  return(get_data_from_loop(calculate_gait_parameters)) # _parallel
 }

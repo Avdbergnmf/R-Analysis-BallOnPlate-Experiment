@@ -6,62 +6,71 @@ adjust_times <- function(dataset, minTime, maxTime = 180) { # make sure we start
   return(dataset)
 }
 
-preprocess_data <- function(participant, trialNum) {
-  leftFoot <- get_t_data(participant, "leftfoot", trialNum)
-  rightFoot <- get_t_data(participant, "rightfoot", trialNum)
-  hip <- get_t_data(participant, "hip", trialNum)
-
-  # Rotate the data if needed (rotate data around y axis to align with treadmill direction)
+get_rotations_data <- function() {
   rotations_file <- "./data_extra/rotations_kinematic_data.csv" # manually created file with participant, trial, and rotation (in degrees)
+  rotations <- c()
   if (file.exists(rotations_file)) {
-    rotations_data <- read.csv(rotations_file)
-    # Look for rotation for this specific trial
-    rotation <- rotations_data[rotations_data$participant == participant & rotations_data$trial == trialNum, "rotation"]
-    if (length(rotation) == 0) { # If not found, look for any rotation for this participant
-      rotation <- rotations_data[rotations_data$participant == participant, "rotation"]
-    }
+    rotations <- read.csv(rotations_file)
+  }
+  return(rotations)
+}
 
-    if (length(rotation) > 0) { # If rotation is found, apply it
-      rotation <- rotation[1] # Take the first rotation if multiple are found
-      leftFoot <- rotate_y(leftFoot, rotation)
-      rightFoot <- rotate_y(rightFoot, rotation)
-      hip <- rotate_y(hip, rotation)
-    }
+rotations_data <- get_rotations_data() # just load once
+
+load_rotations <- function(participant, trialNum) {
+  if (is.null(rotations_data)) {
+    rotations_data <- get_rotations_data()
   }
 
-  targetData <- get_t_data(participant, "steptargets", trialNum)
-  leftDisturbance <- get_t_data(participant, "leftdisturbance", trialNum)
-  rightDisturbance <- get_t_data(participant, "rightdisturbance", trialNum)
-  rightFoot <- calc_final_pos(rightFoot, rightDisturbance)
-  leftFoot <- calc_final_pos(leftFoot, leftDisturbance)
-  minTime <- leftFoot$time[1] # get_p_results(participant,"start_time",trialNum)
+  if (length(rotations_data) == 0) {
+    return(c())
+  }
 
-  moveSpeed <- get_move_speed(participant)
-  maxTime <- ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
-  leftFoot <- adjust_times(leftFoot, minTime, maxTime)
-  leftFoot$actual_pos_z <- leftFoot$pos_z + moveSpeed * leftFoot$time
-  rightFoot <- adjust_times(rightFoot, minTime, maxTime)
-  rightFoot$actual_pos_z <- rightFoot$pos_z + moveSpeed * rightFoot$time
+  rotations <- rotations_data[rotations_data$participant == participant & rotations_data$trial == trialNum, "rotation"]
 
-  data <- list(
-    leftFoot = leftFoot,
-    rightFoot = rightFoot,
-    leftDisturbance = adjust_times(leftDisturbance, minTime, maxTime),
-    rightDisturbance = adjust_times(rightDisturbance, minTime, maxTime),
-    hip = adjust_times(hip, minTime, maxTime),
-    targetData = adjust_times(targetData, minTime, maxTime)
-  )
+  if (length(rotations) == 0) { # If not found, look for any rotation for this participant
+    rotations <- rotations_data[rotations_data$participant == participant, "rotation"]
+  }
+  return(rotations)
+}
+
+preprocess_data <- function(participant, trialNum, dataName) {
+  data <- get_t_data(participant, dataName, trialNum)
+
+  minTime <- data$time[1] # get_p_results(participant,"start_time",trialNum)
+  maxTime <- data$time[length(data$time)] # ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
+  data <- adjust_times(data, minTime, maxTime)
+
+  if ("pos_z" %in% names(data)) {
+    rotation <- load_rotations(participant, trialNum)
+    if (length(rotation) > 0) { # If rotation is found, apply it
+      rotation <- rotation[1] # Take the first rotation if multiple are found
+      data <- rotate_y(data, rotation)
+    }
+    moveSpeed <- get_move_speed(participant)
+    data$actual_pos_z <- data$pos_z + moveSpeed * data$time
+  }
 
   return(data)
 }
 
-rotate_preprocessed_data <- function(data, rotation) {
-  # Apply the rotation to each dataset in the list
-  data$leftFoot <- rotate_y(data$leftFoot, rotation)
-  data$rightFoot <- rotate_y(data$rightFoot, rotation)
-  data$hip <- rotate_y(data$hip, rotation)
-  return(data)
+get_preprocessed_data <- function(participant, trialNum, dataList = c("leftfoot", "rightfoot", "hip")) {
+  result <- list()
+  for (dataName in dataList) {
+    # Use a more descriptive name for each element in the list
+    # e.g., "leftFoot", "rightFoot", "hip", etc.
+    result[[dataName]] <- preprocess_data(participant, trialNum, dataName)
+  }
+  return(result)
 }
+
+# rotate_preprocessed_data <- function(data, rotation) {
+# Apply the rotation to each dataset in the list
+#  data$leftFoot <- rotate_y(data$leftFoot, rotation)
+#  data$rightFoot <- rotate_y(data$rightFoot, rotation)
+#  data$hip <- rotate_y(data$hip, rotation)
+#  return(data)
+# }
 
 # one of the datasets has a wrong rotation in some of the trials, we correct that with this function.
 rotate_y <- function(data, theta_deg) { # THETA IN DEGREES!

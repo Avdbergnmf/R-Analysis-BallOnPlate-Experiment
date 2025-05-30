@@ -2,6 +2,7 @@
 dataFolder <- "data"
 dataExtraFolder <- "data_extra"
 questionnaireInfoFolder <- "questionnaires"
+qAnswers <- c("baseline", "training", "retention", "transfer") # the column names of the different questionnaire answers
 
 participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
 trackerPath <- file.path(file.path(dataFolder, participants[1]), "trackers")
@@ -72,7 +73,6 @@ calculate_participant_details <- function(participants) {
   details$vr_experience <- sapply(participants, get_p_detail, detail = "vr_experience")
   details$motion <- sapply(participants, get_p_detail, detail = "motion")
   details$move_speed <- sapply(participants, get_move_speed)
-  details$condition <- sapply(participants, get_p_detail, detail = "condition")
 
   # Calculate statistics for age
   age_stats <- calculate_stats(details$age)
@@ -94,7 +94,6 @@ calculate_participant_details <- function(participants) {
   education_counts <- table(details$education)
   vr_experience_counts <- table(details$vr_experience)
   motion_counts <- table(details$motion)
-  condition_counts <- table(details$condition)
 
   # Create a result data frame
   result <- data.frame(
@@ -105,8 +104,7 @@ calculate_participant_details <- function(participants) {
       rep("Gender", length(gender_counts)),
       rep("Education", length(education_counts)),
       rep("VR Experience", length(vr_experience_counts)),
-      rep("Motion", length(motion_counts)),
-      rep("Condition", length(condition_counts))
+      rep("Motion", length(motion_counts))
     ),
     Value = c(
       age_mean_sd, age_median_min_max_iqr,
@@ -115,8 +113,7 @@ calculate_participant_details <- function(participants) {
       as.vector(gender_counts),
       as.vector(education_counts),
       as.vector(vr_experience_counts),
-      as.vector(motion_counts),
-      as.vector(condition_counts)
+      as.vector(motion_counts)
     )
   )
 
@@ -126,27 +123,37 @@ calculate_participant_details <- function(participants) {
     names(gender_counts),
     names(education_counts),
     names(vr_experience_counts),
-    names(motion_counts),
-    names(condition_counts)
+    names(motion_counts)
   )
 
   return(result)
 }
 
-# If true, the participant started with noise VFD enabled, otherwise without it enabled
-started_with_noise <- function(participant) {
-  return(get_p_results(participant, "noise_enabled", 2) == "True")
-}
-
-
-# is it a practice trial
-is_practice <- function(participant, trial) {
-  return(get_p_results(participant, "practice", trial) == "True")
-}
-
 # does the trial have VFD
-has_vfd <- function(participant, trial) {
-  return(get_p_results(participant, "noise_enabled", trial) == "True")
+has_perturbations <- function(participant, trial) {
+  return(get_p_results(participant, "perturbations", trial) == "True")
+}
+
+has_visualizations <- function(participant, trial) {
+  return(get_p_results(participant, "visualizations", trial) == "True")
+}
+
+has_task <- function(participant, trial) {
+  return(get_p_results(participant, "task", trial) == "True")
+}
+
+condition_number <- function(participant) {
+  # check what state the training was in
+  p <- has_perturbations(participant, 7)
+  v <- has_visualizations(participant, 7)
+
+  if (p && v) {
+    return(3) # vis and pert
+  }
+  if (p) {
+    return(2) # pert
+  }
+  return(1) # neither
 }
 
 # get any type of data
@@ -194,8 +201,8 @@ get_q_data <- function(participant, qType) {
   # Read the CSV file into a data frame
   questionnaire <- read.csv(questionnaireFile)
 
-  # Extract the QuestionID and the two answer columns
-  result <- questionnaire[, c("QuestionID", "Answer_Participant__condition_Base", "Answer_Participant__condition_Noise")]
+  # Extract the QuestionID and answer columns
+  result <- questionnaire[, c("QuestionID", qAnswers)]
 
   return(result)
 }
@@ -207,7 +214,7 @@ get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ
   return(questionnaire)
 }
 
-get_question_weights <- function(qType) { # qType = IMI / SSQ / VEQ
+get_question_weights <- function(qType) { # qType = IMI / UserExperience
   qpath <- file.path(questionnaireInfoFolder, paste0(qType, "_weights.csv"))
   # Read the CSV file into a data frame
   questionnaire <- read.csv(qpath)

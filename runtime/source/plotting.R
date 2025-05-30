@@ -26,11 +26,11 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
   filteredGaitParams <- filteredGaitParams[filteredGaitParams$participant == participant & filteredGaitParams$trialNum == trialNum, ]
 
   if (is.null(preprocessedData)) {
-    preprocessedData <- preprocess_data(participant, trialNum)
+    preprocessedData <- get_preprocessed_data(participant, trialNum)
   }
 
-  rightData <- preprocessedData$rightFoot
-  leftData <- preprocessedData$leftFoot
+  rightData <- preprocessedData$rightfoot
+  leftData <- preprocessedData$leftfoot
 
   if (doFilter) {
     numeric_columns <- sapply(rightData, is.numeric) # Identify numeric columns
@@ -138,11 +138,17 @@ add_lines <- function(p, footEvents, rightData, leftData, start, end, x_axis = "
 plot_steps_with_overlay <- function(data, selected_participant, selected_trialNum, axis_to_plot, doFilter, alpha = 0.15, show_legend = FALSE, extraTitle = "", baseSize = 10) {
   p <- plot_steps(data, selected_participant, selected_trialNum, "time", axis_to_plot, doFilter, show_legend, extraTitle, baseSize)
 
-  VFD <- get_p_results(selected_participant, "noise_enabled", selected_trialNum)
-  if (VFD) {
-    color <- "green"
+  condition <- condition_number(selected_participant)
+
+  # Assign colors based on condition instead of VFD
+  if (condition == 1) {
+    color <- "yellow" # neither condition
+  } else if (condition == 2) {
+    color <- "green" # perturbations only
+  } else if (condition == 3) {
+    color <- "blue" # visualizations + perturbations
   } else {
-    color <- "yellow"
+    color <- "gray" # fallback
   }
 
   # Add a semi-transparent square (replace xmin, xmax, ymin, ymax with your desired coordinates)
@@ -190,34 +196,30 @@ plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", 
 
 plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize = 10) {
   data <- filter_questionnaire_results(data, qType)
+
   # Only keep the columns to include in the plot
   if (length(cols_to_include) == 0) {
-    cols_to_include <- setdiff(colnames(data), c("participant", "VFD", "none")) # just take all of them, except for participant and VFD (condition) - Also removing the none scale because in that case we are just interested in the total.
+    cols_to_include <- setdiff(colnames(data), c("participant", "answer_type", "condition", "none"))
   }
-  data <- data[, c("participant", "VFD", cols_to_include), drop = FALSE]
+  data <- data[, c("participant", "answer_type", "condition", cols_to_include), drop = FALSE]
 
   # Reshape the data to long format for ggplot
-  data_long <- reshape2::melt(data, id.vars = c("participant", "VFD"))
+  data_long <- reshape2::melt(data, id.vars = c("participant", "answer_type", "condition"))
 
   qweights <- get_question_weights(qType)
   min_plot <- if ("min_plot" %in% qweights$category) qweights[qweights$category == "min_plot", "weight"] else NULL
   max_plot <- if ("max_plot" %in% qweights$category) qweights[qweights$category == "max_plot", "weight"] else NULL
 
-  # Create the plot for each column to include
-  p <- ggpaired(
-    data = data_long,
-    x = "VFD",
-    y = "value",
-    id = "participant",
-    color = "VFD",
-    line.color = "gray",
-    line.size = 0.4
-  ) +
+  # Create the plot showing changes across phases, colored by condition
+  p <- ggplot(data_long, aes(x = answer_type, y = value, group = participant, color = factor(condition))) +
+    geom_line(alpha = 0.6, size = 0.4) +
+    geom_point(alpha = 0.8, size = 1) +
     facet_wrap(~variable, scales = "free", ncol = length(cols_to_include)) +
-    labs(x = "VFD", y = "Score") +
-    ggtitle(paste0(qType, " Scores")) +
+    labs(x = "Phase", y = "Score", color = "Condition") +
+    ggtitle(paste0(qType, " Scores Across Phases")) +
     theme(plot.title = element_text(hjust = 0.5)) +
-    get_sized_theme(baseSize) # theme_minimal(base_size = baseSize)
+    get_sized_theme(baseSize) +
+    scale_color_viridis_d()
 
   # Conditionally add y-axis limits if min_plot and max_plot are provided
   if (!is.null(min_plot) && !is.null(max_plot)) {
@@ -259,7 +261,7 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
   return(p)
 }
 
-plot_boxplots <- function(mu, datatype, xaxis = c("VFD"), color_var = NULL, shape_var = NULL, baseSize = 10) {
+plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL, shape_var = NULL, baseSize = 10) {
   # Reshape data to long format for ggplot
   data_long <- mu %>%
     pivot_longer(
@@ -348,15 +350,14 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
 make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize = 10) {
   # new marking
-  targetIgnoreSteps <- length(data[data$heelStrikes.targetIgnoreSteps == TRUE, ]$VFD)
-  outlierSteps <- length(data[data$heelStrikes.outlierSteps == TRUE, ]$VFD)
-  included <- length(data[data$heelStrikes.targetIgnoreSteps == FALSE & data$heelStrikes.outlierSteps == FALSE, ]$VFD) # non filtered out
-  total_steps <- length(data$VFD)
+  outlierSteps <- length(data[data$heelStrikes.outlierSteps == TRUE, ]$condition)
+  included <- length(data[data$heelStrikes.outlierSteps == FALSE, ]$condition) # non filtered out
+  total_steps <- length(data$condition)
 
   # Create a data frame for ggplot
   df_filtered <- data.frame(
-    StepType = factor(c("Target Ignore", "Outlier", "Included")),
-    TotalCount = c(targetIgnoreSteps, outlierSteps, included)
+    StepType = factor(c("Outlier", "Included")),
+    TotalCount = c(outlierSteps, included)
   )
 
   # Calculate label positions for the pie chart
@@ -408,26 +409,6 @@ circleFun <- function(center = c(0, 0), r = 1, npoints = 100) {
   xx <- center[1] + r * cos(tt)
   yy <- center[2] + r * sin(tt)
   return(data.frame(x = xx, y = yy))
-}
-
-make_target_steps_plot <- function(targetData, show_legend = TRUE, baseSize = 10) {
-  circle <- circleFun(c(0, 0), 0.3, 100)
-  axesLims <- 0.3
-  p <- ggplot() +
-    geom_path(data = circle, aes(x = x, y = y), color = "black") +
-    geom_point(data = targetData, aes(x = rel_x, y = rel_z, col = VFD), fill = rgb(0, 0, 0, 0.2), shape = 21, size = 5) +
-    xlim(-axesLims, axesLims) +
-    ylim(-axesLims, axesLims) +
-    theme_minimal(base_size = baseSize)
-  p <- p + get_proper_legend(show_legend)
-
-  p <- p + coord_equal() +
-    labs(title = "Center Foot Relative to Target Center", x = "x", y = "z")
-
-  # Add marginal density plots
-  p <- ggExtra::ggMarginal(p, type = "density", margins = "both", groupColour = TRUE, groupFill = TRUE)
-
-  return(p)
 }
 
 
