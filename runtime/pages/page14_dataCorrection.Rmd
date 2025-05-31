@@ -20,7 +20,7 @@ checkboxInput("d_correction_15", "Show data correction",
 selectizeInput("participant_15", "participant",
   choices = participants, selected = participants[1], multiple = FALSE)
 selectizeInput("trialNum_15", "Trial Number",
-  choices = trialNumbers, selected = trialNumbers[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+  choices = allTrials, selected = allTrials[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
 
 selectizeInput("xplot_15", "xplot",
   choices = xOptions, selected = "time", multiple = FALSE)
@@ -136,10 +136,17 @@ output$rotationTable <- renderTable({
 
 output$FeetTraj_15 <- renderPlotly({
   tnum <- as.numeric(input$trialNum_15)
-  preprocessedData <- preprocess_data(input$participant_15, tnum) 
+  preprocessedData <- get_preprocessed_data(input$participant_15, tnum) 
   rotation <- getRotation(input$participant_15, tnum)
+  
   if (input$d_correction_15) {
-    preprocessedData <- rotate_preprocessed_data(preprocessedData, rotation)
+    # Apply rotation to each dataset in the preprocessed data
+    for (dataName in names(preprocessedData)) {
+      # Only rotate if the data contains kinematic columns
+      if (is_kinematic_data(preprocessedData[[dataName]])) {
+        preprocessedData[[dataName]] <- rotate_y(preprocessedData[[dataName]], rotation)
+      }
+    }
   }
 
   # Create the base ggplot

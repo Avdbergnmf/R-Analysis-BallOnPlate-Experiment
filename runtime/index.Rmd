@@ -108,3 +108,48 @@ Scatterplots
 ```{r, child='pages/page6_scatterplots.Rmd'}
 ```
 
+Scatterplots TrialData
+=====================================
+```{r, child='pages/page7_trialScatterplots.Rmd'}
+```
+
+Questionnaires 
+=====================================
+```{r, child='pages/page8_questionnaires.Rmd'}
+```
+
+Boxplots 
+=====================================
+```{r, child='pages/page9_boxplots.Rmd'}
+```
+
+Statistics {data-icon="fa-chart-bar"}
+=====================================
+```{r, child='pages/page10_statistics.Rmd'}
+```
+
+Correlations {data-icon="fa-chart-line"}
+=====================================
+```{r, child='pages/page11_correlations.Rmd'}
+```
+
+Participant Summary {data-icon="fa-id-card-clip"}
+=====================================
+```{r, child='pages/page12_participantSummary.Rmd'}
+```
+
+Data Table {data-icon="fa-table"}
+=====================================
+```{r, child='pages/page13_table.Rmd'}
+```
+
+Y-Rotation Correction
+=====================================
+```{r, child='pages/page14_dataCorrection.Rmd'}
+```
+
+Manual Outlier Filtering
+=====================================
+```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
+```
+

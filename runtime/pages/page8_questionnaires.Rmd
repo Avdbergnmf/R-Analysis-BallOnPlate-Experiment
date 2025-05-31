@@ -1,8 +1,7 @@
 ### Options
 
 ```{r}
-questionnaireList <- c("VEQ", "SSQ", "IMI")
-selectizeInput("plotQ", "Plot Questionnaire", choices = questionnaireList, selected = questionnaireList[1], multiple = FALSE)
+selectizeInput("plotQ", "Plot Questionnaire", choices = qTypes, selected = qTypes[1], multiple = FALSE)
 ```
 
 Column

@@ -41,7 +41,7 @@ preprocess_data <- function(participant, trialNum, dataName) {
   maxTime <- data$time[length(data$time)] # ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
   data <- adjust_times(data, minTime, maxTime)
 
-  if ("pos_z" %in% names(data)) {
+  if (is_kinematic_data(data)) {
     rotation <- load_rotations(participant, trialNum)
     if (length(rotation) > 0) { # If rotation is found, apply it
       rotation <- rotation[1] # Take the first rotation if multiple are found
@@ -71,6 +71,15 @@ get_preprocessed_data <- function(participant, trialNum, dataList = c("leftfoot"
 #  data$hip <- rotate_y(data$hip, rotation)
 #  return(data)
 # }
+
+# Check if data contains kinematic columns that can be rotated
+is_kinematic_data <- function(data) {
+  # Check if the data has the required position columns for rotation
+  required_pos_cols <- c("pos_x", "pos_y", "pos_z")
+  has_position_data <- all(required_pos_cols %in% colnames(data))
+
+  return(has_position_data)
+}
 
 # one of the datasets has a wrong rotation in some of the trials, we correct that with this function.
 rotate_y <- function(data, theta_deg) { # THETA IN DEGREES!

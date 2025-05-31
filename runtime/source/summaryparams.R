@@ -131,70 +131,50 @@ get_full_mu <- function(allGaitParams, allQResults, categories, avg_feet = TRUE,
 ### SUMMARIZE AGAIN AND CALCULATE DIFF, SO WE CAN USE FOR CORRELATIONN PLOT
 
 summarize_across_conditions <- function(data) {
-  # Filter for the relevant trial numbers
-  data <- data %>%
-    dplyr::filter(trialNum %in% c(2, 3, 5, 6))
-
-  # Add condition column based on trial numbers
-  data <- data %>%
-    mutate(condition = case_when(
-      trialNum %in% c(2, 3) ~ "condition_1",
-      trialNum %in% c(5, 6) ~ "condition_2"
-    ))
-
-  # Check if 'heelStrikes.foot' exists in the data
-  if ("heelStrikes.foot" %in% colnames(data)) {
-    # Group by participant, VFD, startedWithNoise, condition, and heelStrikes.foot
-    summarized_data <- data %>%
-      group_by(participant, VFD, startedWithNoise, condition, heelStrikes.foot) %>%
-      summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+  # Check if this is questionnaire data (has answer_type) or gait data
+  if ("answer_type" %in% colnames(data)) {
+    # This is questionnaire data - group by answer_type and condition
+    if ("heelStrikes.foot" %in% colnames(data)) {
+      # Group by participant, answer_type, condition, and heelStrikes.foot
+      summarized_data <- data %>%
+        group_by(participant, answer_type, condition, heelStrikes.foot) %>%
+        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+    } else {
+      # Group by participant, answer_type, and condition only
+      summarized_data <- data %>%
+        group_by(participant, answer_type, condition) %>%
+        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+    }
   } else {
-    # Group by participant, VFD, startedWithNoise, and condition only
-    summarized_data <- data %>%
-      group_by(participant, VFD, startedWithNoise, condition) %>%
-      summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+    # This is gait data - use original logic but adapt for new structure
+    # Filter for the relevant trial numbers if trialNum exists
+    if ("trialNum" %in% colnames(data)) {
+      data <- data %>%
+        dplyr::filter(trialNum %in% c(2, 3, 5, 6))
+
+      # Add condition column based on trial numbers
+      data <- data %>%
+        mutate(trial_condition = case_when(
+          trialNum %in% c(2, 3) ~ "condition_1",
+          trialNum %in% c(5, 6) ~ "condition_2"
+        ))
+    }
+
+    # Check if 'heelStrikes.foot' exists in the data
+    if ("heelStrikes.foot" %in% colnames(data)) {
+      # Group by participant, condition, and heelStrikes.foot
+      summarized_data <- data %>%
+        group_by(participant, condition, heelStrikes.foot) %>%
+        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+    } else {
+      # Group by participant and condition only
+      summarized_data <- data %>%
+        group_by(participant, condition) %>%
+        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+    }
   }
 
   return(summarized_data)
-}
-
-
-calculate_vfd_difference <- function(data) {
-  # Split the data into VFD==TRUE and VFD==FALSE
-  vfd_true <- data %>% dplyr::filter(VFD == TRUE)
-  vfd_false <- data %>% dplyr::filter(VFD == FALSE)
-
-  if (nrow(vfd_true) == 0 || nrow(vfd_false) == 0 || nrow(vfd_false) != nrow(vfd_true)) {
-    print("Can't calculate VFD differences when filtering based on VFD!!!")
-    return(data)
-  }
-
-  # Ensure the columns are aligned for subtraction
-  vfd_true <- vfd_true %>% dplyr::select(-VFD)
-  vfd_false <- vfd_false %>% dplyr::select(-VFD)
-
-  # Calculate the difference between VFD==TRUE and VFD==FALSE for each numeric column
-  difference_data <- vfd_true %>%
-    mutate(across(where(is.numeric), ~ . - vfd_false[[cur_column()]], .names = "diff_{.col}"))
-
-  # Calculate the mean of VFD==TRUE and VFD==FALSE for each numeric column
-  mean_data <- vfd_true %>%
-    mutate(across(where(is.numeric), ~ (. + vfd_false[[cur_column()]]) / 2, .names = "mean_{.col}"))
-
-  # Combine the difference and mean data
-  if ("condition" %in% colnames(difference_data) && "condition" %in% colnames(mean_data)) {
-    final_data <- difference_data %>%
-      left_join(mean_data %>% select(participant, condition, starts_with("mean_")), by = c("participant", "condition"))
-    # Select relevant columns for the final output
-    final_output <- final_data %>%
-      select(participant, condition, starts_with("diff_"), starts_with("mean_"))
-  } else {
-    final_data <- difference_data %>% left_join(mean_data %>% select(participant, starts_with("mean_")), by = c("participant"))
-    final_output <- final_data %>%
-      select(participant, starts_with("diff_"), starts_with("mean_"))
-  }
-
-  return(final_output)
 }
 
 ############ Added later to answer question of reviewer
@@ -292,7 +272,7 @@ filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever rea
     summarise(n_rows = n(), .groups = "drop")
 
   # For each trial, find the maximum number of rows among all slices
-  # and compare each slice’s n_rows to that maximum.
+  # and compare each slice's n_rows to that maximum.
   slice_counts <- slice_counts %>%
     group_by(trialNum) %>%
     mutate(max_n_rows_in_trial = max(n_rows)) %>%
@@ -304,7 +284,7 @@ filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever rea
   bad_slices <- slice_counts %>%
     filter(ratio_of_max < 1)
 
-  # If there are any “bad” slices, print them and remove them
+  # If there are any "bad" slices, print them and remove them
   if (nrow(bad_slices) > 0) {
     message("Debug: The following trialNum/slice_index combos have fewer rows than the max for that trial; removing them now:")
     print(bad_slices)
@@ -317,4 +297,81 @@ filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever rea
   }
 
   return(data_sliced)
+}
+
+###### To reply to reviewer
+
+calculate_phase_differences <- function(data) {
+  # Calculate differences between specific phases for questionnaire data
+  # This function creates difference variables comparing phases (e.g., training - baseline)
+
+  if (!"answer_type" %in% colnames(data)) {
+    warning("answer_type column not found - returning data unchanged")
+    return(data)
+  }
+
+  # Split data by phase
+  phases <- unique(data$answer_type)
+
+  # Check if we have baseline as a reference
+  if (!"baseline" %in% phases) {
+    warning("No baseline phase found - returning data unchanged")
+    return(data)
+  }
+
+  # Get baseline data
+  baseline_data <- data %>% dplyr::filter(answer_type == "baseline")
+
+  # Initialize result list
+  diff_results <- list()
+
+  # Calculate differences for each non-baseline phase
+  for (phase in setdiff(phases, "baseline")) {
+    phase_data <- data %>% dplyr::filter(answer_type == !!phase)
+
+    # Check if both datasets have the same participants
+    common_participants <- intersect(baseline_data$participant, phase_data$participant)
+
+    if (length(common_participants) == 0) {
+      next
+    }
+
+    # Filter to common participants and align
+    baseline_subset <- baseline_data %>%
+      dplyr::filter(participant %in% common_participants) %>%
+      dplyr::arrange(participant)
+
+    phase_subset <- phase_data %>%
+      dplyr::filter(participant %in% common_participants) %>%
+      dplyr::arrange(participant)
+
+    # Calculate differences for numeric columns
+    numeric_cols <- names(phase_subset)[sapply(phase_subset, is.numeric)]
+
+    if (length(numeric_cols) > 0) {
+      diff_data <- phase_subset %>%
+        dplyr::select(participant, condition) %>%
+        dplyr::mutate(comparison = paste0(phase, "_vs_baseline"))
+
+      # Add difference columns
+      for (col in numeric_cols) {
+        diff_col_name <- paste0("diff_", col)
+        mean_col_name <- paste0("mean_", col)
+
+        diff_data[[diff_col_name]] <- phase_subset[[col]] - baseline_subset[[col]]
+        diff_data[[mean_col_name]] <- (phase_subset[[col]] + baseline_subset[[col]]) / 2
+      }
+
+      diff_results[[phase]] <- diff_data
+    }
+  }
+
+  # Combine all difference results
+  if (length(diff_results) > 0) {
+    final_result <- do.call(rbind, diff_results)
+    return(final_result)
+  } else {
+    warning("No phase differences could be calculated")
+    return(data)
+  }
 }

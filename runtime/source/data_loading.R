@@ -2,6 +2,7 @@
 dataFolder <- "data"
 dataExtraFolder <- "data_extra"
 questionnaireInfoFolder <- "questionnaires"
+qTypes <- c("IMI", "UserExperience")
 qAnswers <- c("baseline", "training", "retention", "transfer") # the column names of the different questionnaire answers
 
 participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)

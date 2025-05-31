@@ -4,7 +4,7 @@
 selectizeInput("participant", "participant",
   choices = participants, selected = participants[1], multiple = FALSE)
 selectizeInput("trialNum", "Trial Number",
-  choices = trialNumbers, selected = trialNumbers[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+  choices = allTrials, selected = allTrials[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
 selectizeInput("xplot_16", "xplot",
   choices = xOptions, selected = "time", multiple = FALSE)#xOptions[2]
 selectizeInput("yplot_16", "yplot",
@@ -174,72 +174,6 @@ observeEvent(event_data("plotly_relayout"), {
   }
 })
 
-# Render the interactive plot
-output$manualOutlierPlot <- renderPlotly({
-  # Use the refresh button as a trigger
-  refresh_trigger()
-
-  # Get the current participant and trial from the sidebar inputs
-  current_participant <- input$participant
-  current_trial <- as.numeric(input$trialNum)
-  
-  # Create the base ggplot
-  p <- plot_steps(
-    filteredParams(), current_participant, current_trial,
-    input$xplot_16, input$yplot_16, input$filter, 
-    baseSize = input$baseSize
-  )
-
-  # Isolate the current_outliers to prevent automatic reactivity
-  isolate({
-    req(filteredParams())
-    
-    # Get the current data for this participant and trial
-    current_data <- filteredParams() %>%
-      filter(participant == current_participant & trialNum == current_trial)
-    
-    # Get current outliers
-    current_outliers_data <- current_outliers()
-    
-    # Identify matching heelstrikes in the current data
-    if (nrow(current_outliers_data) > 0) {
-      matching_heelstrikes <- current_data %>%
-        mutate(is_outlier = sapply(heelStrikes.time, function(t) {
-          any(abs(current_outliers_data$heelStrikes.time - t) <= input$outlier_threshold)
-        }))
-    } else {
-      matching_heelstrikes <- current_data %>%
-        mutate(is_outlier = FALSE)
-    }
-    
-    # Add a layer to highlight the outliers
-    p <- p + geom_point(data = matching_heelstrikes %>% filter(is_outlier), 
-                        aes(x = .data[[paste0("heelStrikes.", input$xplot_16)]],
-                            y = .data[[paste0("heelStrikes.", input$yplot_16)]]),
-                        color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
-    
-    # Convert to plotly, ensuring only `geom_point` layers are selectable
-    p <- ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
-      style(
-        hoverinfo = "none",
-        traces = which(sapply(.$x$data, function(d) d$type) == "scatter" & sapply(.$x$data, function(d) d$mode) == "lines")
-      ) %>%
-      layout(
-        dragmode = "pan",
-        xaxis = list(
-          range = axis_limits$x,
-          tickmode = "linear",
-          dtick = 1, # Set tick interval to 1 second
-          tick0 = 0  # Start ticks at 0
-        ),
-        yaxis = list(range = axis_limits$y)
-      ) %>%
-      event_register("plotly_click") %>% event_register("plotly_selected")
-    
-    return(p)
-  })
-})
-
 # Update selected outliers based on plot clicks
 observeEvent(event_data("plotly_click"), {
   click_data <- event_data("plotly_click")
@@ -267,29 +201,15 @@ observeEvent(event_data("plotly_click"), {
                abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold)
       
       if (nrow(existing_outlier) > 0) {
-        # Show confirmation dialog for removing outlier
-        showModal(modalDialog(
-          title = "Confirm Outlier Removal",
-          "Are you sure you want to remove this outlier?",
-          footer = tagList(
-            modalButton("Cancel"),
-            actionButton("confirmRemove", "Remove")
-          )
-        ))
-        
-        # If confirmed, remove the outlier
-        observeEvent(input$confirmRemove, {
-          updated_outliers <- current_outliers %>%
-            filter(!(participant == closest_step$participant &
-                     trialNum == closest_step$trialNum &
-                     abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold))
-          selected_outliers(updated_outliers)
-          removeModal()
-          showNotification("Outlier removed", type = "message")
-          refresh_trigger(refresh_trigger() + 1)
-        })
+        # Remove the outlier
+        updated_outliers <- current_outliers %>%
+          filter(!(participant == closest_step$participant &
+                   trialNum == closest_step$trialNum &
+                   abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold))
+        selected_outliers(updated_outliers)
+        showNotification("Outlier removed", type = "message")
       } else {
-        # Add the outlier if it doesn't exist
+        # Add the outlier
         new_outlier <- data.frame(
           participant = closest_step$participant,
           trialNum = closest_step$trialNum,
@@ -298,10 +218,101 @@ observeEvent(event_data("plotly_click"), {
         )
         updated_outliers <- rbind(current_outliers, new_outlier)
         selected_outliers(updated_outliers)
-        refresh_trigger(refresh_trigger() + 1)
+        showNotification("Outlier added", type = "message")
       }
     }
   }
+})
+
+# Optimize the plot rendering with caching
+plot_cache <- reactiveVal(NULL)
+plot_participant <- reactiveVal(NULL)
+plot_trial <- reactiveVal(NULL)
+plot_xaxis <- reactiveVal(NULL)
+plot_yaxis <- reactiveVal(NULL)
+
+# Render the interactive plot
+output$manualOutlierPlot <- renderPlotly({
+  # Check if we need to regenerate the base plot
+  current_participant <- input$participant
+  current_trial <- as.numeric(input$trialNum)
+  current_xaxis <- input$xplot_16
+  current_yaxis <- input$yplot_16
+  
+  # Only regenerate base plot if parameters changed or forced refresh
+  need_new_plot <- is.null(plot_cache()) || 
+                   plot_participant() != current_participant || 
+                   plot_trial() != current_trial ||
+                   plot_xaxis() != current_xaxis ||
+                   plot_yaxis() != current_yaxis ||
+                   refresh_trigger() > 0  # Only if manually triggered
+  
+  if (need_new_plot) {
+    # Create the base ggplot
+    base_plot <- plot_steps(
+      filteredParams(), current_participant, current_trial,
+      current_xaxis, current_yaxis, input$filter, 
+      baseSize = input$baseSize
+    )
+    
+    # Cache the base plot and parameters
+    plot_cache(base_plot)
+    plot_participant(current_participant)
+    plot_trial(current_trial)  
+    plot_xaxis(current_xaxis)
+    plot_yaxis(current_yaxis)
+  } else {
+    # Use cached base plot
+    base_plot <- plot_cache()
+  }
+
+  # Always update outlier highlighting (this is fast)
+  req(filteredParams())
+  
+  # Get the current data for this participant and trial
+  current_data <- filteredParams() %>%
+    filter(participant == current_participant & trialNum == current_trial)
+  
+  # Get current outliers - optimize with vectorized operations
+  current_outliers_data <- current_outliers()
+  
+  # Optimize outlier matching with vectorized approach
+  if (nrow(current_outliers_data) > 0 && nrow(current_data) > 0) {
+    # Create a distance matrix and find matches efficiently
+    time_diffs <- outer(current_data$heelStrikes.time, current_outliers_data$heelStrikes.time, 
+                        function(x, y) abs(x - y))
+    is_outlier <- apply(time_diffs <= input$outlier_threshold, 1, any)
+    current_data$is_outlier <- is_outlier
+  } else {
+    current_data$is_outlier <- FALSE
+  }
+  
+  # Add outlier highlighting to the plot
+  p <- base_plot + 
+    geom_point(data = current_data %>% filter(is_outlier), 
+               aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
+                   y = .data[[paste0("heelStrikes.", current_yaxis)]]),
+               color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
+  
+  # Convert to plotly
+  p <- ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
+    style(
+      hoverinfo = "none",
+      traces = which(sapply(.$x$data, function(d) d$type) == "scatter" & sapply(.$x$data, function(d) d$mode) == "lines")
+    ) %>%
+    layout(
+      dragmode = "pan",
+      xaxis = list(
+        range = axis_limits$x,
+        tickmode = "linear",
+        dtick = 1,
+        tick0 = 0
+      ),
+      yaxis = list(range = axis_limits$y)
+    ) %>%
+    event_register("plotly_click") %>% event_register("plotly_selected")
+  
+  return(p)
 })
 
 # Create a reactive value to store the row to be removed
@@ -332,7 +343,6 @@ observeEvent(input$confirmRemove, {
     updated_outliers <- current_outliers[-selected_row, ]
     selected_outliers(updated_outliers)
     showNotification("Outlier removed", type = "message")
-    refresh_trigger(refresh_trigger() + 1)
     # Reset the selected row
     selected_row_to_remove(NULL)
   }
