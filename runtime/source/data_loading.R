@@ -161,20 +161,26 @@ condition_number <- function(participant) {
 get_t_data <- function(participant, trackerType, trialNum) {
   # Validate trackerType
   if (!trackerType %in% names(filenameDict)) {
-    stop("Invalid tracker type specified.")
+    message("Invalid tracker type specified: ", trackerType)
+    return(NULL)
   }
 
   filename <- paste0(filenameDict[[trackerType]], "_T", sprintf("%03d", trialNum), ".csv")
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
+  if (!file.exists(filePath)) {
+    message("File does not exist: ", filePath)
+    return(NULL)
+  }
+
   # Use tryCatch for more robust error handling
-  tryCatch(
+  data <- tryCatch(
     {
-      data <- read.csv(filePath)
+      read.csv(filePath)
     },
     error = function(e) {
-      message("Failed to read the file: ", e$message)
-      return(NULL) # Or handle the error as appropriate for your context
+      message("Failed to read the file: ", filePath, " - ", e$message)
+      return(NULL)
     }
   )
 
@@ -182,10 +188,14 @@ get_t_data <- function(participant, trackerType, trialNum) {
 }
 
 # For changing up the selection inputs - bit costly, but not really needed to optimize this
-getOptions <- function(tracker) {
-  exampleData <- get_t_data(participants[1], tracker, 1)
+getOptions <- function(tracker, trialNum = 5) { # trial 5 is always available - except for haptic...
+  exampleData <- get_t_data(participants[1], tracker, trialNum)
+  # Fail gracefully if exampleData is empty or NULL
+  if (is.null(exampleData) || nrow(exampleData) == 0) {
+    return(c("data not available"))
+  }
   numericTypes <- sapply(exampleData, is.numeric)
-  numeric_cols <- names(exampleData[numericTypes]) # names(numericDataTypes[numericDataTypes | logicalDataTypes])
+  numeric_cols <- names(exampleData[numericTypes])
   return(numeric_cols)
 }
 

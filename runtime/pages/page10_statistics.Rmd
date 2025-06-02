@@ -40,15 +40,6 @@ bsTooltip("doScaling",
           trigger = "hover")
 ```
 
-```{r}
-checkboxInput("rm_clamped_stats","Remove clamped offset values", value=FALSE)
-# Add tooltip
-bsTooltip("rm_clamped_stats", 
-          "Check this box to remove steps taken while the offset value was clamped (to make sure data is normally distributed again). Works only if NOT calculating mean, sd, cv.", 
-          placement = "right", 
-          trigger = "hover")
-```
-
 Further data processing:
 ```{r}
 checkboxInput("getSummarizedData_stats", "Calculate mean, sd, cv", value = TRUE)
@@ -180,12 +171,6 @@ get_stats_data <- reactive({
   }
   else {
     data <- filteredParams()
-
-    # Remove clamped data if the option is selected
-    if (input$rm_clamped_stats) {
-    data <- data %>%
-      filter(!(heelStrikes.offset_x == 0.075 | heelStrikes.offset_x == -0.075 | heelStrikes.offset_z == 0.15 | heelStrikes.offset_z == -0.15))
-    }
   }
   
   return(data)

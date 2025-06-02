@@ -16,10 +16,6 @@ selectizeInput("xVar", "X Variable for Correlation Plot", choices = muVars, sele
 selectizeInput("yVar", "Y Variable for Correlation Plot", choices = muVars, selected = muVars[2], multiple = FALSE)
 ```
 
-```{r}
-checkboxInput("rm_clamped","Remove clamped offset values (for non-summarized data only)", value=TRUE)
-```
-
 Column
 --------------------------------------------
 
@@ -68,12 +64,6 @@ get_correlation_data <- reactive({
   }
   else {
     data <- filteredParams()
-
-    # Remove clamped data if the option is selected
-    if (input$rm_clamped) {
-    data <- data %>%
-      filter(!(heelStrikes.offset_x == 0.075 | heelStrikes.offset_x == -0.075 | heelStrikes.offset_z == 0.15 | heelStrikes.offset_z == -0.15))
-    }
   }
 
   return(data)

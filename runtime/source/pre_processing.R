@@ -1,4 +1,10 @@
 #### Some pre-processing we use later in plotting and get_foot_events
+adjust_times_based_on_data <- function(data) {
+  minTime <- data$time[1]
+  maxTime <- data$time[length(data$time)] - minTime
+  adjusted_data <- adjust_times(data, minTime, maxTime)
+  return(adjusted_data)
+}
 
 adjust_times <- function(dataset, minTime, maxTime = 180) { # make sure we start at t=0
   dataset$time <- dataset$time - minTime
@@ -37,9 +43,14 @@ load_rotations <- function(participant, trialNum) {
 preprocess_data <- function(participant, trialNum, dataName) {
   data <- get_t_data(participant, dataName, trialNum)
 
-  minTime <- data$time[1] # get_p_results(participant,"start_time",trialNum)
-  maxTime <- data$time[length(data$time)] # ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
-  data <- adjust_times(data, minTime, maxTime)
+  # Check if data is empty
+  if (is.null(data) || nrow(data) == 0) {
+    message(sprintf("preprocess_data: No data found for participant %s, trial %s, dataName %s. Returning empty data frame.", participant, trialNum, dataName))
+    return(data.frame())
+  }
+
+  # get_p_results(participant,"start_time",trialNum) ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
+  data <- adjust_times_based_on_data(data)
 
   if (is_kinematic_data(data)) {
     rotation <- load_rotations(participant, trialNum)

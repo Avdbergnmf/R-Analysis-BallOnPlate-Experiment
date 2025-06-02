@@ -157,13 +157,51 @@ plot_steps_with_overlay <- function(data, selected_participant, selected_trialNu
   return(p)
 }
 
+# Helper function to create error plots
+create_error_plot <- function(message, baseSize = 10) {
+  cat("DEBUG:", message, "\n")
+  ggplot() +
+    annotate("text", x = 0.5, y = 0.5, label = message, size = 4, hjust = 0.5) +
+    xlim(0, 1) +
+    ylim(0, 1) +
+    labs(title = "Error") +
+    theme_minimal(base_size = baseSize) +
+    theme(axis.text = element_blank(), axis.ticks = element_blank())
+}
+
+# Helper function to validate data and columns
+validate_data_and_columns <- function(xData, yData, xtracker, ytracker, x_axis, y_axis, participant, trialNum, baseSize) {
+  # Check if data is NULL
+  if (is.null(xData)) {
+    return(create_error_plot(paste("No data available for participant", participant, "trial", trialNum, "xtracker:", xtracker), baseSize))
+  }
+
+  if (is.null(yData)) {
+    return(create_error_plot(paste("No data available for participant", participant, "trial", trialNum, "ytracker:", ytracker), baseSize))
+  }
+
+  # Check if requested columns exist
+  if (!x_axis %in% colnames(xData)) {
+    return(create_error_plot(paste("Column", x_axis, "not found in", xtracker, "data"), baseSize))
+  }
+
+  if (!y_axis %in% colnames(yData)) {
+    return(create_error_plot(paste("Column", y_axis, "not found in", ytracker, "data"), baseSize))
+  }
+
+  return(NULL) # No errors
+}
+
 plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", y_axis = "pos_z", plotlines = TRUE, plotpoints = FALSE, extraTitle = "", baseSize = 10) {
-  xData <- get_t_data(participant, xtracker, trialNum)
-  yData <- get_t_data(participant, ytracker, trialNum)
-  startTime <- get_p_results(participant, "start_time", trialNum)
-  maxTime <- ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
-  xData <- adjust_times(xData, startTime, maxTime)
-  yData <- adjust_times(yData, startTime, maxTime)
+  # Load data for both trackers
+  xData <- preprocess_data(participant, trialNum, xtracker)
+  yData <- preprocess_data(participant, trialNum, ytracker)
+
+  # Validate data and columns - return error plot if validation fails
+  error_plot <- validate_data_and_columns(xData, yData, xtracker, ytracker, x_axis, y_axis, participant, trialNum, baseSize)
+  if (!is.null(error_plot)) {
+    return(error_plot)
+  }
 
   # Combine the dataframes
   both <- data.frame(
@@ -171,13 +209,13 @@ plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", 
     y = yData[[y_axis]]
   )
 
+  # Create the plot
   p <- ggplot(xData, aes(.data[[x_axis]], .data[[y_axis]])) +
     labs(x = x_axis, y = y_axis) +
     theme_minimal(base_size = baseSize) +
     ggtitle(paste(extraTitle, ",", x_axis, "vs.", y_axis))
 
-  # p <- p + coord_cartesian(ylim = override_ylims)
-
+  # Add geometries based on options
   if (plotlines) {
     p <- p + geom_path()
   }
@@ -186,6 +224,7 @@ plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", 
     p <- p + geom_point()
   }
 
+  # Set equal coordinates for position plots
   if (x_axis != "time" && y_axis != "time") {
     p <- p + coord_equal()
   }
