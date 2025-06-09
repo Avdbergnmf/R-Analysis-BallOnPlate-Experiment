@@ -1,0 +1,191 @@
+### Plot Options
+```{r}
+# Participant and trial selection
+selectizeInput("sim_participant", "Participant",
+  choices = participants, selected = participants[1], multiple = FALSE)
+selectizeInput("sim_trialNum", "Trial Number",
+  choices = allTrials, selected = allTrials[3], multiple = FALSE)
+
+# Plot type selection
+radioButtons("sim_frame", "Coordinate Frame",
+  choices = c("Local (plate-relative)" = "local", "World coordinates" = "world"),
+  selected = "local", inline = TRUE)
+
+checkboxInput("sim_fixAspect", "Equal aspect ratio", TRUE)
+
+# Variable selection for time series
+selectInput("sim_vars", "Time-series variables",
+  choices = NULL, multiple = TRUE)
+
+# Downsampling
+numericInput("sim_downsampling", "Downsample factor", 
+  value = 1, min = 1, step = 1)
+
+# Plot limits
+numericInput("sim_xlim_min", "X-axis minimum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("sim_xlim_max", "X-axis maximum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("sim_ylim_min", "Y-axis minimum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+numericInput("sim_ylim_max", "Y-axis maximum",
+  min = -Inf, max = Inf, value = NA, step = 0.1)
+```
+
+Column
+--------------------------------------------
+
+### Simulation Data Availability
+```{r}
+textOutput("sim_data_status")
+```
+
+### Trajectory Plot {data-height=600}
+Shows the marble trajectory on the plate surface.
+```{r}
+plotlyOutput("sim_trajPlot")
+```
+
+### Time Series Plot {data-height=600}
+Shows selected variables over time.
+```{r}
+plotlyOutput("sim_tsPlot")
+```
+
+```{r, context="server"}
+# Reactive simulation data
+sim_data <- reactive({
+  req(input$sim_participant, input$sim_trialNum)
+  participant <- input$sim_participant
+  trial <- as.numeric(input$sim_trialNum)
+  
+  # Check if simulation data exists
+  if (!has_simulation_data(participant, trial)) {
+    return(NULL)
+  }
+  
+  # Get the simulation data
+  get_simulation_data(participant, trial)
+})
+
+# Update data availability status
+output$sim_data_status <- renderText({
+  req(input$sim_participant, input$sim_trialNum)
+  participant <- input$sim_participant
+  trial <- as.numeric(input$sim_trialNum)
+  
+  cat("Status check: participant =", participant, "trial =", trial, "\n")
+  
+  tryCatch({
+    if (has_simulation_data(participant, trial)) {
+      data <- sim_data()
+      if (!is.null(data) && nrow(data) > 0) {
+        n_real <- sum(data$simulating, na.rm = TRUE)
+        n_respawns <- length(unique(data$respawn_segment)) - 1
+        paste0("✓ Simulation data available: ", nrow(data), " total samples (", n_real, " real, ", n_respawns, " respawns), arcDeg = ", 
+               paste(unique(data$arcDeg), collapse = ", "))
+      } else {
+        "✗ Error loading simulation data"
+      }
+    } else {
+      "✗ No simulation data available for this participant/trial"
+    }
+  }, error = function(e) {
+    cat("Error in status check:", e$message, "\n")
+    paste("✗ Error checking simulation data:", e$message)
+  })
+})
+
+# Update variable choices when data changes
+observeEvent(sim_data(), {
+  data <- sim_data()
+  cat("Observer triggered: data is", if(is.null(data)) "NULL" else paste("not NULL with", nrow(data), "rows"), "\n")
+  
+  if (is.null(data) || nrow(data) == 0) {
+    updateSelectInput(session, "sim_vars", choices = NULL)
+    return()
+  }
+  
+  # Get available variable choices using the helper function
+  tryCatch({
+    available_vars <- get_simulation_variable_choices(data)
+    cat("Available vars:", length(available_vars), "choices\n")
+    cat("First few choices:", paste(names(available_vars)[1:min(5, length(available_vars))], collapse = ", "), "\n")
+    
+    # Set default selection with physics-relevant variables
+    # Check against values (column names), not names (pretty names)
+    default_selection <- c("q", "x", "e", "e_total_needed")  # arc position, plate-relative x, energy, danger
+    available_column_names <- unlist(available_vars, use.names = FALSE)
+    default_selection <- default_selection[default_selection %in% available_column_names]
+    cat("Default selection:", paste(default_selection, collapse = ", "), "\n")
+    
+    updateSelectInput(session, "sim_vars",
+                     choices = available_vars,
+                     selected = default_selection)
+    cat("Updated selectInput\n")
+  }, error = function(e) {
+    cat("Error in observer:", e$message, "\n")
+    updateSelectInput(session, "sim_vars", choices = NULL)
+  })
+})
+
+# Trajectory plot
+output$sim_trajPlot <- renderPlotly({
+  data <- sim_data()
+  req(data, nrow(data) > 0)
+  
+  # Debug output
+  cat("Trajectory plot: data has", nrow(data), "rows\n")
+  cat("Columns:", paste(colnames(data), collapse = ", "), "\n")
+  
+  # Prepare axis limits
+  xlim <- if (!is.na(input$sim_xlim_min) && !is.na(input$sim_xlim_max)) 
+            c(input$sim_xlim_min, input$sim_xlim_max) else NULL
+  ylim <- if (!is.na(input$sim_ylim_min) && !is.na(input$sim_ylim_max)) 
+            c(input$sim_ylim_min, input$sim_ylim_max) else NULL
+  
+  # Use the plotting function
+  tryCatch({
+    plot_simulation_trajectory(
+      data = data,
+      frame = input$sim_frame,
+      participant = input$sim_participant,
+      trial = input$sim_trialNum,
+      downsampling = input$sim_downsampling,
+      xlim = xlim,
+      ylim = ylim,
+      fix_aspect = input$sim_fixAspect,
+      plot_width = input$plotwidth,
+      plot_height = input$plotheight
+    )
+  }, error = function(e) {
+    cat("Error in trajectory plot:", e$message, "\n")
+    plot_ly() %>% layout(title = paste("Error:", e$message))
+  })
+})
+
+# Time series plot
+output$sim_tsPlot <- renderPlotly({
+  data <- sim_data()
+  vars <- input$sim_vars
+  req(data, nrow(data) > 0, length(vars) > 0)
+  
+  # Debug output
+  cat("Time series plot: data has", nrow(data), "rows\n")
+  cat("Selected vars:", paste(vars, collapse = ", "), "\n")
+  
+  # Use the plotting function
+  tryCatch({
+    plot_simulation_timeseries(
+      data = data,
+      vars = vars,
+      downsampling = input$sim_downsampling,
+      plot_width = input$plotwidth,
+      plot_height = input$plotheight
+    )
+  }, error = function(e) {
+    cat("Error in time series plot:", e$message, "\n")
+    plot_ly() %>% layout(title = paste("Error:", e$message))
+  })
+})
+``` 

@@ -1,12 +1,41 @@
 ### Options
 
 ```{r}
-defaultIndepVars <- c("VFD")
-defaultDepVar <- "stepWidths.sd"
-selectizeInput("depVar", "Dependent variable", choices = muVars, selected = defaultDepVar, multiple = FALSE)
-selectizeInput("indepInterVars", "* Independent variables", choices = muVars, selected = defaultIndepVars, multiple = TRUE)
-selectizeInput("indepVars", "+ Independent variables", choices = muVars, selected = defaultIndepVars, multiple = TRUE)
+# Default variables more appropriate for the current experiment  
+defaultIndepVars <- c("condition")
 
+selectizeInput("depVar", "Dependent variable",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+selectizeInput("indepInterVars", "Independent variable(s) (interactions)",
+  choices = NULL, selected = NULL, multiple = TRUE
+)
+
+selectizeInput("indepVars", "Independent variable(s) (add to model)",
+  choices = NULL, selected = NULL, multiple = TRUE
+)
+
+checkboxInput("getSummarizedData_stats", "Use summarized data", value = TRUE)
+checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
+checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
+
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * (trialNum) + (1 | participant)")
+
+checkboxInput("useCustomModel", "Use custom model (above)", value = FALSE)
+checkboxInput("doCentering", "Center numerical variables", value = TRUE)
+checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
+
+selectizeInput("correctionMethod", "Multiple comparison correction",
+  choices = c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"),
+  selected = "holm", multiple = FALSE
+)
+
+checkboxInput("paired_ttest", "Use Paired t-test", value = FALSE)
+```
+
+
+```{r}
 bsTooltip("indepInterVars", 
           "These independent variables are also multiplied with eachother (including the interaction terms).", 
           placement = "right", 
@@ -15,46 +44,18 @@ bsTooltip("indepVars",
           "These independent variables are not multiplied with eachother.", 
           placement = "right", 
           trigger = "hover")
-
-# Add a dropdown for selecting the correction method
-selectizeInput("correctionMethod", "Correction Method", choices = c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"), selected = "bonferroni", multiple = FALSE)
-
-# Add a text input for custom model formula
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "VFD * (startedWithNoise+VEQ.total) + trialNumWithinCondition + (1 | participant)")
-
-# Add a checkbox to use the custom model formula
-checkboxInput("useCustomModel", "Use Custom Model Formula", value = FALSE)
-```
-
-
-```{r}
-checkboxInput("doCentering", "Center numerical values", value = TRUE)
-checkboxInput("doScaling", "Scale numerical values", value = TRUE)
-bsTooltip("doCentering", 
-          "Check this box to centers numerical INDEPENDENT values, except for ordinal values, such as trial and condition numbers.", 
-          placement = "right", 
-          trigger = "hover")
-bsTooltip("doScaling", 
-          "Check this box to scale numerical INDEPENDENT values, except for ordinal values, such as trial and condition numbers.", 
-          placement = "right", 
-          trigger = "hover")
 ```
 
 Further data processing:
 ```{r}
-checkboxInput("getSummarizedData_stats", "Calculate mean, sd, cv", value = TRUE)
-checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
 bsTooltip("averageData_stats", 
           "Make sure to do this when looking at questionnaire data as the dependent variable.", 
           placement = "right", 
           trigger = "hover")
-checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
 ```
 
 Use paired t-test instead of LMM:
 ```{r}
-# Add a checkbox for paired t-test
-checkboxInput("paired_ttest", "Perform Paired t-test", value = FALSE)
 numericInput("num_tests", 
              label = "Number of Comparisons:", 
              value = 1,  # Default value
@@ -165,9 +166,6 @@ get_stats_data <- reactive({
     if (input$averageData_stats) {
       data <- summarize_across_conditions(data)
     }
-    if (input$diffData_stats){
-      data <- calculate_vfd_difference(data)
-    } 
   }
   else {
     data <- filteredParams()
@@ -181,8 +179,9 @@ observe({
   data <- get_stats_data()
   cols <- colnames(data)#[sapply(data, is.numeric)]
   
-  updateSelectizeInput(session, "depVar", choices = cols , selected = ifelse(input$diffData_stats, "diff_stepWidths.sd", "stepWidths.sd"))
-  updateSelectizeInput(session, "indepInterVars", choices = cols, selected = ifelse(input$diffData_stats, "diff_VEQ.total", "VFD"))
+  # Use regular variable names instead of non-existent diff variables
+  updateSelectizeInput(session, "depVar", choices = cols , selected = "stepWidths.sd")
+  updateSelectizeInput(session, "indepInterVars", choices = cols, selected = "condition")
   updateSelectizeInput(session, "indepVars", choices = cols)
 })
 

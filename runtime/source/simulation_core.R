@@ -21,54 +21,256 @@ build_plate_trace <- function(p_fun, t_end, dt) {
 # ─────────────────────────────────────────────────────────────────────────────
 # 2) Post‐process: compute world‐space velocities & accelerations + energy related metrics
 # ─────────────────────────────────────────────────────────────────────────────
+
+#' Compute velocity components from arc-length velocity using shape derivatives
+#' @param df Dataframe with q, qd, and arcDeg columns
+#' @return df with vx_from_qd and vy_from_qd columns added
+compute_velocities_from_qd <- function(df) {
+  # Initialize columns
+  df$vx_from_qd <- 0
+  df$vy_from_qd <- 0
+
+  # Only process real simulation data (not artificial gap points)
+  if ("simulating" %in% colnames(df)) {
+    real_data_indices <- which(df$simulating)
+  } else {
+    real_data_indices <- 1:nrow(df)
+  }
+
+  if (length(real_data_indices) == 0) {
+    return(df)
+  }
+
+  # Process each unique arcDeg separately
+  unique_arcDegs <- unique(df$arcDeg[real_data_indices])
+
+  for (arcDeg in unique_arcDegs) {
+    # Create shape for this arcDeg
+    shape <- CircularProfileShape$new(
+      R = 5.0, arcDeg = arcDeg, L = 0,
+      mu_d = 0.03, mu_s = 0.05, damping = 0, g = 9.81
+    )
+
+    # Get rows with this arcDeg and real data
+    rows_with_arcDeg <- intersect(which(df$arcDeg == arcDeg), real_data_indices)
+
+    if (length(rows_with_arcDeg) > 0) {
+      q_values <- df$q[rows_with_arcDeg]
+      qd_values <- df$qd[rows_with_arcDeg]
+
+      # Compute dx/dq and dy/dq for each unique q value
+      unique_q <- unique(q_values)
+      dxdq_map <- numeric(length(unique_q))
+      dydq_map <- numeric(length(unique_q))
+      names(dxdq_map) <- as.character(unique_q)
+      names(dydq_map) <- as.character(unique_q)
+
+      # Use small step for numerical differentiation
+      dq_step <- 1e-6
+
+      for (i in seq_along(unique_q)) {
+        q_val <- unique_q[i]
+
+        # Use central difference
+        xy_next <- shape$getXY(q_val + dq_step)
+        xy_prev <- shape$getXY(q_val - dq_step)
+        dxdq_map[i] <- (xy_next[1] - xy_prev[1]) / (2 * dq_step)
+        dydq_map[i] <- (xy_next[2] - xy_prev[2]) / (2 * dq_step)
+      }
+
+      # Map derivatives to all q values and compute velocities
+      q_keys <- as.character(q_values)
+      dxdq_values <- dxdq_map[q_keys]
+      dydq_values <- dydq_map[q_keys]
+
+      # Compute velocity components: v = (dx/dq) * qd
+      df$vx_from_qd[rows_with_arcDeg] <- dxdq_values * qd_values
+      df$vy_from_qd[rows_with_arcDeg] <- dydq_values * qd_values
+    }
+  }
+
+  return(df)
+}
+
 post_process_df <- function(df) {
+  # First compute velocities from qd (cleaner signal)
+  df <- compute_velocities_from_qd(df)
+
   # forward-difference, pad with 0 for the first element
-  dt <- c(diff(df$t), NA) # NA for the padding row
-  dx <- c(diff(df$x), NA)
-  dy <- c(diff(df$y), NA)
+  dt <- df$dt
 
-  vx <- dx / dt # same length as df
-  vy <- dy / dt
+  # COMPARISON: Also compute old method for debugging
+  dx_old <- c(diff(df$x), NA)
+  dy_old <- c(diff(df$y), NA)
+  vx_old <- dx_old / dt
+  vy_old <- dy_old / dt
+  vx_old[length(vx_old)] <- 0 # Set last element to 0
+  vy_old[length(vy_old)] <- 0
 
-  ax <- c(diff(vx), NA) / dt # dt is one element shorter inside diff()
+  # Use the cleaner qd-based velocities as primary
+  vx <- df$vx_from_qd
+  vy <- df$vy_from_qd
+
+  # For world velocities, we still need to add plate motion
+  # dx_world/dt = dx/dt + dp/dt = vx + plate_velocity
+  # We can get plate velocity from the plate position differences
+  dp <- c(diff(df$p), NA)
+  plate_velocity <- dp / dt
+  plate_velocity[length(plate_velocity)] <- 0 # Set last element to 0
+
+  vx_world <- vx + plate_velocity
+
+  # Accelerations from the cleaner velocities
+  ax <- c(diff(vx), NA) / dt
+  ax_world <- c(diff(vx_world), NA) / dt
   ay <- c(diff(vy), NA) / dt
 
-  # replace the NA’s in the first row with zeros (or just keep NA)
-  vx[1] <- vy[1] <- ax[1] <- ay[1] <- 0
+  # replace the NA's in the last row with zeros
+  ax[length(ax)] <- ax_world[length(ax_world)] <- ay[length(ay)] <- 0
+
+  # Debug output for comparison
+  if ("simulating" %in% colnames(df)) {
+    real_indices <- which(df$simulating)
+    if (length(real_indices) > 10) {
+      sample_indices <- real_indices[1:10]
+      cat("Velocity comparison (first 10 real samples):\n")
+      cat("vx_old:    ", sprintf("%.4f", vx_old[sample_indices]), "\n")
+      cat("vx_new:    ", sprintf("%.4f", vx[sample_indices]), "\n")
+      cat("vy_old:    ", sprintf("%.4f", vy_old[sample_indices]), "\n")
+      cat("vy_new:    ", sprintf("%.4f", vy[sample_indices]), "\n")
+      cat("vx_diff:   ", sprintf("%.4f", abs(vx_old[sample_indices] - vx[sample_indices])), "\n")
+      cat("vy_diff:   ", sprintf("%.4f", abs(vy_old[sample_indices] - vy[sample_indices])), "\n")
+    }
+  }
 
   df %>%
     mutate(
+      # Local coordinates (plate-relative, computed from clean qd)
       vx = vx, vy = vy,
-      ax = ax, ay = ay
-    )
+      ax = ax, ay = ay,
+      # World coordinates (include plate motion)
+      vx_world = vx_world,
+      ax_world = ax_world
+    ) %>%
+    select(-vx_from_qd, -vy_from_qd) # Remove intermediate columns
 }
 
 #  Specific mechanical energy  (per unit mass) - assumes postprocess already ran
 add_energy_cols <- function(df, g = 9.81) {
   df %>% mutate(
-    ke = 0.5 * (vx^2 + vy^2), # kinetic
+    # World energy (includes plate motion)
+    ke_world = 0.5 * (vx_world^2 + vy^2), # kinetic in world frame
     pe = g * y, # potential (y already world-frame)
-    e  = ke + pe # total
+    e_world = ke_world + pe, # total world energy
+
+    # Local energy (plate-relative, more relevant for escape)
+    ke = 0.5 * (vx^2 + vy^2), # kinetic relative to plate
+    e = ke + pe # total plate-relative energy (this is what matters for escape)
   )
 }
 
 #  Specific mechanical power and cumulative work  - assumes postprocess already ran
 add_power_cols <- function(df) {
   df %>% mutate(
-    p_instant = ax * vx + ay * vy, # W kg⁻¹
-    work      = cumsum(p_instant * c(0, diff(t))) # J kg⁻¹
+    # World power (includes plate motion effects)
+    power_world = ax_world * vx_world + ay * vy, # W kg⁻¹ in world frame
+    work_world = cumsum(power_world * dt), # J kg⁻¹ cumulative work in world frame
+
+    # Local power (plate-relative, more physically meaningful)
+    power = ax * vx + ay * vy, # W kg⁻¹ relative to plate
+    work = cumsum(power * dt) # J kg⁻¹ cumulative work relative to plate
   )
 }
 
 #  Safety margin: energy distance to escape  - assumes postprocess already ran
 add_safety_cols <- function(df, shape) {
-  # potential energy the ball would have on the rim
-  xy_max <- shape$getXY(shape$getMaxQ())
-  e_escape <- shape$g * xy_max[2] # per kg
+  # Check if q_max column exists (should be pre-computed)
+  if (!"q_max" %in% colnames(df)) {
+    stop("q_max column not found. It should be computed in calculate_coordinates().")
+  }
+
+  # Use physical constants from the shape object
+  mu_d <- shape$mu_d # Coulomb friction coefficient
+  damping <- shape$damping # Viscous damping coefficient
+  g <- shape$g # Gravity
+  R <- shape$R # Radius (hardcoded since it's consistent)
+
   df %>% mutate(
-    margin_E = e_escape - e, # J kg⁻¹ still “in the bank”
-    danger   = -margin_E / e_escape # pmax(0, -margin_E) / e_escape  # 0 (safe) … 1 (escaped)
-  )
+    # Calculate escape height for each row based on its q_max
+    # For CircularProfileShape: y_escape = R * (1 - cos(q_max/R))
+    # Since q_max = R * ThetaMax, we have q_max/R = ThetaMax
+    y_escape = R * (1 - cos(q_max / R)),
+
+    # Distance to nearest escape point (shortest path)
+    dist_to_escape = pmax(0, q_max - abs(q)),
+
+    # Energy required to reach escape point (potential energy difference)
+    e_potential_needed = g * (y_escape - y),
+
+    # Energy losses during travel to escape:
+
+    # 1. Coulomb friction loss: W = μ_d * g * distance
+    e_loss_friction = mu_d * g * dist_to_escape,
+
+    # 2. Viscous damping loss: approximate using current velocity
+    # Assume average velocity ≈ current |qd|, time = distance/velocity
+    # Energy lost ≈ damping * qd^2 * time = damping * |qd| * distance
+    qd_abs = abs(qd),
+    e_loss_damping = ifelse(qd_abs > 1e-6, # Avoid division by zero
+      damping * qd_abs * dist_to_escape,
+      0
+    ),
+
+    # Total energy needed to escape (potential + losses)
+    e_total_needed = e_potential_needed + e_loss_friction + e_loss_damping,
+
+    # Energy margin: how much energy we have vs what's needed
+    # Positive = safe (current energy < needed)
+    # Negative = can escape (current energy > needed)
+    margin_E = e_total_needed - e,
+
+    # Danger level: how much excess energy we have relative to what's needed
+    # 0 = safe, 1 = just enough to escape, >1 = excess energy beyond escape
+    danger = pmax(0, ifelse(e_total_needed > 1e-6, # Avoid division by zero
+      (e - e_total_needed) / e_total_needed,
+      0
+    ))
+  ) %>%
+    # Add debugging output
+    {
+      if ("simulating" %in% colnames(.) && any(.$simulating)) {
+        real_data <- .[.$simulating, ]
+
+        cat(sprintf(
+          "Using shape parameters: mu_d=%.3f, damping=%.1f, g=%.2f, R=%.1f\n",
+          mu_d, damping, g, R
+        ))
+
+        # Sample a few points for debugging
+        sample_indices <- head(which(real_data$dist_to_escape > 0), 5)
+        if (length(sample_indices) > 0) {
+          sample_data <- real_data[sample_indices, ]
+
+          cat("Energy breakdown for first few samples:\n")
+          cat("q:", sprintf("%.3f", sample_data$q), "\n")
+          cat("dist_to_escape:", sprintf("%.3f", sample_data$dist_to_escape), "\n")
+          cat("e_potential:", sprintf("%.3f", sample_data$e_potential_needed), "\n")
+          cat("e_friction:", sprintf("%.3f", sample_data$e_loss_friction), "\n")
+          cat("e_damping:", sprintf("%.3f", sample_data$e_loss_damping), "\n")
+          cat("e_total_needed:", sprintf("%.3f", sample_data$e_total_needed), "\n")
+          cat("e_current:", sprintf("%.3f", sample_data$e), "\n")
+          cat("margin_E:", sprintf("%.3f", sample_data$margin_E), "\n")
+          cat("danger:", sprintf("%.3f", sample_data$danger), "\n")
+        }
+
+        cat(sprintf(
+          "\nOverall: min(margin_E)=%.3f, max(danger)=%.3f\n",
+          min(real_data$margin_E, na.rm = TRUE),
+          max(real_data$danger, na.rm = TRUE)
+        ))
+      }
+      .
+    }
 }
 
 kalman_cv_filter <- function(pos,
@@ -199,20 +401,22 @@ simulate_profile_core <- function(shape,
   save_row <- function(i) {
     # world‐space position
     xy <- shape$getXY(q)
-    x <- p + xy[1]
-    y <- xy[2]
+    x <- xy[1] # position relative to plate center
+    x_world <- p + x # position in world coordinates
+    y <- xy[2] # height (same in both frames)
 
     row <- tibble(
-      t   = t,
-      q   = q,
-      qd  = qd,
+      t = t,
+      q = q,
+      qd = qd,
       qdd = qdd,
-      p   = p,
-      pd  = pd,
+      p = p,
+      pd = pd,
       pdd = pdd,
       esc = esc,
-      x   = x,
-      y   = y
+      x = x,
+      x_world = x_world,
+      y = y
     )
     out[[i]] <<- row
   }

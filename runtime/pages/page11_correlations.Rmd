@@ -12,8 +12,8 @@ checkboxInput("heatmap", "Plot heatmap", value = FALSE)
 numericInput("heatmap_bins", "Bins heatmaps", min = 0, max = Inf, value = 30, step = 1)
 
 # Add selectors for x and y inputs for the correlation plot
-selectizeInput("xVar", "X Variable for Correlation Plot", choices = muVars, selected = muVars[1], multiple = FALSE)
-selectizeInput("yVar", "Y Variable for Correlation Plot", choices = muVars, selected = muVars[2], multiple = FALSE)
+selectizeInput("xVar", "X Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
+selectizeInput("yVar", "Y Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
 ```
 
 Column

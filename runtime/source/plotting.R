@@ -523,3 +523,229 @@ plot_correlation_stats <- function(data, x_var_name, y_var_name, type = "paramet
 
   return(p)
 }
+
+#### Simulation Data Plotting Functions ####
+
+#' Plot simulation trajectory
+#'
+#' @param data Simulation data from get_simulation_data()
+#' @param frame Coordinate frame: "local" or "world"
+#' @param participant Participant identifier
+#' @param trial Trial number
+#' @param downsampling Downsampling factor
+#' @param xlim X-axis limits (c(min, max))
+#' @param ylim Y-axis limits (c(min, max))
+#' @param fix_aspect Whether to fix aspect ratio
+#' @param plot_width Plot width
+#' @param plot_height Plot height
+#' @return plotly object
+plot_simulation_trajectory <- function(data, frame = "local", participant = NULL, trial = NULL,
+                                       downsampling = 1, xlim = NULL, ylim = NULL,
+                                       fix_aspect = TRUE, plot_width = 800, plot_height = 600) {
+  # Validate inputs
+  if (is.null(data) || nrow(data) == 0) {
+    return(plot_ly() %>% layout(title = "No simulation data available"))
+  }
+
+  # Apply downsampling
+  if (downsampling > 1) {
+    data <- data[seq(1, nrow(data), by = downsampling), ]
+  }
+
+  # Determine x coordinate and title based on frame selection
+  if (frame == "local") {
+    data$x_plot <- data$x # Local coordinates (plate-relative)
+    x_title <- "x (plate-relative)"
+  } else {
+    data$x_plot <- data$x_world # World coordinates
+    x_title <- "x (world)"
+  }
+
+  # Create title
+  title_text <- "Ball Trajectory"
+  if (!is.null(participant) && !is.null(trial)) {
+    title_text <- paste("Ball Trajectory - Participant", participant, "Trial", trial)
+  }
+
+  # Check if we have respawn segments
+  if ("respawn_segment" %in% colnames(data)) {
+    # Color by respawn segments to show when ball was respawned
+    colors <- RColorBrewer::brewer.pal(min(8, max(3, length(unique(data$respawn_segment)))), "Set1")
+
+    p <- plot_ly(width = plot_width, height = min(plot_height, 600))
+
+    # Add traces for each segment
+    for (segment in unique(data$respawn_segment)) {
+      segment_data <- data[data$respawn_segment == segment, ]
+
+      # Separate real and artificial data if simulating flag exists
+      if ("simulating" %in% colnames(segment_data)) {
+        real_data <- segment_data[segment_data$simulating, ]
+        artificial_data <- segment_data[!segment_data$simulating, ]
+
+        # Add real simulation data as lines
+        if (nrow(real_data) > 0) {
+          p <- p %>% add_trace(
+            data = real_data,
+            x = ~x_plot, y = ~y,
+            type = "scatter", mode = "lines",
+            line = list(width = 2, color = colors[segment %% length(colors) + 1]),
+            name = paste("Segment", segment),
+            text = ~ paste(
+              "Sim Time:", round(simulation_time, 2), "s",
+              "<br>Unity Time:", round(time, 2), "s",
+              "<br>Segment:", respawn_segment,
+              "<br>Real Data"
+            ),
+            hovertemplate = paste(
+              "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
+              "<b>%{text}</b><br>",
+              "<extra></extra>"
+            )
+          )
+        }
+
+        # Add artificial gap boundary samples as markers
+        if (nrow(artificial_data) > 0) {
+          p <- p %>% add_trace(
+            data = artificial_data,
+            x = ~x_plot, y = ~y,
+            type = "scatter", mode = "markers",
+            marker = list(size = 8, color = colors[segment %% length(colors) + 1], symbol = "x"),
+            name = paste("Gap", segment),
+            text = ~ paste(
+              "Sim Time:", round(simulation_time, 2), "s",
+              "<br>Unity Time:", round(time, 2), "s",
+              "<br>Segment:", respawn_segment,
+              "<br>Gap Boundary (Zeroed)"
+            ),
+            hovertemplate = paste(
+              "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
+              "<b>%{text}</b><br>",
+              "<extra></extra>"
+            )
+          )
+        }
+      } else {
+        # Fallback for data without simulating flag
+        p <- p %>% add_trace(
+          data = segment_data,
+          x = ~x_plot, y = ~y,
+          type = "scatter", mode = "lines",
+          line = list(width = 2, color = colors[segment %% length(colors) + 1]),
+          name = paste("Segment", segment),
+          text = ~ paste(
+            "Sim Time:", round(simulation_time, 2), "s",
+            "<br>Unity Time:", round(time, 2), "s",
+            "<br>Segment:", respawn_segment
+          ),
+          hovertemplate = paste(
+            "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
+            "<b>%{text}</b><br>",
+            "<extra></extra>"
+          )
+        )
+      }
+    }
+  } else {
+    # Fallback for data without respawn segments
+    p <- plot_ly(data,
+      x = ~x_plot, y = ~y,
+      type = "scatter", mode = "lines",
+      line = list(width = 2, color = "steelblue"),
+      text = ~ paste("Sim Time:", round(simulation_time, 2), "s", "<br>Unity Time:", round(time, 2), "s"),
+      hovertemplate = paste(
+        "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
+        "<b>%{text}</b><br>",
+        "<extra></extra>"
+      ),
+      width = plot_width,
+      height = min(plot_height, 600)
+    )
+  }
+
+  # Set up layout
+  p <- p %>% layout(
+    title = title_text,
+    xaxis = list(
+      title = x_title,
+      range = xlim
+    ),
+    yaxis = list(
+      title = "y (height)",
+      scaleanchor = if (fix_aspect) "x" else NULL,
+      range = ylim
+    )
+  )
+
+  return(p)
+}
+
+#' Plot simulation time series
+#'
+#' @param data Simulation data from get_simulation_data()
+#' @param vars Vector of variable names to plot
+#' @param downsampling Downsampling factor
+#' @param plot_width Plot width
+#' @param plot_height Plot height
+#' @return plotly object
+plot_simulation_timeseries <- function(data, vars, downsampling = 1,
+                                       plot_width = 800, plot_height = 600) {
+  # Validate inputs
+  if (is.null(data) || nrow(data) == 0) {
+    return(plot_ly() %>% layout(title = "No simulation data available"))
+  }
+
+  if (length(vars) == 0) {
+    return(plot_ly() %>% layout(title = "No variables selected"))
+  }
+
+  # Apply downsampling
+  if (downsampling > 1) {
+    data <- data[seq(1, nrow(data), by = downsampling), ]
+  }
+
+  # Color palette for different variables
+  colors <- RColorBrewer::brewer.pal(min(8, max(3, length(vars))), "Set1")
+
+  # Get variable name mapping from get_simulation_data.R
+  var_name_map <- get_simulation_variable_names()
+
+  # Create time series plot
+  p <- plot_ly(
+    width = plot_width,
+    height = min(plot_height, 600)
+  )
+
+  for (i in seq_along(vars)) {
+    var <- vars[i]
+    if (var %in% colnames(data)) {
+      # Get pretty name
+      var_name <- var_name_map[var]
+      if (is.na(var_name)) var_name <- var
+
+      p <- p %>% add_trace(
+        x = data$simulation_time, # Use simulation time instead of Unity time
+        y = data[[var]],
+        type = "scatter",
+        mode = "lines",
+        name = var_name,
+        line = list(color = colors[i %% length(colors) + 1], width = 2),
+        hovertemplate = paste0(
+          "<b>", var_name, ":</b> %{y:.4f}<br>",
+          "<b>Simulation Time:</b> %{x:.2f}s<br>",
+          "<extra></extra>"
+        )
+      )
+    }
+  }
+
+  p <- p %>% layout(
+    title = "Simulation Variables Over Time",
+    xaxis = list(title = "Simulation Time (s)"),
+    yaxis = list(title = "Value"),
+    legend = list(orientation = "v", x = 1.02, y = 1)
+  )
+
+  return(p)
+}

@@ -1,7 +1,7 @@
 ### Options
 
 ```{r}
-selectizeInput("plotVar", "Variable", choices = muVars, selected = "stepWidths.sd", multiple = FALSE)
+selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 #selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
 selectizeInput("varCategory", "Category", choices = categoriesExtraInputs, selected = "VFD", multiple = TRUE)
 selectizeInput("colorCategory", "Color", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
@@ -20,6 +20,21 @@ imageOutput("var")
 ```
 
 ```{r, context="server"}
+# Update variable choices dynamically based on the actual data
+observe({
+  mu <- get_mu_dyn_long()
+  if (!is.null(mu) && nrow(mu) > 0) {
+    vars <- colnames(mu)
+    # Set a good default if available
+    default_var <- if ("stepWidths.sd" %in% vars) "stepWidths.sd" else 
+                   if ("task_max_q" %in% vars) "task_max_q" else vars[1]
+    
+    updateSelectizeInput(session, "plotVar", 
+                        choices = vars, 
+                        selected = default_var)
+  }
+})
+
 output$var <- renderSVG({ reactive({
     mu <- get_mu_dyn_long()
     if (!input$doPaired) {

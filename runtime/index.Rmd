@@ -10,6 +10,9 @@ runtime: shinyrmd
 ```{r setup, include=FALSE}
 rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
 
+# Force regeneration flags
+FORCE_REGENERATE_SIMULATION_DATA <- FALSE  # Set to TRUE to force regeneration of cached simulation data
+
 source('source/setup.R')
 source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
@@ -24,6 +27,7 @@ source('source/get_questionnaire_results.R', local = FALSE)
 resultsFolder <- "results"
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
+simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 
 # Load or calculate the data
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
@@ -33,13 +37,18 @@ dataTypes         <- setdiff(getTypes(allGaitParams), categories)
 
 ## Summary tables
 source('source/summaryparams.R', local = FALSE)
-mu <- get_full_mu_sliced(allGaitParams, allQResults, categories, 180, avg_feet=FALSE, add_diff = TRUE)
-muDataTypes <- setdiff(getTypes(mu), categories)
-muVars <- colnames(mu)
+
+## The simulation source
+source('source/profile_shapes.R', local = FALSE)
+source('source/simulation_core.R', local = FALSE)
+source('source/get_simulation_data.R', local = FALSE)
+
+# Load or calculate enhanced simulation data for all participants and trials
+allSimulationData <- get_all_simulation_data_cached(force_regenerate = FORCE_REGENERATE_SIMULATION_DATA)
+
 ## Plotting code
 source('source/plotting.R', local = FALSE)
 ```
-
 
 Sidebar {.sidebar}
 =====================================
@@ -153,3 +162,7 @@ Manual Outlier Filtering
 ```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
 ```
 
+Simulation Data {data-icon="fa-gamepad"}
+=====================================
+```{r, child='pages/page17_simulationData.Rmd'}
+```
