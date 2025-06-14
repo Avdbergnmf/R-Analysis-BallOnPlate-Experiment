@@ -1,33 +1,42 @@
 ################ Data Manipulation ################
 
-detect_foot_events_coordinates <- function(footData, hipData) {
-  ####### FILTER
-  relFootPos <- footData$pos_z - hipData$pos_z
-  relFootPos_filtered <- apply_padding_and_filter(relFootPos, 4, 90, 5)
+# Helper function to check if hip data is stationary
+is_hip_stationary <- function(hipData, threshold_cm = 0.01) {
+  first_5_seconds <- hipData$time <= (hipData$time[1] + 5)
+  hip_range_x <- max(hipData$pos_x[first_5_seconds]) - min(hipData$pos_x[first_5_seconds])
+  hip_range_y <- max(hipData$pos_y[first_5_seconds]) - min(hipData$pos_y[first_5_seconds])
+  hip_range_z <- max(hipData$pos_z[first_5_seconds]) - min(hipData$pos_z[first_5_seconds])
 
-  # Detect local extremes of relative foot pos - Based on https://c-motion.com/v3dwiki/index.php/Tutorial:_Gait_Events#Method_1._Coordinate_Based_Algorithm
+  return(hip_range_x < threshold_cm && hip_range_y < threshold_cm && hip_range_z < threshold_cm)
+}
+
+# Helper function to detect local extremes # Detect local extremes of relative foot pos - Based on https://c-motion.com/v3dwiki/index.php/Tutorial:_Gait_Events#Method_1._Coordinate_Based_Algorithm
+detect_local_extremes <- function(relFootPos_filtered) {
   local_maxima <- which(diff(sign(diff(relFootPos_filtered))) == -2) + 1
   local_minima <- which(diff(sign(diff(relFootPos_filtered))) == 2) + 1
-  if (local_minima[1] > local_maxima[1]) { # Always start with a minimum (toe-off)
+
+  # Always start with a minimum (toe-off)
+  if (local_minima[1] > local_maxima[1]) {
     local_maxima <- local_maxima[-1]
   }
 
-  # Check for minimum time difference between consecutive maxima and minima  (erronous detections)
-  time_vector <- footData$time
-  pos_vector <- relFootPos_filtered
-  i <- 1 # Initialize indice
-  min_time_diff <- 0.1
-  min_pos_diff <- 0.0 # --> Removed pos threshold, because I'm not sure which extremes to remove.
+  return(list(maxima = local_maxima, minima = local_minima))
+}
+
+# Helper function to filter extremes based on time and position differences
+filter_extremes <- function(local_maxima, local_minima, time_vector, pos_vector, min_time_diff = 0.1, min_pos_diff = 0.0) {
+  i <- 1
   N_removed_time <- 0
   N_removed_pos <- 0
+
   while (i < length(local_maxima) && i < length(local_minima)) {
-    # Check time difference
+    # Calculate differences
     time_diff_max_to_min <- abs(time_vector[local_maxima[i]] - time_vector[local_minima[i + 1]])
     time_diff_min_to_max <- abs(time_vector[local_minima[i]] - time_vector[local_maxima[i]])
-    # Check distance difference
     pos_diff_max_to_min <- abs(pos_vector[local_maxima[i]] - pos_vector[local_minima[i + 1]])
     pos_diff_min_to_max <- abs(pos_vector[local_minima[i]] - pos_vector[local_maxima[i]])
 
+    # Remove pairs that don't meet criteria
     if (time_diff_max_to_min < min_time_diff) {
       local_minima <- local_minima[-(i + 1)]
       local_maxima <- local_maxima[-i]
@@ -36,7 +45,7 @@ detect_foot_events_coordinates <- function(footData, hipData) {
       local_maxima <- local_maxima[-i]
       local_minima <- local_minima[-i]
       N_removed_time <- N_removed_time + 1
-    } else if (pos_diff_max_to_min < min_pos_diff) { # we need to nest these, to prevent removing twice in 1 loop
+    } else if (pos_diff_max_to_min < min_pos_diff) {
       local_minima <- local_minima[-(i + 1)]
       local_maxima <- local_maxima[-i]
       N_removed_pos <- N_removed_pos + 1
@@ -45,92 +54,154 @@ detect_foot_events_coordinates <- function(footData, hipData) {
       local_minima <- local_minima[-i]
       N_removed_pos <- N_removed_pos + 1
     } else {
-      # Move to the next pair if both time and pos differences are sufficient
       i <- i + 1
     }
   }
 
-  # Heelstrike only in front of hip, toe-off only behind hip
+  return(list(
+    maxima = local_maxima, minima = local_minima,
+    N_removed_time = N_removed_time, N_removed_pos = N_removed_pos
+  ))
+}
+
+# Helper function to filter extremes based on hip position
+filter_by_hip_position <- function(local_maxima, local_minima, relFootPos) {
   count_wrong_side_of_hip <- length(relFootPos[local_maxima] > 0) + length(relFootPos[local_maxima] > 0)
   local_maxima <- local_maxima[relFootPos[local_maxima] > 0]
   local_minima <- local_minima[relFootPos[local_minima] < 0]
 
-  # alternation checking
+  return(list(
+    maxima = local_maxima, minima = local_minima,
+    count_wrong_side_of_hip = count_wrong_side_of_hip
+  ))
+}
+
+# Helper function to check and fix alternation
+check_alternation <- function(local_maxima, local_minima) {
   N_removed_min <- 0
   N_removed_max <- 0
-  # Fail gracefully: check for empty or too-short vectors before alternation checking
+
   if (length(local_minima) == 0 || length(local_maxima) == 0) {
     warning("No local minima or maxima found for alternation checking. Skipping alternation step.")
-  } else {
-    i <- 1
-    while (i <= length(local_minima) && i <= length(local_maxima)) {
-      # Check if indices are still valid
-      if (i > length(local_minima) || i > length(local_maxima)) break
-
-      # Remove maxima that come before their corresponding minima
-      while (i <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] < local_minima[i]) {
-        if (length(local_maxima) < i) break
-        local_maxima <- local_maxima[-i] # remove the maximum, it is wrong
-        N_removed_min <- N_removed_min + 1
-        if (length(local_maxima) < i) break
-      }
-
-      # Remove minima that come after the next maxima
-      while ((i + 1) <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] > local_minima[i + 1]) {
-        if (length(local_minima) < (i + 1)) break
-        local_minima <- local_minima[-(i + 1)] # remove the minimum, it is wrong
-        N_removed_max <- N_removed_max + 1
-        if (length(local_minima) < (i + 1)) break
-      }
-
-      i <- i + 1
-    }
+    return(list(
+      maxima = local_maxima, minima = local_minima,
+      N_removed_min = 0, N_removed_max = 0
+    ))
   }
 
+  i <- 1
+  while (i <= length(local_minima) && i <= length(local_maxima)) {
+    if (i > length(local_minima) || i > length(local_maxima)) break
+
+    # Remove maxima that come before their corresponding minima
+    while (i <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] < local_minima[i]) {
+      if (length(local_maxima) < i) break
+      local_maxima <- local_maxima[-i]
+      N_removed_min <- N_removed_min + 1
+      if (length(local_maxima) < i) break
+    }
+
+    # Remove minima that come after the next maxima
+    while ((i + 1) <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] > local_minima[i + 1]) {
+      if (length(local_minima) < (i + 1)) break
+      local_minima <- local_minima[-(i + 1)]
+      N_removed_max <- N_removed_max + 1
+      if (length(local_minima) < (i + 1)) break
+    }
+
+    i <- i + 1
+  }
+
+  return(list(
+    maxima = local_maxima, minima = local_minima,
+    N_removed_min = N_removed_min, N_removed_max = N_removed_max
+  ))
+}
+
+# Helper function to create output dataframes
+create_output_dataframes <- function(footData, local_maxima, local_minima) {
+  heelStrikes <- data.frame(footData[local_maxima, ])
+  toeOffs <- data.frame(footData[local_minima, ])
+
+  # Center heelstrike locations
+  heelStrikes$centered_pos_x <- heelStrikes$pos_x - mean(heelStrikes$pos_x, na.rm = TRUE)
+  heelStrikes$centered_pos_z <- heelStrikes$pos_z - mean(heelStrikes$pos_z, na.rm = TRUE)
+
+  return(list(heelStrikes = heelStrikes, toeOffs = toeOffs))
+}
+
+detect_foot_events_coordinates <- function(footData, hipData) {
+  # Check if hip data is stationary
+  useHip <- is_hip_stationary(hipData)
+
+  if (useHip) {
+    print("Hip data appears stationary (moves less than 1cm). Using absolute foot position instead of relative position.")
+    relFootPos <- footData$pos_z
+  } else {
+    relFootPos <- footData$pos_z - hipData$pos_z
+  }
+
+  # Filter and detect extremes
+  relFootPos_filtered <- apply_padding_and_filter(relFootPos, 4, 90, 5)
+  extremes <- detect_local_extremes(relFootPos_filtered)
+  local_maxima <- extremes$maxima
+  local_minima <- extremes$minima
+
+  # Filter extremes based on time and position
+  filtered <- filter_extremes(local_maxima, local_minima, footData$time, relFootPos_filtered)
+  local_maxima <- filtered$maxima
+  local_minima <- filtered$minima
+
+  # Filter by hip position
+  if (useHip) {
+    hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos)
+    local_maxima <- hip_filtered$maxima
+    local_minima <- hip_filtered$minima
+  }
+
+  # Check alternation
+  alternation <- check_alternation(local_maxima, local_minima)
+  local_maxima <- alternation$maxima
+  local_minima <- alternation$minima
+
+  # Refine heelstrike
   local_maxima <- refine_heelstrike(footData, local_maxima, local_minima)
 
-  # Make sure lengths match
+  # Ensure lengths match
   lMax <- length(local_maxima)
   lMin <- length(local_minima)
   if (lMax != lMin) {
     if (lMax > lMin) {
       print("Something REALLY WRONG... check detect_foot_events_coordinates()")
     }
-
     trimLength <- min(lMax, lMin)
     local_maxima <- local_maxima[1:trimLength]
     local_minima <- local_minima[1:trimLength]
   }
 
-  # Some logging
-  if (N_removed_time > 0) {
-    print(paste("removed", N_removed_time, "max+min due to time constraint."))
+  # Logging
+  if (filtered$N_removed_time > 0) {
+    print(paste("removed", filtered$N_removed_time, "max+min due to time constraint."))
   }
-  if (N_removed_pos > 0) {
-    print(paste("removed", N_removed_pos, "max+min due to pos difference constraint."))
+  if (filtered$N_removed_pos > 0) {
+    print(paste("removed", filtered$N_removed_pos, "max+min due to pos difference constraint."))
   }
-  if (count_wrong_side_of_hip > 0) {
-    print(paste("removed", count_wrong_side_of_hip, " extrema due to wrong side of hip"))
+  if (hip_filtered$count_wrong_side_of_hip > 0) {
+    print(paste("removed", hip_filtered$count_wrong_side_of_hip, " extrema due to wrong side of hip"))
   }
-  if (N_removed_max + N_removed_min > 0) {
-    print(paste("removed", N_removed_max, "maxima, and", N_removed_min, "minima due to wrong alternation."))
+  if (alternation$N_removed_max + alternation$N_removed_min > 0) {
+    print(paste("removed", alternation$N_removed_max, "maxima, and", alternation$N_removed_min, "minima due to wrong alternation."))
   }
-
 
   if (length(local_maxima) != length(local_minima)) {
     print(paste("WARNING: Length maxima:", length(local_maxima), "Length minima:", length(local_minima)))
   }
 
-  # Extract positions and times - use UNFILTERED footData
-  heelStrikes <- data.frame(footData[local_maxima, ])
-  toeOffs <- data.frame(footData[local_minima, ])
-  print(paste("--- ---totalsteps: ", length(heelStrikes$time)))
+  # Create output dataframes
+  output <- create_output_dataframes(footData, local_maxima, local_minima)
+  print(paste("--- ---totalsteps: ", length(output$heelStrikes$time)))
 
-  # Centered heelstrike locations
-  heelStrikes$centered_pos_x <- heelStrikes$pos_x - mean(heelStrikes$pos_x, na.rm = TRUE)
-  heelStrikes$centered_pos_z <- heelStrikes$pos_z - mean(heelStrikes$pos_z, na.rm = TRUE)
-
-  return(list(heelStrikes = heelStrikes, toeOffs = toeOffs))
+  return(output)
 }
 
 find_foot_events <- function(participant, trialNum) {

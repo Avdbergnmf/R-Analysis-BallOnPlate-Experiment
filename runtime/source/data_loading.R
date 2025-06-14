@@ -3,7 +3,8 @@ dataFolder <- "data"
 dataExtraFolder <- "data_extra"
 questionnaireInfoFolder <- "questionnaires"
 qTypes <- c("IMI", "UserExperience")
-qAnswers <- c("baseline", "training", "retention", "transfer") # the column names of the different questionnaire answers
+qAnswers <- c("baseline_task", "training2", "retention", "transfer") # the column names of the different questionnaire answers
+allTrials <- c(2, 3, 5, 7, 8, 9, 10, 11)
 
 participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
 trackerPath <- file.path(file.path(dataFolder, participants[1]), "trackers")

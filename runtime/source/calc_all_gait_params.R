@@ -1,6 +1,4 @@
 ####### DEFINITIONS
-
-allTrials <- c(1, 2, 5, 7, 8, 9, 10)
 # Getting types for later use
 xOptions <- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
 xOptions2D <- colnames(get_t_data(participants[1], "leftfoot", 1)) # options for pos rot trackers
