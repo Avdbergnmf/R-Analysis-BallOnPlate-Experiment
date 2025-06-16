@@ -20,6 +20,7 @@ source('source/pre_processing.R', local = FALSE)
 source('source/find_foot_events.R', local = FALSE)
 
 ## Get Results
+source('source/get_data_from_loop.R', local = FALSE)
 source('source/calc_all_gait_params.R', local = FALSE)
 source('source/get_questionnaire_results.R', local = FALSE)
 
@@ -28,6 +29,7 @@ resultsFolder <- "results"
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
 simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
+taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 
 # Load or calculate the data
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
@@ -35,21 +37,23 @@ allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params)
 
 dataTypes         <- setdiff(getTypes(allGaitParams), categories)
 
-## Summary tables
-source('source/summaryparams.R', local = FALSE)
-
 ## The simulation source
 source('source/profile_shapes.R', local = FALSE)
 source('source/simulation_core.R', local = FALSE)
 source('source/get_simulation_data.R', local = FALSE)
 
-# Load or calculate enhanced simulation data for all participants and trials
-allSimulationData <- get_all_simulation_data_cached(force_regenerate = FORCE_REGENERATE_SIMULATION_DATA)
+## Summary tables
+source('source/summarize_gaitparams.R', local = FALSE)
+source('source/summarize_simulation.R', local = FALSE)
+
+# Load or calculate task metrics
+allTaskMetrics <- load_or_calculate(taskMetricsFile, function() {
+    get_all_task_metrics(participants, allTrials)
+})
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)
 ```
-
 Sidebar {.sidebar}
 =====================================
 ```{r, child='pages/sidebar_dynamicDataFiltering.Rmd'}
