@@ -133,12 +133,13 @@ create_output_dataframes <- function(footData, local_maxima, local_minima) {
 detect_foot_events_coordinates <- function(footData, hipData) {
   # Check if hip data is stationary
   useHip <- is_hip_stationary(hipData)
+  checkAlternation <- TRUE
 
   if (useHip) {
+    relFootPos <- footData$pos_z - hipData$pos_z
+  } else {
     print("Hip data appears stationary (moves less than 1cm). Using absolute foot position instead of relative position.")
     relFootPos <- footData$pos_z
-  } else {
-    relFootPos <- footData$pos_z - hipData$pos_z
   }
 
   # Filter and detect extremes
@@ -153,16 +154,18 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   local_minima <- filtered$minima
 
   # Filter by hip position
-  if (useHip) {
+  if (useHip) { # but only if we have the hip data.
     hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos)
     local_maxima <- hip_filtered$maxima
     local_minima <- hip_filtered$minima
   }
 
   # Check alternation
-  alternation <- check_alternation(local_maxima, local_minima)
-  local_maxima <- alternation$maxima
-  local_minima <- alternation$minima
+  if (checkAlternation) {
+    alternation <- check_alternation(local_maxima, local_minima)
+    local_maxima <- alternation$maxima
+    local_minima <- alternation$minima
+  }
 
   # Refine heelstrike
   local_maxima <- refine_heelstrike(footData, local_maxima, local_minima)
@@ -186,7 +189,7 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   if (filtered$N_removed_pos > 0) {
     print(paste("removed", filtered$N_removed_pos, "max+min due to pos difference constraint."))
   }
-  if (hip_filtered$count_wrong_side_of_hip > 0) {
+  if (useHip && hip_filtered$count_wrong_side_of_hip > 0) {
     print(paste("removed", hip_filtered$count_wrong_side_of_hip, " extrema due to wrong side of hip"))
   }
   if (alternation$N_removed_max + alternation$N_removed_min > 0) {
@@ -267,79 +270,6 @@ add_diff_per_foot <- function(relHeelStrikesData) {
     select(time, foot, stepWidth, stepLength) # Select only relevant columns for the new dataframe
 
   return(diffData)
-}
-
-calculate_gait_parameters <- function(participant, trialNum) {
-  gaitData <- find_foot_events(participant, trialNum)
-
-  heelStrikesData <- gaitData$heelStrikes # should already be sorted based on time
-  toeOffsData <- gaitData$toeOffs
-
-  relHeelStrikesData <- gaitData$heelStrikes
-  # Apply diff and padding to each numeric column
-  relHeelStrikesData[] <- lapply(relHeelStrikesData, function(column) {
-    if (is.numeric(column)) {
-      # Calculate differences and pad with a leading zero
-      c(0, diff(column))
-    } else {
-      column # Return non-numeric columns unchanged
-    }
-  })
-
-  diffData <- add_diff_per_foot(relHeelStrikesData)
-
-  # time-based
-  stepTimes <- relHeelStrikesData$time # Calculate step times  >>> NOTE: The first heelstrike is only used as a starting point to the second
-  swingTimes <- heelStrikesData$time - toeOffsData$time # Calculate swing times <<< L = N   (not N-1)
-  stanceTimes <- stepTimes - swingTimes # Calculate stance times
-
-  # position-based
-  stepWidths <- relHeelStrikesData$pos_x # Calculate step width
-  stepWidths <- ifelse(relHeelStrikesData$foot == "Left", stepWidths * -1, stepWidths) # Adjust sign based on which foot is stepping
-  stepLengths <- relHeelStrikesData$actual_pos_z # Calculate step lengths
-  speed <- stepLengths / stepTimes # Calculate speed
-
-  # Initial outlier detection that doesn't work so well.
-  heelStrikesData$outlierSteps <- detect_outliers_modified_z_scores(stepTimes, threshold = 6) # another option: stepTimes > median(stepTimes) * 2 | stepTimes < median(stepTimes) * 0.5
-  currentlyIgnoredSteps <- heelStrikesData$outlierSteps
-  heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(speed, currentlyIgnoredSteps, 6)
-  currentlyIgnoredSteps <- currentlyIgnoredSteps | heelStrikesData$outlierSteps
-  heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(stepLengths, currentlyIgnoredSteps, 10)
-
-  # Make a list of all the gait parameters
-  gaitParams <- list(
-    stepTimes = stepTimes,
-    # stanceTimes = stanceTimes, ####### These are not working well atm. Toe-offs are not filtered properly
-    # swingStanceRatio = swingTimes / stanceTimes,
-    # swingTimes = swingTimes,
-    # finalStepWidths = finalStepWidths,
-    stepLengths = stepLengths,
-    # finalStepLengths = finalStepLengths,
-    stepWidths = stepWidths,
-    centered_stepLengths = stepLengths - mean(stepLengths),
-    centered_stepWidths = stepWidths - mean(stepWidths),
-    speed = speed,
-    heelStrikes = heelStrikesData,
-    toeOffs = toeOffsData,
-    relHeelStrikes = relHeelStrikesData,
-    diffData = diffData
-  )
-
-  # Remove all the first steps, because they are always wrong.
-  gaitParams <- lapply(gaitParams, function(x) {
-    # Check if the element is a vector or data frame
-    if (is.vector(x)) {
-      # Remove the first element for vectors
-      x[-1]
-    } else if (is.data.frame(x)) {
-      # Remove the first row for data frames
-      x[-1, ]
-    } else {
-      x # Return the element unchanged if it is not a vector or data frame
-    }
-  })
-
-  return(gaitParams)
 }
 
 refine_heelstrike <- function(footData, local_maxima, local_minima, smoothing_window = 5, change_threshold = 0.05) {
