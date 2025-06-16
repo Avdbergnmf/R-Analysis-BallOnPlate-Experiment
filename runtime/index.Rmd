@@ -10,9 +10,6 @@ runtime: shinyrmd
 ```{r setup, include=FALSE}
 rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
 
-# Force regeneration flags
-FORCE_REGENERATE_SIMULATION_DATA <- FALSE  # Set to TRUE to force regeneration of cached simulation data
-
 source('source/setup.R')
 source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
