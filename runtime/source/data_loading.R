@@ -5,6 +5,9 @@ questionnaireInfoFolder <- "questionnaires"
 qTypes <- c("IMI", "UserExperience")
 qAnswers <- c("baseline_task", "training2", "retention", "transfer") # the column names of the different questionnaire answers
 allTrials <- c(2, 3, 5, 7, 8, 9, 10, 11)
+# trial 1 is just selecting the walking speed
+# trial 4 is standing familiarization with the task
+# trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
 
 participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
 trackerPath <- file.path(file.path(dataFolder, participants[1]), "trackers")
@@ -158,21 +161,62 @@ condition_number <- function(participant) {
   return(1) # neither
 }
 
-# get any type of data
-get_t_data <- function(participant, trackerType, trialNum) {
+# Helper function to check if a file exists for a given participant, tracker type, and trial
+check_file_exists <- function(participant, trackerType, trialNum) {
   # Validate trackerType
   if (!trackerType %in% names(filenameDict)) {
-    message("Invalid tracker type specified: ", trackerType)
-    return(NULL)
+    warning(sprintf("Invalid tracker type specified: %s", trackerType))
+    return(FALSE)
   }
 
-  filename <- paste0(filenameDict[[trackerType]], "_T", sprintf("%03d", trialNum), ".csv")
+  # Get the file prefix from the dictionary
+  prefix <- filenameDict[[trackerType]]
+  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
+  filePath <- file.path(get_p_dir(participant), "trackers", filename)
+
+  return(file.exists(filePath))
+}
+
+# Helper function to check if a file has data (only use when necessary)
+check_file_has_data <- function(participant, trackerType, trialNum) {
+  # Validate trackerType
+  if (!trackerType %in% names(filenameDict)) {
+    warning(sprintf("Invalid tracker type specified: %s", trackerType))
+    return(FALSE)
+  }
+
+  # Get the file prefix from the dictionary
+  prefix <- filenameDict[[trackerType]]
+  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   if (!file.exists(filePath)) {
-    message("File does not exist: ", filePath)
+    return(FALSE)
+  }
+
+  tryCatch(
+    {
+      data <- read.csv(filePath)
+      return(nrow(data) > 0)
+    },
+    error = function(e) {
+      return(FALSE)
+    }
+  )
+}
+
+# get any type of data
+get_t_data <- function(participant, trackerType, trialNum) {
+  # Check if file exists
+  if (!check_file_exists(participant, trackerType, trialNum)) {
+    message(sprintf("File does not exist for participant %s, tracker %s, trial %d", participant, trackerType, trialNum))
     return(NULL)
   }
+
+  # Get the file prefix from the dictionary
+  prefix <- filenameDict[[trackerType]]
+  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
+  filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   # Use tryCatch for more robust error handling
   data <- tryCatch(
