@@ -4,6 +4,8 @@
 library(dplyr)
 library(tibble)
 
+# Source the simulation core functions
+# source("runtime/source/simulation_core.R")
 
 #' Get list of base parameters to summarize
 #'
@@ -104,15 +106,11 @@ get_simulation_variable_names <- function() {
 #'
 #' @param participant Participant identifier
 #' @param trial Trial number
-#' @param trials Optional list of trials for consistent factor creation
 #' @return Tibble with simulation data or empty tibble if no data found
 #' @export
-get_simulation_data <- function(participant, trial, trials = NULL) {
+get_simulation_data <- function(participant, trial) {
     # Load raw simulation data
-    sim_data <- load_simulation_data(participant, trial)
-    if (is.null(sim_data) || nrow(sim_data) == 0) {
-        return(tibble())
-    }
+    sim_data <- get_t_data(participant, "sim", trial)
 
     # Filter out non-simulation steps
     sim_data <- sim_data %>%
@@ -123,11 +121,7 @@ get_simulation_data <- function(participant, trial, trials = NULL) {
     }
 
     # Get level data for arcDeg
-    level_data <- get_level_data(participant, trial)
-    if (is.null(level_data) || nrow(level_data) == 0) {
-        warning(sprintf("No level data found for participant %s, trial %d", participant, trial))
-        return(tibble())
-    }
+    level_data <- get_t_data(participant, "level", trial)
 
     # Process the simulation data
     sim_data <- process_simulation_data(sim_data, level_data)
@@ -135,8 +129,8 @@ get_simulation_data <- function(participant, trial, trials = NULL) {
     # Add identifiers
     sim_data <- sim_data %>%
         mutate(
-            participant = factor(participant, levels = if (!is.null(trials)) unique(trials$participant) else NULL),
-            trialNum = factor(trial, levels = if (!is.null(trials)) unique(trials$trialNum) else NULL)
+            participant = as.factor(participant),
+            trialNum = as.ordered(trial)
         )
 
     return(sim_data)
@@ -149,189 +143,259 @@ get_simulation_data <- function(participant, trial, trials = NULL) {
 #' @return Processed simulation data with enhanced metrics
 #' @export
 process_simulation_data <- function(sim_data, level_data) {
-    # Calculate coordinates
-    sim_data <- calculate_coordinates(sim_data)
+    # Step 1: Detect respawn events and mark simulation data
+    sim_data <- detect_respawn_events(sim_data)
 
-    # Add simulation time
-    sim_data <- add_simulation_time(sim_data)
+    # Step 2: Add artificial datapoints at gap boundaries
+    sim_data <- add_artificial_gap_points(sim_data)
 
-    # Ensure qdd column exists
-    sim_data <- ensure_qdd_column(sim_data)
-
-    # Get indices to zero
-    indices_to_zero <- get_indices_to_zero(sim_data)
-
-    # Zero variables at respawn points
-    sim_data <- zero_variables_at_indices(sim_data, indices_to_zero)
-
-    # Assign arc degrees
+    # Step 3: Assign arc degrees from task level data
     sim_data <- assign_arc_degrees(sim_data, level_data)
 
-    # Add energy metrics
-    sim_data <- add_energy_metrics(sim_data)
+    # Step 4: Calculate world coordinates using CircularProfileShape
+    sim_data <- calculate_coordinates(sim_data)
 
-    # Add safety metrics
-    sim_data <- add_safety_metrics(sim_data)
+    # Step 5: Add simulation time column
+    sim_data <- add_simulation_time(sim_data)
 
-    # Add power metrics
-    sim_data <- add_power_metrics(sim_data)
+    # Step 6: Apply post-processing for velocities and accelerations
+    sim_data <- post_process_df(sim_data)
 
-    # Add work metrics
-    sim_data <- add_work_metrics(sim_data)
+    # Step 7: Ensure qdd column exists
+    sim_data <- ensure_qdd_column(sim_data)
+
+    # Step 8: Add energy, power, and safety metrics
+    representative_arcDeg <- tail(sim_data$arcDeg, 1)
+    representative_shape <- CircularProfileShape$new(
+        R = 5.0, arcDeg = representative_arcDeg, L = 0,
+        mu_d = 0.03, mu_s = 0.05, damping = 0, g = 9.81
+    )
+
+    sim_data <- add_energy_cols(sim_data, g = representative_shape$g)
+    sim_data <- add_power_cols(sim_data)
+    sim_data <- add_safety_cols(sim_data, representative_shape)
+
+    # Step 9: Zero out derived variables at gap boundaries and adjacent samples
+    indices_to_zero <- get_indices_to_zero(sim_data)
+    sim_data <- zero_variables_at_indices(sim_data, indices_to_zero)
 
     return(sim_data)
 }
 
-#' Calculate coordinates from simulation data
+#' Calculate coordinates from simulation data using CircularProfileShape
 #'
-#' @param sim_data Simulation data
-#' @return Simulation data with calculated coordinates
-#' @export
-calculate_coordinates <- function(sim_data) {
-    sim_data %>%
-        mutate(
-            x = R * sin(q),
-            y = R * (1 - cos(q)),
-            x_world = x + p
+#' @param data Simulation data with arcDeg
+#' @return Data with local and world coordinates added
+calculate_coordinates <- function(data) {
+    unique_arcDegs <- unique(data$arcDeg)
+    data$x <- NA
+    data$y <- NA
+    data$q_max <- NA # Add q_max column
+
+    # Calculate coordinates for real simulation data
+    for (arcDeg in unique_arcDegs) {
+        shape <- CircularProfileShape$new(
+            R = 5.0, arcDeg = arcDeg, L = 0,
+            mu_d = 0.03, mu_s = 0.05, damping = 0, g = 9.81
         )
-}
 
-#' Add simulation time to data
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with added simulation time
-#' @export
-add_simulation_time <- function(sim_data) {
-    sim_data %>%
-        mutate(simulation_time = cumsum(dt))
-}
+        rows_with_arcDeg <- which(data$arcDeg == arcDeg & data$simulating)
 
-#' Ensure qdd column exists
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with qdd column
-#' @export
-ensure_qdd_column <- function(sim_data) {
-    if (!"qdd" %in% colnames(sim_data)) {
-        sim_data$qdd <- 0
+        if (length(rows_with_arcDeg) > 0) {
+            q_values <- data$q[rows_with_arcDeg]
+            local_coords_matrix <- t(sapply(q_values, function(q_val) shape$getXY(q_val)))
+            data$x[rows_with_arcDeg] <- local_coords_matrix[, 1]
+            data$y[rows_with_arcDeg] <- local_coords_matrix[, 2]
+
+            # Store q_max for this arcDeg
+            data$q_max[rows_with_arcDeg] <- shape$getMaxQ()
+        }
     }
-    return(sim_data)
+
+    # Set artificial points to origin
+    artificial_indices <- which(!data$simulating)
+    if (length(artificial_indices) > 0) {
+        data$x[artificial_indices] <- 0
+        data$y[artificial_indices] <- 0
+        data$q_max[artificial_indices] <- 0
+    }
+
+    # Add world coordinates in same step
+    data %>%
+        mutate(
+            x_world = p + x # World x position
+            # y is the same in both frames (plate doesn't move vertically)
+        )
 }
 
-#' Get indices to zero at respawn points
-#'
-#' @param sim_data Simulation data
-#' @return Vector of indices to zero
-#' @export
-get_indices_to_zero <- function(sim_data) {
-    # Find respawn points (where y_escape equals R)
-    respawn_indices <- which(sim_data$y_escape == sim_data$R)
-
-    # Add one to each index to get the point after respawn
-    respawn_indices + 1
+#' Helper function to detect and mark respawn events
+#' @param data Raw simulation data
+#' @return Data with respawn detection columns added
+detect_respawn_events <- function(data) {
+    data %>%
+        arrange(time) %>%
+        mutate(
+            time_diff = c(0, diff(time)),
+            is_respawn_gap = time_diff > 1.0,
+            respawn_segment = cumsum(is_respawn_gap) + 1,
+            is_post_respawn = is_respawn_gap,
+            simulating = TRUE
+        )
 }
 
-#' Zero variables at specified indices
-#'
-#' @param sim_data Simulation data
-#' @param indices Indices to zero
-#' @return Simulation data with zeroed variables
-#' @export
-zero_variables_at_indices <- function(sim_data, indices) {
-    # Zero velocity and acceleration at respawn points
-    sim_data$qd[indices] <- 0
-    sim_data$qdd[indices] <- 0
+#' Helper function to create artificial datapoints at gap boundaries
+#' @param data Data with respawn events detected
+#' @return Data with artificial datapoints added
+add_artificial_gap_points <- function(data) {
+    if (!any(data$is_respawn_gap)) {
+        return(data)
+    }
 
-    return(sim_data)
+    gap_indices <- which(data$is_respawn_gap)
+    artificial_rows <- list()
+
+    for (gap_idx in gap_indices) {
+        time_before_gap <- data$time[gap_idx - 1]
+        time_after_gap <- data$time[gap_idx]
+
+        # Artificial point at end of previous segment
+        end_point <- data[gap_idx - 1, ] %>%
+            mutate(
+                time = time_before_gap + 0.001,
+                p = 0, q = 0, qd = 0,
+                dt = 0.001,
+                time_diff = 0.001,
+                is_respawn_gap = FALSE,
+                is_post_respawn = FALSE,
+                simulating = FALSE
+            )
+
+        # Artificial point at start of next segment
+        start_point <- data[gap_idx, ] %>%
+            mutate(
+                time = time_after_gap - 0.001,
+                p = 0, q = 0, qd = 0,
+                dt = 0.001,
+                time_diff = time_after_gap - time_before_gap - 0.002,
+                is_respawn_gap = FALSE,
+                is_post_respawn = FALSE,
+                simulating = FALSE
+            )
+
+        artificial_rows <- c(artificial_rows, list(end_point, start_point))
+    }
+
+    # Combine and re-sort data
+    bind_rows(data, artificial_rows) %>%
+        arrange(time) %>%
+        mutate(
+            time_diff = c(0, diff(time)),
+            is_respawn_gap = time_diff > 1.0,
+            respawn_segment = cumsum(is_respawn_gap) + 1,
+            is_post_respawn = is_respawn_gap
+        )
 }
 
-#' Assign arc degrees to simulation data
-#'
+#' Helper function to assign arcDeg values based on task level data
 #' @param sim_data Simulation data
-#' @param level_data Level data
-#' @return Simulation data with assigned arc degrees
-#' @export
+#' @param level_data Task level data
+#' @return Simulation data with arcDeg column
 assign_arc_degrees <- function(sim_data, level_data) {
-    # Find level indices based on simulation time
-    level_indices <- findInterval(sim_data$time, level_data$time, rightmost.closed = TRUE)
+    if (is.null(level_data) || nrow(level_data) == 0) {
+        sim_data$arcDeg <- 180
+        return(sim_data)
+    }
 
-    # Assign arc degrees
+    level_data <- level_data[order(level_data$time), ]
+    level_indices <- findInterval(sim_data$time, level_data$time, rightmost.closed = TRUE)
+    level_indices[level_indices == 0] <- 1
+
     sim_data$arcDeg <- level_data$deg[level_indices]
+    sim_data$arcDeg[is.na(sim_data$arcDeg)] <- 180
 
     return(sim_data)
 }
 
-#' Add energy metrics to simulation data
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with added energy metrics
-#' @export
-add_energy_metrics <- function(sim_data) {
-    sim_data %>%
+#' Helper function to add simulation time column
+#' @param data Enhanced simulation data
+#' @return Data with simulation_time column
+add_simulation_time <- function(data) {
+    data %>%
         mutate(
-            # Kinetic energy (plate-relative)
-            ke = 0.5 * m * qd^2,
-
-            # Kinetic energy (world)
-            ke_world = 0.5 * m * (qd^2 + pd^2),
-
-            # Potential energy
-            pe = m * g * y,
-
-            # Total energy (plate-relative)
-            e = ke + pe,
-
-            # Total energy (world)
-            e_world = ke_world + pe
+            cumulative_gap_time = cumsum(ifelse(is_respawn_gap, time_diff, 0)),
+            simulation_time = cumsum(dt) + cumulative_gap_time
         )
 }
 
-#' Add safety metrics to simulation data
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with added safety metrics
-#' @export
-add_safety_metrics <- function(sim_data) {
-    sim_data %>%
-        mutate(
-            # Energy margin (difference between current energy and escape energy)
-            margin_E = e_world - m * g * R,
-
-            # Danger level (normalized energy margin)
-            danger = margin_E / (m * g * R)
-        )
+#' Helper function to compute missing qdd if needed
+#' @param data Data after post-processing
+#' @return Data with qdd column ensured
+ensure_qdd_column <- function(data) {
+    if (!"qdd" %in% colnames(data) && "qd" %in% colnames(data)) {
+        data %>%
+            arrange(time) %>%
+            mutate(qdd = c(0, diff(qd) / diff(time)))
+    } else {
+        data
+    }
 }
 
-#' Add power metrics to simulation data
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with added power metrics
-#' @export
-add_power_metrics <- function(sim_data) {
-    sim_data %>%
-        mutate(
-            # Power (plate-relative)
-            power = m * g * qd * sin(q),
+#' Helper function to identify indices that need variable zeroing
+#' @param data Enhanced simulation data
+#' @return Vector of indices to zero out
+get_indices_to_zero <- function(data) {
+    if (!"simulating" %in% colnames(data)) {
+        return(integer(0))
+    }
 
-            # Power (world)
-            power_world = m * g * (qd * sin(q) + pd * cos(q))
-        )
+    artificial_indices <- which(!data$simulating)
+    adjacent_indices <- c()
+
+    # Find real samples adjacent to artificial points (they create jumps to/from zero)
+    for (idx in artificial_indices) {
+        # Sample before artificial point
+        if (idx > 1 && data$simulating[idx - 1]) {
+            adjacent_indices <- c(adjacent_indices, idx - 1)
+        }
+        # Sample after artificial point
+        if (idx < nrow(data) && data$simulating[idx + 1]) {
+            adjacent_indices <- c(adjacent_indices, idx + 1)
+        }
+    }
+
+    unique(c(artificial_indices, adjacent_indices))
 }
 
-#' Add work metrics to simulation data
-#'
-#' @param sim_data Simulation data
-#' @return Simulation data with added work metrics
-#' @export
-add_work_metrics <- function(sim_data) {
-    sim_data %>%
-        mutate(
-            # Work (plate-relative)
-            work = cumsum(power * dt),
+#' Helper function to zero out all variable types at specified indices
+#' @param data Enhanced simulation data
+#' @param indices_to_zero Vector of row indices to zero out
+#' @return Data with variables zeroed at specified indices
+zero_variables_at_indices <- function(data, indices_to_zero) {
+    if (length(indices_to_zero) == 0) {
+        return(data)
+    }
 
-            # Work (world)
-            work_world = cumsum(power_world * dt)
-        )
+    # Define variable groups
+    variable_groups <- list(
+        kinematic_local = c("vx", "vy", "ax", "ay", "qd", "qdd"),
+        kinematic_world = c("vx_world", "ax_world"),
+        energy_local = c("ke", "e"),
+        energy_world = c("ke_world", "e_world"),
+        power_local = c("power", "work"),
+        power_world = c("power_world", "work_world"),
+        safety = c("margin_E", "danger")
+    )
+
+    # Zero out each group
+    for (group_vars in variable_groups) {
+        for (var in group_vars) {
+            if (var %in% colnames(data)) {
+                data[[var]][indices_to_zero] <- 0
+            }
+        }
+    }
+
+    return(data)
 }
 
 #' Get simulation variable choices with pretty names

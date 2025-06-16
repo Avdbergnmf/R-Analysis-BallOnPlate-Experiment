@@ -63,11 +63,8 @@ compute_task_metrics <- function(sim_data) {
     return(result)
 }
 
-get_metrics <- function(p, t, s) {
-    sim_data <- get_simulation_data(p, t, trials, s)
-    if (nrow(sim_data) == 0) {
-        return(tibble())
-    }
+get_metrics <- function(p, t) {
+    sim_data <- get_simulation_data(p, t)
     return(compute_task_metrics(sim_data))
 }
 
@@ -80,7 +77,7 @@ get_metrics <- function(p, t, s) {
 #' @return Tibble with task metrics for all participant/trial combinations
 #' @export
 get_all_task_metrics <- function() {
-    return(get_data_from_loop(get_metrics, datasets_to_verify = c("sim", "level")))
+    return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("sim", "level")))
 }
 
 #' Merge mu gait data with mu_task simulation data
