@@ -35,6 +35,11 @@ add_category_columns <- function(data) {
   return(data)
 }
 
+#' Calculate gait parameters for a single participant/trial combination
+#' @param participant Participant ID
+#' @param trial Trial number
+#' @param slice_length Optional length of time slices
+#' @return Tibble with gait parameters
 calculate_gait_parameters <- function(participant, trialNum) {
   gaitData <- find_foot_events(participant, trialNum)
 
@@ -108,6 +113,8 @@ calculate_gait_parameters <- function(participant, trialNum) {
   return(gaitParams)
 }
 
+#' Calculate gait parameters for all participants and trials
+#' @return Tibble with gait parameters for all combinations
 calc_all_gait_params <- function() {
-  return(get_data_from_loop(calculate_gait_parameters)) # _parallel
+  return(get_data_from_loop_parallel(calculate_gait_parameters)) # _parallel
 }
