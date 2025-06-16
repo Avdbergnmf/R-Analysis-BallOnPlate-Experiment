@@ -156,6 +156,9 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
     valid_combinations <- get_valid_combinations(datasets_to_verify)
 
+    # Initialize data object
+    data <- data.frame()
+
     # Variables for progress bar
     total_iterations <- nrow(valid_combinations)
     current_iteration <- 0
@@ -179,6 +182,7 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
         # Calculate gait data and parameters
         newData <- get_data_function(participant, trial, ...)
         newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
+
         data <- rbind(data, newData)
     }
 
