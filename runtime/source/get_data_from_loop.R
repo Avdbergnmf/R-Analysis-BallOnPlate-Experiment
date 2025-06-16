@@ -102,49 +102,7 @@ print_verification_results <- function(verification_results) {
 }
 
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
-    # Create a data frame of all participant and trial combinations
-    combinations <- expand.grid(participant = participants, trial = allTrials)
-
-    # Verify data availability for all combinations
-    verification_results <- list()
-    valid_combinations <- data.frame(participant = character(), trial = numeric(), stringsAsFactors = FALSE)
-
-    cat("Verifying data availability...\n")
-    for (i in 1:nrow(combinations)) {
-        participant <- as.character(combinations$participant[i])
-        trial <- combinations$trial[i]
-
-        # Initialize participant in results if needed
-        if (is.null(verification_results[[participant]])) {
-            verification_results[[participant]] <- list()
-        }
-
-        # Verify data for this combination
-        verification_results[[participant]][[as.character(trial)]] <- verify_trial_data(participant, trial, datasets_to_verify)
-
-        # Check if all required datasets are present and have data
-        all_valid <- all(sapply(verification_results[[participant]][[as.character(trial)]], function(x) x$exists && x$has_data))
-
-        if (all_valid) {
-            valid_combinations <- rbind(valid_combinations, data.frame(participant = participant, trial = trial, stringsAsFactors = FALSE))
-        }
-    }
-
-    # Print verification results
-    print_verification_results(verification_results)
-
-    if (nrow(valid_combinations) == 0) {
-        warning(sprintf(
-            "No valid combinations found for datasets: %s. Please check your data files.",
-            paste(datasets_to_verify, collapse = ", ")
-        ))
-        return(data.frame())
-    }
-
-    cat(sprintf(
-        "\nFound %d valid combinations out of %d total combinations.\n",
-        nrow(valid_combinations), nrow(combinations)
-    ))
+    valid_combinations <- get_valid_combinations(datasets_to_verify)
 
     # Set up parallel backend to use multiple processors
     numCores <- detectCores() - 1 # Leave one core free for system processes
@@ -168,7 +126,9 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         source("source/calc_all_gait_params.R", local = FALSE)
         source("source/profile_shapes.R", local = FALSE)
         source("source/simulation_core.R", local = FALSE)
-        source("source/calc_simulation_data.R`", local = FALSE)
+        source("source/get_simulation_data.R", local = FALSE)
+        source("source/summarize_simulation.R", local = FALSE)
+        source("source/summarize_gaitparams.R", local = FALSE)
 
         # Extract participant and trial for this iteration
         participant <- valid_combinations$participant[i]
@@ -194,9 +154,45 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 }
 
 get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
-    # Initialize an empty data frame
-    data <- data.frame()
+    valid_combinations <- get_valid_combinations(datasets_to_verify)
 
+    # Variables for progress bar
+    total_iterations <- nrow(valid_combinations)
+    current_iteration <- 0
+
+    for (i in 1:nrow(valid_combinations)) {
+        participant <- valid_combinations$participant[i]
+        trial <- valid_combinations$trial[i]
+
+        # PRINT PROGRESS BAR
+        current_iteration <- current_iteration + 1
+        progress_percent <- (current_iteration / total_iterations) * 100
+        progress_bar_length <- 50
+        num_hashes <- floor(progress_bar_length * progress_percent / 100)
+        num_dashes <- progress_bar_length - num_hashes
+        progress_bar <- paste0("[", paste(rep("#", num_hashes), collapse = ""), paste(rep("-", num_dashes), collapse = ""), "]")
+
+        # Print progress bar with the percentage
+        cat(sprintf("\rProgress: %s %.2f%% On Participant: %s, Trial: %s\n", progress_bar, progress_percent, participant, trial))
+        flush.console()
+
+        # Calculate gait data and parameters
+        newData <- get_data_function(participant, trial, ...)
+        newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
+        data <- rbind(data, newData)
+    }
+
+    # Print final progress bar to indicate completion
+    cat("\n")
+
+    if (nrow(data) == 0) {
+        warning("No data was successfully processed from the valid combinations.")
+    }
+
+    return(data)
+}
+
+get_valid_combinations <- function(datasets_to_verify) {
     # Verify data availability for all combinations
     verification_results <- list()
     valid_combinations <- data.frame()
@@ -237,38 +233,5 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
         nrow(valid_combinations), length(participants) * length(allTrials)
     ))
 
-    # Variables for progress bar
-    total_iterations <- nrow(valid_combinations)
-    current_iteration <- 0
-
-    for (i in 1:nrow(valid_combinations)) {
-        participant <- valid_combinations$participant[i]
-        trial <- valid_combinations$trial[i]
-
-        # PRINT PROGRESS BAR
-        current_iteration <- current_iteration + 1
-        progress_percent <- (current_iteration / total_iterations) * 100
-        progress_bar_length <- 50
-        num_hashes <- floor(progress_bar_length * progress_percent / 100)
-        num_dashes <- progress_bar_length - num_hashes
-        progress_bar <- paste0("[", paste(rep("#", num_hashes), collapse = ""), paste(rep("-", num_dashes), collapse = ""), "]")
-
-        # Print progress bar with the percentage
-        cat(sprintf("\rProgress: %s %.2f%% On Participant: %s, Trial: %s\n", progress_bar, progress_percent, participant, trial))
-        flush.console()
-
-        # Calculate gait data and parameters
-        newData <- get_data_function(participant, trial, ...)
-        newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
-        data <- rbind(data, newData)
-    }
-
-    # Print final progress bar to indicate completion
-    cat("\n")
-
-    if (nrow(data) == 0) {
-        warning("No data was successfully processed from the valid combinations.")
-    }
-
-    return(data)
+    return(valid_combinations)
 }

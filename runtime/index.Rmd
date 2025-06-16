@@ -47,9 +47,7 @@ source('source/summarize_gaitparams.R', local = FALSE)
 source('source/summarize_simulation.R', local = FALSE)
 
 # Load or calculate task metrics
-allTaskMetrics <- load_or_calculate(taskMetricsFile, function() {
-    get_all_task_metrics(participants, allTrials)
-})
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)

@@ -63,6 +63,14 @@ compute_task_metrics <- function(sim_data) {
     return(result)
 }
 
+get_metrics <- function(p, t, s) {
+    sim_data <- get_simulation_data(p, t, trials, s)
+    if (nrow(sim_data) == 0) {
+        return(tibble())
+    }
+    return(compute_task_metrics(sim_data))
+}
+
 #' Get task metrics for all participants and trials
 #'
 #' @param participants List of participant identifiers
@@ -71,24 +79,8 @@ compute_task_metrics <- function(sim_data) {
 #' @param remove_middle_slices Optional flag to remove middle slices
 #' @return Tibble with task metrics for all participant/trial combinations
 #' @export
-get_all_task_metrics <- function(participants, trials, slice_length = NULL, remove_middle_slices = FALSE) {
-    # Use the existing loop infrastructure
-    all_metrics <- get_data_from_loop(
-        participants = participants,
-        trials = trials,
-        get_data_fn = function(p, t, s) {
-            sim_data <- get_simulation_data(p, t, trials, s)
-            if (nrow(sim_data) == 0) {
-                return(tibble())
-            }
-            return(compute_task_metrics(sim_data))
-        },
-        datasets_to_verify = c("sim", "level"),
-        slice_length = slice_length,
-        remove_middle_slices = remove_middle_slices
-    )
-
-    return(all_metrics)
+get_all_task_metrics <- function() {
+    return(get_data_from_loop(get_metrics, datasets_to_verify = c("sim", "level")))
 }
 
 #' Merge mu gait data with mu_task simulation data
