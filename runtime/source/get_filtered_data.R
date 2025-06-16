@@ -36,15 +36,13 @@ get_mu_dyn_long <- reactive({
       selected_participants <- input$filterParticipants
       selected_trials <- input$filterTrials
 
-      # Use cached simulation data if available, otherwise fall back to direct computation
       if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) {
-        mu_task <- allTaskMetrics(
-          allSimData = allTaskMetrics,
-          participants = selected_participants,
-          trials = selected_trials,
-          slice_length = input$slice_length,
-          time_col = "simulation_time"
-        )
+        # Filter task metrics by participant and trial
+        mu_task <- allTaskMetrics %>%
+          filter(
+            participant %in% selected_participants,
+            trialNum %in% selected_trials
+          )
 
         # Merge gait and task data
         mu_combined <- merge_mu_with_task(mu_gait, mu_task)

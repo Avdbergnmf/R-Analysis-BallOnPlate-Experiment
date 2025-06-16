@@ -97,18 +97,77 @@ merge_mu_with_task <- function(mu_gait, mu_task) {
         return(mu_task)
     }
 
-    # Add task_ prefix to all task metric columns (except participant and trialNum)
-    task_metrics_cols <- setdiff(colnames(mu_task), c("participant", "trialNum"))
-    mu_task_renamed <- mu_task %>%
-        rename_with(~ paste0("task_", .x), all_of(task_metrics_cols))
+    # Create copies of the data frames to avoid modifying the originals
+    mu_gait_copy <- mu_gait
+    mu_task_copy <- mu_task
+
+    # Convert trialNum to numeric in both datasets
+    mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
+    mu_task_copy$trialNum <- as.numeric(as.character(mu_task_copy$trialNum))
+
+    # Add task. prefix to all task metric columns (except participant and trialNum)
+    task_metrics_cols <- setdiff(colnames(mu_task_copy), c("participant", "trialNum"))
+    mu_task_renamed <- mu_task_copy %>%
+        rename_with(~ paste0("task.", .x), all_of(task_metrics_cols))
+
 
     # Merge based on participant and trialNum
-    # Use full_join to keep all data from both sources
     merged_data <- full_join(
-        mu_gait,
+        mu_gait_copy,
         mu_task_renamed,
         by = c("participant", "trialNum")
     )
 
     return(merged_data)
+}
+
+#' Process task metrics data with time slicing
+#'
+#' @param task_data The task metrics data frame
+#' @param slice_length Length of each time slice in seconds
+#' @param remove_middle_slices Whether to keep only first and last slices
+#' @return Processed task metrics data with slice indices
+#' @export
+process_task_metrics_sliced <- function(task_data, slice_length = 180, remove_middle_slices = FALSE) {
+    # Add slice index based on simulation time
+    task_data <- task_data %>%
+        group_by(participant, trialNum) %>%
+        mutate(
+            slice_index = floor((simulation_time - min(simulation_time, na.rm = TRUE)) / slice_length) + 1
+        ) %>%
+        ungroup()
+
+    # If remove_middle_slices is TRUE, keep only first and last slice
+    if (remove_middle_slices) {
+        task_data <- task_data %>%
+            group_by(trialNum) %>%
+            filter(slice_index == min(slice_index, na.rm = TRUE) | slice_index == max(slice_index, na.rm = TRUE)) %>%
+            ungroup()
+    }
+
+    return(task_data)
+}
+
+#' Get filtered and sliced task metrics
+#'
+#' @param allTaskMetrics The complete task metrics data frame
+#' @param selected_participants Vector of participant IDs to include
+#' @param selected_trials Vector of trial numbers to include
+#' @param slice_length Length of each time slice in seconds
+#' @param remove_middle_slices Whether to keep only first and last slices
+#' @return Filtered and sliced task metrics data
+#' @export
+get_task_metrics_sliced <- function(allTaskMetrics, selected_participants, selected_trials,
+                                    slice_length = 180, remove_middle_slices = FALSE) {
+    # Filter by selected participants and trials
+    task_data <- allTaskMetrics %>%
+        filter(
+            participant %in% selected_participants,
+            trialNum %in% selected_trials
+        )
+
+    # Process with time slicing
+    task_data <- process_task_metrics_sliced(task_data, slice_length, remove_middle_slices)
+
+    return(task_data)
 }

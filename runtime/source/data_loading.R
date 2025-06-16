@@ -161,6 +161,10 @@ condition_number <- function(participant) {
   return(1) # neither
 }
 
+has_simulation_data <- function(participant, trial) {
+  return(check_file_exists(participant, "sim", trial))
+}
+
 # Helper function to check if a file exists for a given participant, tracker type, and trial
 check_file_exists <- function(participant, trackerType, trialNum) {
   # Validate trackerType

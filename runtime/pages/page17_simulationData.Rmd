@@ -117,19 +117,61 @@ observe({
 
 # Trajectory plot
 output$sim_trajPlot <- renderPlotly({
-  req(input$sim_participant, input$sim_trialNum)
-  data <- get_simulation_data(input$sim_participant, input$sim_trialNum)
-  if (is.null(data) || nrow(data) == 0) return(NULL)
+  data <- sim_data()
+  req(data, nrow(data) > 0)
   
-  plot_trajectory(data)
+  # Debug output
+  cat("Trajectory plot: data has", nrow(data), "rows\n")
+  cat("Columns:", paste(colnames(data), collapse = ", "), "\n")
+  
+  # Prepare axis limits
+  xlim <- if (!is.na(input$sim_xlim_min) && !is.na(input$sim_xlim_max)) 
+            c(input$sim_xlim_min, input$sim_xlim_max) else NULL
+  ylim <- if (!is.na(input$sim_ylim_min) && !is.na(input$sim_ylim_max)) 
+            c(input$sim_ylim_min, input$sim_ylim_max) else NULL
+  
+  # Use the plotting function
+  tryCatch({
+    plot_simulation_trajectory(
+      data = data,
+      frame = input$sim_frame,
+      participant = input$sim_participant,
+      trial = input$sim_trialNum,
+      downsampling = input$sim_downsampling,
+      xlim = xlim,
+      ylim = ylim,
+      fix_aspect = input$sim_fixAspect,
+      plot_width = input$plotwidth,
+      plot_height = input$plotheight
+    )
+  }, error = function(e) {
+    cat("Error in trajectory plot:", e$message, "\n")
+    plot_ly() %>% layout(title = paste("Error:", e$message))
+  })
 })
 
 # Time series plot
 output$sim_tsPlot <- renderPlotly({
-  req(input$sim_participant, input$sim_trialNum, input$sim_vars)
-  data <- get_simulation_data(input$sim_participant, input$sim_trialNum)
-  if (is.null(data) || nrow(data) == 0) return(NULL)
+  data <- sim_data()
+  vars <- input$sim_vars
+  req(data, nrow(data) > 0, length(vars) > 0)
   
-  plot_time_series(data, input$sim_vars)
+  # Debug output
+  cat("Time series plot: data has", nrow(data), "rows\n")
+  cat("Selected vars:", paste(vars, collapse = ", "), "\n")
+  
+  # Use the plotting function
+  tryCatch({
+    plot_simulation_timeseries(
+      data = data,
+      vars = vars,
+      downsampling = input$sim_downsampling,
+      plot_width = input$plotwidth,
+      plot_height = input$plotheight
+    )
+  }, error = function(e) {
+    cat("Error in time series plot:", e$message, "\n")
+    plot_ly() %>% layout(title = paste("Error:", e$message))
+  })
 })
 ``` 

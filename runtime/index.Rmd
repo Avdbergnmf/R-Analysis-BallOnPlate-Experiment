@@ -49,6 +49,7 @@ allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
 ## Plotting code
 source('source/plotting.R', local = FALSE)
 ```
+
 Sidebar {.sidebar}
 =====================================
 ```{r, child='pages/sidebar_dynamicDataFiltering.Rmd'}
