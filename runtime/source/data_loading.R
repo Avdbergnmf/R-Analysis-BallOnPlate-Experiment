@@ -171,7 +171,7 @@ check_file_exists <- function(participant, trackerType, trialNum) {
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
+  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   return(file.exists(filePath))
@@ -187,7 +187,7 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
+  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   if (!file.exists(filePath)) {
@@ -215,7 +215,7 @@ get_t_data <- function(participant, trackerType, trialNum) {
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", trialNum), ".csv")
+  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   # Use tryCatch for more robust error handling

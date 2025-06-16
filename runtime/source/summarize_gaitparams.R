@@ -302,6 +302,8 @@ filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever rea
 ###### To reply to reviewer
 
 calculate_phase_differences <- function(data) {
+  return(data) # TODO: Implement this
+
   # Calculate differences between specific phases for questionnaire data
   # This function creates difference variables comparing phases (e.g., training - baseline)
 
