@@ -97,95 +97,39 @@ output$sim_data_status <- renderText({
 })
 
 # Update variable choices when data changes
-observeEvent(sim_data(), {
-  data <- sim_data()
-  cat("Observer triggered: data is", if(is.null(data)) "NULL" else paste("not NULL with", nrow(data), "rows"), "\n")
+observe({
+  req(input$sim_participant, input$sim_trialNum)
+  participant <- input$sim_participant
+  trial <- input$sim_trialNum
   
-  if (is.null(data) || nrow(data) == 0) {
-    updateSelectInput(session, "sim_vars", choices = NULL)
-    return()
-  }
+  # Get data
+  data <- get_simulation_data(participant, trial)
   
-  # Get available variable choices using the helper function
-  tryCatch({
-    available_vars <- get_simulation_variable_choices(data)
-    cat("Available vars:", length(available_vars), "choices\n")
-    cat("First few choices:", paste(names(available_vars)[1:min(5, length(available_vars))], collapse = ", "), "\n")
-    
-    # Set default selection with physics-relevant variables
-    # Check against values (column names), not names (pretty names)
-    default_selection <- c("q", "x", "e", "e_total_needed")  # arc position, plate-relative x, energy, danger
-    available_column_names <- unlist(available_vars, use.names = FALSE)
-    default_selection <- default_selection[default_selection %in% available_column_names]
-    cat("Default selection:", paste(default_selection, collapse = ", "), "\n")
-    
+  # Update available variables
+  available_vars <- get_simulation_variable_choices(data)
+  if (!is.null(available_vars)) {
     updateSelectInput(session, "sim_vars",
-                     choices = available_vars,
-                     selected = default_selection)
-    cat("Updated selectInput\n")
-  }, error = function(e) {
-    cat("Error in observer:", e$message, "\n")
-    updateSelectInput(session, "sim_vars", choices = NULL)
-  })
+      choices = available_vars,
+      selected = c("q", "x", "e", "e_total_needed")
+    )
+  }
 })
 
 # Trajectory plot
 output$sim_trajPlot <- renderPlotly({
-  data <- sim_data()
-  req(data, nrow(data) > 0)
+  req(input$sim_participant, input$sim_trialNum)
+  data <- get_simulation_data(input$sim_participant, input$sim_trialNum)
+  if (is.null(data) || nrow(data) == 0) return(NULL)
   
-  # Debug output
-  cat("Trajectory plot: data has", nrow(data), "rows\n")
-  cat("Columns:", paste(colnames(data), collapse = ", "), "\n")
-  
-  # Prepare axis limits
-  xlim <- if (!is.na(input$sim_xlim_min) && !is.na(input$sim_xlim_max)) 
-            c(input$sim_xlim_min, input$sim_xlim_max) else NULL
-  ylim <- if (!is.na(input$sim_ylim_min) && !is.na(input$sim_ylim_max)) 
-            c(input$sim_ylim_min, input$sim_ylim_max) else NULL
-  
-  # Use the plotting function
-  tryCatch({
-    plot_simulation_trajectory(
-      data = data,
-      frame = input$sim_frame,
-      participant = input$sim_participant,
-      trial = input$sim_trialNum,
-      downsampling = input$sim_downsampling,
-      xlim = xlim,
-      ylim = ylim,
-      fix_aspect = input$sim_fixAspect,
-      plot_width = input$plotwidth,
-      plot_height = input$plotheight
-    )
-  }, error = function(e) {
-    cat("Error in trajectory plot:", e$message, "\n")
-    plot_ly() %>% layout(title = paste("Error:", e$message))
-  })
+  plot_trajectory(data)
 })
 
 # Time series plot
 output$sim_tsPlot <- renderPlotly({
-  data <- sim_data()
-  vars <- input$sim_vars
-  req(data, nrow(data) > 0, length(vars) > 0)
+  req(input$sim_participant, input$sim_trialNum, input$sim_vars)
+  data <- get_simulation_data(input$sim_participant, input$sim_trialNum)
+  if (is.null(data) || nrow(data) == 0) return(NULL)
   
-  # Debug output
-  cat("Time series plot: data has", nrow(data), "rows\n")
-  cat("Selected vars:", paste(vars, collapse = ", "), "\n")
-  
-  # Use the plotting function
-  tryCatch({
-    plot_simulation_timeseries(
-      data = data,
-      vars = vars,
-      downsampling = input$sim_downsampling,
-      plot_width = input$plotwidth,
-      plot_height = input$plotheight
-    )
-  }, error = function(e) {
-    cat("Error in time series plot:", e$message, "\n")
-    plot_ly() %>% layout(title = paste("Error:", e$message))
-  })
+  plot_time_series(data, input$sim_vars)
 })
 ``` 
