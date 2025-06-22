@@ -553,13 +553,8 @@ plot_simulation_trajectory <- function(data, frame = "local", participant = NULL
   }
 
   # Determine x coordinate and title based on frame selection
-  if (frame == "local") {
-    data$x_plot <- data$x # Local coordinates (plate-relative)
-    x_title <- "x (plate-relative)"
-  } else {
-    data$x_plot <- data$x_world # World coordinates
-    x_title <- "x (world)"
-  }
+  x_col <- if (frame == "local") "x" else "x_world"
+  x_title <- if (frame == "local") "x (plate-relative)" else "x (world)"
 
   # Create title
   title_text <- "Ball Trajectory"
@@ -567,118 +562,63 @@ plot_simulation_trajectory <- function(data, frame = "local", participant = NULL
     title_text <- paste("Ball Trajectory - Participant", participant, "Trial", trial)
   }
 
-  # Check if we have respawn segments
-  if ("respawn_segment" %in% colnames(data)) {
-    # Color by respawn segments to show when ball was respawned
-    colors <- RColorBrewer::brewer.pal(min(8, max(3, length(unique(data$respawn_segment)))), "Set1")
+  # Initialize plot
+  p <- plot_ly(width = plot_width, height = min(plot_height, 600))
 
-    p <- plot_ly(width = plot_width, height = min(plot_height, 600))
+  # Check if we have respawn segments for coloring
+  has_segments <- "respawn_segment" %in% colnames(data)
 
-    # Add traces for each segment
-    for (segment in unique(data$respawn_segment)) {
+  if (has_segments) {
+    # Color by respawn segments
+    segments <- unique(data$respawn_segment)
+    colors <- RColorBrewer::brewer.pal(min(8, max(3, length(segments))), "Set1")
+
+    for (i in seq_along(segments)) {
+      segment <- segments[i]
       segment_data <- data[data$respawn_segment == segment, ]
+      color <- colors[i %% length(colors) + 1]
 
-      # Separate real and artificial data if simulating flag exists
-      if ("simulating" %in% colnames(segment_data)) {
-        real_data <- segment_data[segment_data$simulating, ]
-        artificial_data <- segment_data[!segment_data$simulating, ]
-
-        # Add real simulation data as lines
-        if (nrow(real_data) > 0) {
-          p <- p %>% add_trace(
-            data = real_data,
-            x = ~x_plot, y = ~y,
-            type = "scatter", mode = "lines",
-            line = list(width = 2, color = colors[segment %% length(colors) + 1]),
-            name = paste("Segment", segment),
-            text = ~ paste(
-              "Sim Time:", round(simulation_time, 2), "s",
-              "<br>Unity Time:", round(time, 2), "s",
-              "<br>Segment:", respawn_segment,
-              "<br>Real Data"
-            ),
-            hovertemplate = paste(
-              "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
-              "<b>%{text}</b><br>",
-              "<extra></extra>"
-            )
-          )
-        }
-
-        # Add artificial gap boundary samples as markers
-        if (nrow(artificial_data) > 0) {
-          p <- p %>% add_trace(
-            data = artificial_data,
-            x = ~x_plot, y = ~y,
-            type = "scatter", mode = "markers",
-            marker = list(size = 8, color = colors[segment %% length(colors) + 1], symbol = "x"),
-            name = paste("Gap", segment),
-            text = ~ paste(
-              "Sim Time:", round(simulation_time, 2), "s",
-              "<br>Unity Time:", round(time, 2), "s",
-              "<br>Segment:", respawn_segment,
-              "<br>Gap Boundary (Zeroed)"
-            ),
-            hovertemplate = paste(
-              "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
-              "<b>%{text}</b><br>",
-              "<extra></extra>"
-            )
-          )
-        }
-      } else {
-        # Fallback for data without simulating flag
-        p <- p %>% add_trace(
-          data = segment_data,
-          x = ~x_plot, y = ~y,
-          type = "scatter", mode = "lines",
-          line = list(width = 2, color = colors[segment %% length(colors) + 1]),
-          name = paste("Segment", segment),
-          text = ~ paste(
-            "Sim Time:", round(simulation_time, 2), "s",
-            "<br>Unity Time:", round(time, 2), "s",
-            "<br>Segment:", respawn_segment
-          ),
-          hovertemplate = paste(
-            "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
-            "<b>%{text}</b><br>",
-            "<extra></extra>"
-          )
-        )
-      }
+      p <- p %>% add_trace(
+        data = segment_data,
+        x = as.formula(paste0("~", x_col)), y = ~y,
+        type = "scatter", mode = "lines",
+        line = list(width = 2, color = color),
+        name = paste("Segment", segment),
+        hovertemplate = paste(
+          "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
+          "<b>Sim Time:</b> %{customdata[0]:.2f}s<br>",
+          "<b>Unity Time:</b> %{customdata[1]:.2f}s<br>",
+          "<b>Segment:</b> %{customdata[2]}<extra></extra>"
+        ),
+        customdata = ~ cbind(simulation_time, time, respawn_segment)
+      )
     }
   } else {
-    # Fallback for data without respawn segments
-    p <- plot_ly(data,
-      x = ~x_plot, y = ~y,
+    # Fallback: single trace without segments
+    p <- p %>% add_trace(
+      data = data,
+      x = as.formula(paste0("~", x_col)), y = ~y,
       type = "scatter", mode = "lines",
       line = list(width = 2, color = "steelblue"),
-      text = ~ paste("Sim Time:", round(simulation_time, 2), "s", "<br>Unity Time:", round(time, 2), "s"),
       hovertemplate = paste(
         "<b>Position:</b> (%{x:.3f}, %{y:.3f})<br>",
-        "<b>%{text}</b><br>",
-        "<extra></extra>"
+        "<b>Sim Time:</b> %{customdata[0]:.2f}s<br>",
+        "<b>Unity Time:</b> %{customdata[1]:.2f}s<extra></extra>"
       ),
-      width = plot_width,
-      height = min(plot_height, 600)
+      customdata = ~ cbind(simulation_time, time)
     )
   }
 
   # Set up layout
-  p <- p %>% layout(
+  p %>% layout(
     title = title_text,
-    xaxis = list(
-      title = x_title,
-      range = xlim
-    ),
+    xaxis = list(title = x_title, range = xlim),
     yaxis = list(
       title = "y (height)",
       scaleanchor = if (fix_aspect) "x" else NULL,
       range = ylim
     )
   )
-
-  return(p)
 }
 
 #' Plot simulation time series
