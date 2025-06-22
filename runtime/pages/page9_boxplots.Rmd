@@ -26,12 +26,15 @@ observe({
   if (!is.null(mu) && nrow(mu) > 0) {
     vars <- colnames(mu)
     # Set a good default if available
-    default_var <- if ("stepWidths.sd" %in% vars) "stepWidths.sd" else 
+    default_var <- if ("stepWidths.sd" %in% vars) "stepWidths.sd" else
                    if ("task_max_q" %in% vars) "task_max_q" else vars[1]
-    
-    updateSelectizeInput(session, "plotVar", 
-                        choices = vars, 
-                        selected = default_var)
+
+    current <- isolate(input$plotVar)
+    selected <- if (!is.null(current) && current %in% vars) current else default_var
+
+    updateSelectizeInput(session, "plotVar",
+                        choices = vars,
+                        selected = selected)
   }
 })
 

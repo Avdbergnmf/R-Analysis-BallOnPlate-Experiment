@@ -74,15 +74,14 @@ output$sim_data_status <- renderText({
   participant <- input$sim_participant
   trial <- as.numeric(input$sim_trialNum)
   
-  cat("Status check: participant =", participant, "trial =", trial, "\n")
-  
   tryCatch({
     if (has_simulation_data(participant, trial)) {
       data <- sim_data()
       if (!is.null(data) && nrow(data) > 0) {
         n_real <- sum(data$simulating, na.rm = TRUE)
+        n_artificial <- sum(!data$simulating, na.rm = TRUE)
         n_respawns <- length(unique(data$respawn_segment)) - 1
-        paste0("✓ Simulation data available: ", nrow(data), " total samples (", n_real, " real, ", n_respawns, " respawns), arcDeg = ", 
+        paste0("✓ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_artificial, " artificial, ", n_respawns, " respawns), arcDeg = ", 
                paste(unique(data$arcDeg), collapse = ", "))
       } else {
         "✗ Error loading simulation data"
@@ -91,7 +90,6 @@ output$sim_data_status <- renderText({
       "✗ No simulation data available for this participant/trial"
     }
   }, error = function(e) {
-    cat("Error in status check:", e$message, "\n")
     paste("✗ Error checking simulation data:", e$message)
   })
 })
@@ -108,9 +106,16 @@ observe({
   # Update available variables
   available_vars <- get_simulation_variable_choices(data)
   if (!is.null(available_vars)) {
+    # Preserve previously selected variables if they still exist
+    prev <- isolate(input$sim_vars)
+    keep <- intersect(prev, available_vars)
+    if (length(keep) == 0) {
+      keep <- intersect(c("q", "x", "e", "e_total_needed"), available_vars)
+      if (length(keep) == 0) keep <- available_vars[1]
+    }
     updateSelectInput(session, "sim_vars",
       choices = available_vars,
-      selected = c("q", "x", "e", "e_total_needed")
+      selected = keep
     )
   }
 })
@@ -119,10 +124,6 @@ observe({
 output$sim_trajPlot <- renderPlotly({
   data <- sim_data()
   req(data, nrow(data) > 0)
-  
-  # Debug output
-  cat("Trajectory plot: data has", nrow(data), "rows\n")
-  cat("Columns:", paste(colnames(data), collapse = ", "), "\n")
   
   # Prepare axis limits
   xlim <- if (!is.na(input$sim_xlim_min) && !is.na(input$sim_xlim_max)) 
@@ -145,7 +146,6 @@ output$sim_trajPlot <- renderPlotly({
       plot_height = input$plotheight
     )
   }, error = function(e) {
-    cat("Error in trajectory plot:", e$message, "\n")
     plot_ly() %>% layout(title = paste("Error:", e$message))
   })
 })
@@ -155,10 +155,6 @@ output$sim_tsPlot <- renderPlotly({
   data <- sim_data()
   vars <- input$sim_vars
   req(data, nrow(data) > 0, length(vars) > 0)
-  
-  # Debug output
-  cat("Time series plot: data has", nrow(data), "rows\n")
-  cat("Selected vars:", paste(vars, collapse = ", "), "\n")
   
   # Use the plotting function
   tryCatch({
@@ -170,8 +166,7 @@ output$sim_tsPlot <- renderPlotly({
       plot_height = input$plotheight
     )
   }, error = function(e) {
-    cat("Error in time series plot:", e$message, "\n")
     plot_ly() %>% layout(title = paste("Error:", e$message))
   })
 })
-``` 
+```

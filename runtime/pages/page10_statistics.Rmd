@@ -178,11 +178,23 @@ get_stats_data <- reactive({
 observe({
   data <- get_stats_data()
   cols <- colnames(data)#[sapply(data, is.numeric)]
-  
-  # Use regular variable names instead of non-existent diff variables
-  updateSelectizeInput(session, "depVar", choices = cols , selected = "stepWidths.sd")
-  updateSelectizeInput(session, "indepInterVars", choices = cols, selected = "condition")
-  updateSelectizeInput(session, "indepVars", choices = cols)
+
+  # Preserve previously selected values where possible
+  cur_dep <- isolate(input$depVar)
+  cur_inter <- isolate(input$indepInterVars)
+  cur_vars <- isolate(input$indepVars)
+
+  sel_dep <- if(!is.null(cur_dep) && cur_dep %in% cols) cur_dep else
+               if("stepWidths.sd" %in% cols) "stepWidths.sd" else cols[1]
+
+  sel_inter <- intersect(cur_inter, cols)
+  if(length(sel_inter) == 0 && "condition" %in% cols) sel_inter <- "condition"
+
+  sel_vars <- intersect(cur_vars, cols)
+
+  updateSelectizeInput(session, "depVar", choices = cols , selected = sel_dep)
+  updateSelectizeInput(session, "indepInterVars", choices = cols, selected = sel_inter)
+  updateSelectizeInput(session, "indepVars", choices = cols, selected = sel_vars)
 })
 
 # Automatically enable "averageData_stats" if paired_ttest is selected

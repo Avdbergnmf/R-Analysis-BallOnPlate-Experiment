@@ -51,15 +51,21 @@ observe({
     numeric_cols <- grep(removePattern, all_numeric_cols, value = TRUE, invert = TRUE)
     
     # Set better default selections, preferring task variables if available
-    default_x <- if ("task_max_q" %in% numeric_cols) "task_max_q" else 
-                 if ("stepWidths.sd" %in% numeric_cols) "stepWidths.sd" else 
+    default_x <- if ("task_max_q" %in% numeric_cols) "task_max_q" else
+                 if ("stepWidths.sd" %in% numeric_cols) "stepWidths.sd" else
                  if (length(numeric_cols) > 0) numeric_cols[1] else NULL
-    default_y <- if ("task_max_e" %in% numeric_cols) "task_max_e" else 
-                 if ("stepLengths.sd" %in% numeric_cols) "stepLengths.sd" else 
+    default_y <- if ("task_max_e" %in% numeric_cols) "task_max_e" else
+                 if ("stepLengths.sd" %in% numeric_cols) "stepLengths.sd" else
                  if (length(numeric_cols) > 1) numeric_cols[2] else NULL
-    
-    updateSelectizeInput(session, "muxscatter", choices = numeric_cols, selected = default_x)
-    updateSelectizeInput(session, "muyscatter", choices = numeric_cols, selected = default_y)
+
+    cur_x <- isolate(input$muxscatter)
+    sel_x <- if(!is.null(cur_x) && cur_x %in% numeric_cols) cur_x else default_x
+
+    cur_y <- isolate(input$muyscatter)
+    sel_y <- if(!is.null(cur_y) && cur_y %in% numeric_cols) cur_y else default_y
+
+    updateSelectizeInput(session, "muxscatter", choices = numeric_cols, selected = sel_x)
+    updateSelectizeInput(session, "muyscatter", choices = numeric_cols, selected = sel_y)
   }
 })
 

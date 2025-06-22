@@ -149,13 +149,19 @@ output$FeetTraj_15 <- renderPlotly({
     }
   }
 
+  # Prepare axis limits
+  xlim <- if (!is.na(input$xlim_min_15) && !is.na(input$xlim_max_15)) 
+            c(input$xlim_min_15, input$xlim_max_15) else NULL
+  ylim <- if (!is.na(input$ylim_min_15) && !is.na(input$ylim_max_15)) 
+            c(input$ylim_min_15, input$ylim_max_15) else NULL
+
   # Create the base ggplot
   p <- plot_steps(
     filteredParams(), input$participant_15, tnum,
     input$xplot_15, input$yplot_15, input$filter_15, 
     baseSize = input$baseSize,
-    #xlim = c(input$xlim_min_15, input$xlim_max_15),
-    #ylim = c(input$ylim_min_15, input$ylim_max_15),
+    xlim = xlim,
+    ylim = ylim,
     preprocessedData = preprocessedData
   )
   # Convert to ggplotly
