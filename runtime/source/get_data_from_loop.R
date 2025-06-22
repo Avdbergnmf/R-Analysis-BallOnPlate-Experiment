@@ -213,12 +213,12 @@ get_valid_combinations <- function(datasets_to_verify) {
             verification_results[[participant]][[trial]] <- verify_trial_data(participant, trial, datasets_to_verify)
 
             # Debug output
-            cat(sprintf("\nDebug - Participant %s, Trial %s:\n", participant, trial))
-            print(verification_results[[participant]][[trial]])
+            # cat(sprintf("\nDebug - Participant %s, Trial %s:\n", participant, trial))
+            # print(verification_results[[participant]][[trial]])
 
             # Check if all required datasets are present and have data
             all_valid <- all(sapply(verification_results[[participant]][[trial]], function(x) x$exists && x$has_data))
-            cat(sprintf("All valid: %s\n", all_valid))
+            # cat(sprintf("All valid: %s\n", all_valid))
 
             if (all_valid) {
                 valid_combinations <- rbind(valid_combinations, data.frame(participant = participant, trial = trial))
@@ -238,7 +238,7 @@ get_valid_combinations <- function(datasets_to_verify) {
     }
 
     cat(sprintf(
-        "\nFound %d valid combinations out of %d total combinations.\n",
+        "\nFound %d  %d total combinations.\n",
         nrow(valid_combinations), length(participants) * length(allTrials)
     ))
 
