@@ -22,7 +22,7 @@ build_plate_trace <- function(p_fun, t_end, dt) {
 # 2) Post‐process: compute world‐space velocities & accelerations + energy related metrics
 # ─────────────────────────────────────────────────────────────────────────────
 
-#' Compute velocity components from arc-length velocity using shape derivatives
+#' Compute velocity components from arc-length velocity using shape slope
 #' @param df Dataframe with q, qd, and arcDeg columns
 #' @return df with vx_from_qd and vy_from_qd columns added
 compute_velocities_from_qd <- function(df) {
@@ -58,34 +58,28 @@ compute_velocities_from_qd <- function(df) {
       q_values <- df$q[rows_with_arcDeg]
       qd_values <- df$qd[rows_with_arcDeg]
 
-      # Compute dx/dq and dy/dq for each unique q value
-      unique_q <- unique(q_values)
-      dxdq_map <- numeric(length(unique_q))
-      dydq_map <- numeric(length(unique_q))
-      names(dxdq_map) <- as.character(unique_q)
-      names(dydq_map) <- as.character(unique_q)
+      # Compute velocities using shape slope
+      velocities <- t(sapply(seq_along(q_values), function(i) {
+        q_val <- q_values[i]
+        qd_val <- qd_values[i]
 
-      # Use small step for numerical differentiation
-      dq_step <- 1e-6
+        # Get slope at this q position
+        slope <- shape$getSlope(q_val)
 
-      for (i in seq_along(unique_q)) {
-        q_val <- unique_q[i]
+        # Convert slope to angle (atan2 gives angle from x-axis)
+        angle <- atan2(slope, 1) # slope = dy/dx, so angle = atan2(dy, dx)
 
-        # Use central difference
-        xy_next <- shape$getXY(q_val + dq_step)
-        xy_prev <- shape$getXY(q_val - dq_step)
-        dxdq_map[i] <- (xy_next[1] - xy_prev[1]) / (2 * dq_step)
-        dydq_map[i] <- (xy_next[2] - xy_prev[2]) / (2 * dq_step)
-      }
+        # Decompose qd into x and y components
+        # qd is the magnitude of velocity along the arc
+        # vx = qd * cos(angle), vy = qd * sin(angle)
+        vx <- qd_val * cos(angle)
+        vy <- qd_val * sin(angle)
 
-      # Map derivatives to all q values and compute velocities
-      q_keys <- as.character(q_values)
-      dxdq_values <- dxdq_map[q_keys]
-      dydq_values <- dydq_map[q_keys]
+        c(vx, vy)
+      }))
 
-      # Compute velocity components: v = (dx/dq) * qd
-      df$vx_from_qd[rows_with_arcDeg] <- dxdq_values * qd_values
-      df$vy_from_qd[rows_with_arcDeg] <- dydq_values * qd_values
+      df$vx_from_qd[rows_with_arcDeg] <- velocities[, 1]
+      df$vy_from_qd[rows_with_arcDeg] <- velocities[, 2]
     }
   }
 
@@ -127,21 +121,6 @@ post_process_df <- function(df) {
 
   # replace the NA's in the last row with zeros
   ax[length(ax)] <- ax_world[length(ax_world)] <- ay[length(ay)] <- 0
-
-  # Debug output for comparison
-  if ("simulating" %in% colnames(df)) {
-    real_indices <- which(df$simulating)
-    if (length(real_indices) > 10) {
-      sample_indices <- real_indices[1:10]
-      cat("Velocity comparison (first 10 real samples):\n")
-      cat("vx_old:    ", sprintf("%.4f", vx_old[sample_indices]), "\n")
-      cat("vx_new:    ", sprintf("%.4f", vx[sample_indices]), "\n")
-      cat("vy_old:    ", sprintf("%.4f", vy_old[sample_indices]), "\n")
-      cat("vy_new:    ", sprintf("%.4f", vy[sample_indices]), "\n")
-      cat("vx_diff:   ", sprintf("%.4f", abs(vx_old[sample_indices] - vx[sample_indices])), "\n")
-      cat("vy_diff:   ", sprintf("%.4f", abs(vy_old[sample_indices] - vy[sample_indices])), "\n")
-    }
-  }
 
   df %>%
     mutate(
@@ -235,42 +214,7 @@ add_safety_cols <- function(df, shape) {
       (e - e_total_needed) / e_total_needed,
       0
     ))
-  ) %>%
-    # Add debugging output
-    {
-      if ("simulating" %in% colnames(.) && any(.$simulating)) {
-        real_data <- .[.$simulating, ]
-
-        cat(sprintf(
-          "Using shape parameters: mu_d=%.3f, damping=%.1f, g=%.2f, R=%.1f\n",
-          mu_d, damping, g, R
-        ))
-
-        # Sample a few points for debugging
-        sample_indices <- head(which(real_data$dist_to_escape > 0), 5)
-        if (length(sample_indices) > 0) {
-          sample_data <- real_data[sample_indices, ]
-
-          cat("Energy breakdown for first few samples:\n")
-          cat("q:", sprintf("%.3f", sample_data$q), "\n")
-          cat("dist_to_escape:", sprintf("%.3f", sample_data$dist_to_escape), "\n")
-          cat("e_potential:", sprintf("%.3f", sample_data$e_potential_needed), "\n")
-          cat("e_friction:", sprintf("%.3f", sample_data$e_loss_friction), "\n")
-          cat("e_damping:", sprintf("%.3f", sample_data$e_loss_damping), "\n")
-          cat("e_total_needed:", sprintf("%.3f", sample_data$e_total_needed), "\n")
-          cat("e_current:", sprintf("%.3f", sample_data$e), "\n")
-          cat("margin_E:", sprintf("%.3f", sample_data$margin_E), "\n")
-          cat("danger:", sprintf("%.3f", sample_data$danger), "\n")
-        }
-
-        cat(sprintf(
-          "\nOverall: min(margin_E)=%.3f, max(danger)=%.3f\n",
-          min(real_data$margin_E, na.rm = TRUE),
-          max(real_data$danger, na.rm = TRUE)
-        ))
-      }
-      .
-    }
+  )
 }
 
 kalman_cv_filter <- function(pos,
