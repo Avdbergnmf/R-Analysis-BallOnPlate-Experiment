@@ -238,7 +238,7 @@ get_valid_combinations <- function(datasets_to_verify) {
     }
 
     cat(sprintf(
-        "\nFound %d  %d total combinations.\n",
+        "\nFound %d valid combinations out of %d total combinations.\n",
         nrow(valid_combinations), length(participants) * length(allTrials)
     ))
 
