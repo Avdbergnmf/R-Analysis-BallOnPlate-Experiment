@@ -16,6 +16,7 @@ get_simulation_parameters <- function() {
         # Position parameters
         q = "Arc-length Position",
         p = "Plate Position",
+        pInput = "Input Plate Position",
 
         # Velocity parameters
         vx = "X Velocity (plate-relative)",
@@ -48,7 +49,13 @@ get_simulation_parameters <- function() {
         # Coordinate parameters
         x = "X Position (plate-relative)",
         x_world = "X Position (world)",
-        y = "Y Position (height)"
+        y = "Y Position (height)",
+
+        # Performance parameters
+        score = "Running Score",
+
+        # Status parameters
+        simulating = "Ball on Plate Status"
     )
 }
 
@@ -61,6 +68,7 @@ get_simulation_variable_names <- function() {
         `time` = "Unity Time",
         `simulation_time` = "Simulation Time",
         `p` = "Plate Position",
+        `pInput` = "Input Plate Position",
         `q` = "Arc-length Position",
         `qd` = "Arc-length Velocity",
         `qdd` = "Arc-length Acceleration",
@@ -91,6 +99,7 @@ get_simulation_variable_names <- function() {
         `work_world` = "Work (world)",
         `margin_E` = "Energy Margin",
         `danger` = "Danger Level",
+        `score` = "Score",
         `arcDeg` = "Arc Degrees",
         `dt` = "Time Step",
         `time_diff` = "Time Gap",
@@ -98,7 +107,7 @@ get_simulation_variable_names <- function() {
         `respawn_segment` = "Respawn Segment",
         `is_post_respawn` = "Post-Respawn Flag",
         `cumulative_gap_time` = "Cumulative Gap Time",
-        `simulating` = "Real/Artificial Data"
+        `simulating` = "Ball on Plate Status"
     )
 }
 
@@ -125,6 +134,20 @@ get_simulation_data <- function(participant, trial) {
 
     # Process the simulation data
     sim_data <- process_simulation_data(sim_data, level_data)
+
+    # Load task data to get plate input position and running score
+    task_data <- get_t_data(participant, "task", trial)
+    if (!is.null(task_data) && nrow(task_data) > 0) {
+        # Add pInput if available
+        if (all(c("time", "pInput") %in% colnames(task_data))) {
+            sim_data <- left_join(sim_data, task_data %>% select(time, pInput), by = "time")
+        }
+
+        # Add running score if available
+        if ("score" %in% colnames(task_data)) {
+            sim_data <- left_join(sim_data, task_data %>% select(time, score), by = "time")
+        }
+    }
 
     # Add identifiers
     sim_data <- sim_data %>%
