@@ -26,8 +26,12 @@ filteredQResults_new <- reactive({
 })
 
 get_mu_dyn_long <- reactive({
-  # Get the regular gait mu data
-  mu_gait <- get_full_mu_sliced(filteredParams(), allQResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+  # Get the regular gait mu data - conditionally use sliced or non-sliced version
+  if (input$do_slicing) {
+    mu_gait <- get_full_mu_sliced(filteredParams(), allQResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+  } else {
+    mu_gait <- get_full_mu(filteredParams(), allQResults, categories, input$avg_feet, input$add_diff)
+  }
 
   # Get task simulation metrics using cached data with same filtering and slicing
   tryCatch(

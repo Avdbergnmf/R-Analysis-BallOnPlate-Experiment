@@ -48,6 +48,10 @@ allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)
+
+# for testing combining of tables
+#mu_gait <- get_full_mu(allGaitParams, allQResults, categories, TRUE, FALSE)
+#mu_combined <- merge_mu_with_task(mu_gait, allTaskMetrics)
 ```
 
 Sidebar {.sidebar}

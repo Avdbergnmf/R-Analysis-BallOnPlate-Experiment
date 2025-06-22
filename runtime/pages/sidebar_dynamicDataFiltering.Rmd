@@ -13,6 +13,7 @@ selectizeInput("filterCondition", "Condition", choices = c(1, 2, 3), selected = 
 ```{r}
 selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
 
+checkboxInput("do_slicing", "Slice data", value = FALSE)
 numericInput("slice_length", "Slice data (seconds)",  min = 0, max = 180, value = 9999, step = 10)
 checkboxInput("remove_middle_slices", "Only keep first and last slice", value=FALSE)
 ```
@@ -21,7 +22,7 @@ checkboxInput("remove_middle_slices", "Only keep first and last slice", value=FA
 Note: you can also average across feet here, this takes the result of both feet of 1 participant in 1 trial and averages their values to create 1 value per trial per participant for the aggregated data (this step is done last, after calculating the results of the individual feet).
 ```{r}
 selectizeInput("filterSide", "Side", choices = c("Left", "Right"), selected = c("Left", "Right"), multiple = TRUE)
-checkboxInput("avg_feet", "Average across feet", value = FALSE)
+checkboxInput("avg_feet", "Average across feet", value = TRUE)
 checkboxInput("add_diff", "add diffFeet columns",value = FALSE)
 bsTooltip("add_diff", 
           "Calculate difference of calculated metrics (mean, sd, cv) between left and right foot and add to summary table.", 

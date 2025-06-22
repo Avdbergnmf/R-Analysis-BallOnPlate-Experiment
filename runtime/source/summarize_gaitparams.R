@@ -108,7 +108,31 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
       values_from = value
     )
 
-  mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
+  # Properly merge with questionnaire results based on trial mapping
+  if ("answer_type" %in% colnames(allQResults)) {
+    # Create trial mapping for questionnaire results
+    q_results_mapped <- allQResults %>%
+      mutate(
+        trialNum = case_when(
+          answer_type == "baseline_task" ~ 5,
+          answer_type == "retention" ~ 10,
+          answer_type == "training2" ~ 8,
+          answer_type == "transfer" ~ 11,
+          TRUE ~ NA_real_
+        )
+      ) %>%
+      filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
+
+    # Convert trialNum to numeric in both datasets to ensure compatibility
+    mu_wide$trialNum <- as.numeric(as.character(mu_wide$trialNum))
+    q_results_mapped$trialNum <- as.numeric(q_results_mapped$trialNum)
+
+    # Merge based on participant and trialNum
+    mu_full <- left_join(mu_wide, q_results_mapped, by = c("participant", "trialNum"))
+  } else {
+    # Fallback to original merge if no answer_type column
+    mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
+  }
 
   # Create the new column using mutate and sapply
   mu_full <- add_category_columns(mu_full)
