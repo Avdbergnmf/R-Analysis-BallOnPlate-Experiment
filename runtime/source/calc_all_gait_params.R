@@ -28,7 +28,7 @@ add_category_columns <- function(data) {
   data$perturbations <- as.factor(mapply(has_perturbations, participant, trial))
   data$visualizations <- as.factor(mapply(has_visualizations, participant, trial))
   data$task <- as.factor(mapply(has_task, participant, trial))
-  data$treadmillSpeed <- as.numeric(mapply(get_move_speed, participant))
+  data$treadmillSpeed <- as.numeric(mapply(get_move_speed, participant, trial))
 
   data$condition <- as.factor(sapply(participant, condition_number))
 

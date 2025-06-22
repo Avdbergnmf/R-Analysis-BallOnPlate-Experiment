@@ -58,7 +58,7 @@ preprocess_data <- function(participant, trialNum, dataName) {
       rotation <- rotation[1] # Take the first rotation if multiple are found
       data <- rotate_y(data, rotation)
     }
-    moveSpeed <- get_move_speed(participant)
+    moveSpeed <- get_move_speed(participant, trialNum)
     data$actual_pos_z <- data$pos_z + moveSpeed * data$time
   }
 

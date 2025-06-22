@@ -36,9 +36,8 @@ get_p_results <- function(participant, settingName, trialNumber) {
   return(resultValue)
 }
 
-get_move_speed <- function(participant) { # return move speed in m/s
-  trialNum <- 1 # should be the same for all trials
-  return(get_p_results(participant, "move_speed", trialNum) / 3.6)
+get_move_speed <- function(participant, trialNum) { # return move speed in m/s
+  return(get_p_results(participant, "move_speed", trialNum))
 }
 
 get_p_detail <- function(participant, detail) {
@@ -77,7 +76,7 @@ calculate_participant_details <- function(participants) {
   details$education <- sapply(participants, get_p_detail, detail = "education")
   details$vr_experience <- sapply(participants, get_p_detail, detail = "vr_experience")
   details$motion <- sapply(participants, get_p_detail, detail = "motion")
-  details$move_speed <- sapply(participants, get_move_speed)
+  details$move_speed <- sapply(participants, get_move_speed, trialNum = 2)
 
   # Calculate statistics for age
   age_stats <- calculate_stats(details$age)
