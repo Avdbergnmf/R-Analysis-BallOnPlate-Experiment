@@ -19,7 +19,7 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
         }
     }
 
-    # Filter to only use real simulation data (not artificial points)
+    # Filter to only use real simulation data (when ball is on plate)
     analysis_data <- sim_data %>%
         filter(simulating == TRUE)
 
@@ -165,7 +165,7 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
 #' @return Tibble with task metrics for all participant/trial combinations
 #' @export
 get_all_task_metrics <- function() {
-    return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("sim", "level")))
+    return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("task", "level")))
 }
 
 #' Get attempt metrics for all participants and trials
@@ -178,7 +178,7 @@ get_all_attempt_metrics <- function(min_attempt_duration = 0) {
         get_attempts(p, t, min_attempt_duration)
     }
 
-    return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("sim", "level")))
+    return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("task", "level")))
 }
 
 #' Merge mu gait data with mu_task simulation data
