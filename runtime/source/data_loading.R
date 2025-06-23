@@ -30,8 +30,21 @@ get_p_results <- function(participant, settingName, trialNumber) {
   resultsFile <- get_p_resultsFile(participant)
   results <- read.csv(resultsFile)
 
-  # retrieve the value of the specific detail
-  resultValue <- results[[settingName]][trialNumber]
+  # find the row where trial_num matches the requested trialNumber
+  row_index <- which(results$trial_num == trialNumber)
+
+  if (length(row_index) == 0) {
+    warning(sprintf("No trial found with trial_num = %s for participant %s", trialNumber, participant))
+    return(NA)
+  }
+
+  if (length(row_index) > 1) {
+    warning(sprintf("Multiple trials found with trial_num = %s for participant %s, using first match", trialNumber, participant))
+    row_index <- row_index[1]
+  }
+
+  # retrieve the value of the specific detail using the found row index
+  resultValue <- results[[settingName]][row_index]
 
   return(resultValue)
 }

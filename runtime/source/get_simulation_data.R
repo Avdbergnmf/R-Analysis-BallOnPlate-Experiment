@@ -45,6 +45,7 @@ get_simulation_parameters <- function() {
         # Safety parameters
         margin_E = "Energy Margin",
         danger = "Danger Level",
+        e_total_needed = "Total Energy Needed to Escape",
 
         # Coordinate parameters
         x = "X Position (plate-relative)",
@@ -53,6 +54,7 @@ get_simulation_parameters <- function() {
 
         # Performance parameters
         score = "Running Score",
+        total_score = "Total Score",
 
         # Status parameters
         simulating = "Ball on Plate Status"
@@ -100,6 +102,7 @@ get_simulation_variable_names <- function() {
         `margin_E` = "Energy Margin",
         `danger` = "Danger Level",
         `score` = "Score",
+        `total_score` = "Total Score",
         `arcDeg` = "Arc Degrees",
         `dt` = "Time Step",
         `time_diff` = "Time Gap",

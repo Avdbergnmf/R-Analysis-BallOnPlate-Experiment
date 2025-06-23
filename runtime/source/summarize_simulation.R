@@ -12,10 +12,10 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     # Get final score from simulation data
     final_score <- NA_real_
     if ("score" %in% colnames(sim_data)) {
-        # Get the last non-NA score value
+        # Get the maximum non-NA score value
         score_values <- sim_data$score[!is.na(sim_data$score)]
         if (length(score_values) > 0) {
-            final_score <- tail(score_values, 1)
+            final_score <- max(score_values)
         }
     }
 
@@ -30,6 +30,9 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     # Get parameters to summarize
     params <- get_simulation_parameters()
     param_names <- names(params)
+
+    # Filter to only include parameters that actually exist in the data
+    param_names <- intersect(param_names, colnames(analysis_data))
 
     # Get velocity/acceleration parameters that need absolute values
     abs_params <- c("vx", "vy", "vx_world", "ax", "ay", "ax_world")
@@ -124,6 +127,10 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
 
     params <- get_simulation_parameters()
     param_names <- names(params)
+
+    # Filter to only include parameters that actually exist in the data
+    param_names <- intersect(param_names, colnames(analysis_data))
+
     abs_params <- c("vx", "vy", "vx_world", "ax", "ay", "ax_world")
 
     attempts <- analysis_data %>%
