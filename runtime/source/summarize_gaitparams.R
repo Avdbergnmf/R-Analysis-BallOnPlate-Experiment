@@ -22,6 +22,37 @@ get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
   return(data)
 }
 
+# Calculate complexity metrics for specified data types (combining both feet)
+get_complexity_combined <- function(dataType, categories, data) {
+  # Source complexity functions if not already loaded
+  if (!exists("compute_complexity")) {
+    source("source/complexity.R")
+  }
+  
+  # Remove heelStrikes.foot from categories since we want to combine feet
+  categories_no_foot <- setdiff(categories, "heelStrikes.foot")
+  
+  # Calculate complexity metrics for each group (combining both feet)
+  complexity_data <- data %>%
+    group_by(across(all_of(categories_no_foot))) %>%
+    group_modify(~ {
+      # Filter out outliers if outlierSteps column exists
+      values <- .x[[dataType]]
+      if ("outlierSteps" %in% colnames(.x)) {
+        values <- values[!.x$outlierSteps]
+      }
+      
+      # Calculate complexity metrics on combined data from both feet
+      complexity_result <- compute_complexity(values)
+      
+      # Convert to data frame
+      as.data.frame(complexity_result)
+    }) %>%
+    ungroup()
+
+  return(complexity_data)
+}
+
 # Average across feet and also calculate diff between left and right foot and add it to mu
 average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   # Get summaries averaging over feet
@@ -90,6 +121,19 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
     # If not averaging over feet, compute mu normally
     mu <- lapply(types, get_summ_by_foot, categories, data, avg_feet = FALSE)
     mu <- setNames(mu, types)
+  }
+
+  # Add complexity metrics for stepTimes and stepWidths (combining both feet)
+  complexity_types <- c("stepTimes", "stepWidths")
+  available_complexity_types <- intersect(complexity_types, types)
+  
+  if (length(available_complexity_types) > 0) {
+    # Calculate complexity metrics for each available type (combining both feet)
+    mu_complexity <- lapply(available_complexity_types, get_complexity_combined, categories, data)
+    names(mu_complexity) <- paste0(available_complexity_types, "_complexity")
+    
+    # Add complexity results to mu
+    mu <- c(mu, mu_complexity)
   }
 
   # Combine the list of data frames into one data frame
