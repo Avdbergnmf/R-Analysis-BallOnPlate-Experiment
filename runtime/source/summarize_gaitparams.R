@@ -24,14 +24,9 @@ get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
 
 # Calculate complexity metrics for specified data types (combining both feet)
 get_complexity_combined <- function(dataType, categories, data) {
-  # Source complexity functions if not already loaded
-  if (!exists("compute_complexity")) {
-    source("source/complexity.R")
-  }
-  
   # Remove heelStrikes.foot from categories since we want to combine feet
   categories_no_foot <- setdiff(categories, "heelStrikes.foot")
-  
+
   # Calculate complexity metrics for each group (combining both feet)
   complexity_data <- data %>%
     group_by(across(all_of(categories_no_foot))) %>%
@@ -41,10 +36,10 @@ get_complexity_combined <- function(dataType, categories, data) {
       if ("outlierSteps" %in% colnames(.x)) {
         values <- values[!.x$outlierSteps]
       }
-      
+
       # Calculate complexity metrics on combined data from both feet
-      complexity_result <- compute_complexity(values)
-      
+      complexity_result <- compute_complexity(values) # assumes complexity.R is loaded
+
       # Convert to data frame
       as.data.frame(complexity_result)
     }) %>%
@@ -123,19 +118,6 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
     mu <- setNames(mu, types)
   }
 
-  # Add complexity metrics for stepTimes and stepWidths (combining both feet)
-  complexity_types <- c("stepTimes", "stepWidths")
-  available_complexity_types <- intersect(complexity_types, types)
-  
-  if (length(available_complexity_types) > 0) {
-    # Calculate complexity metrics for each available type (combining both feet)
-    mu_complexity <- lapply(available_complexity_types, get_complexity_combined, categories, data)
-    names(mu_complexity) <- paste0(available_complexity_types, "_complexity")
-    
-    # Add complexity results to mu
-    mu <- c(mu, mu_complexity)
-  }
-
   # Combine the list of data frames into one data frame
   mu_long <- bind_rows(mu, .id = "dataType") %>%
     pivot_longer(
@@ -151,6 +133,10 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
       names_from = new_col_name,
       values_from = value
     )
+
+  if (exists("allComplexityMetrics")) {
+    mu_wide <- merge_mu_with_complexity(mu_wide, allComplexityMetrics)
+  }
 
   # Properly merge with questionnaire results based on trial mapping
   if ("answer_type" %in% colnames(allQResults)) {

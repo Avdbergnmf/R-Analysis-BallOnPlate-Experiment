@@ -27,6 +27,7 @@ agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
 simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
+complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Load or calculate the data
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
@@ -42,14 +43,14 @@ source('source/get_simulation_data.R', local = FALSE)
 ## Summary tables
 source('source/summarize_gaitparams.R', local = FALSE)
 source('source/summarize_simulation.R', local = FALSE)
+source('source/complexity.R', local = FALSE)
 
 # Load or calculate task metrics
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, function() get_all_complexity_metrics(allGaitParams, debug = TRUE))
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)
-
-source("source/complexity.R", local = FALSE)
 
 # for testing combining of tables
 #mu_gait <- get_full_mu(allGaitParams, allQResults, categories, TRUE, FALSE)

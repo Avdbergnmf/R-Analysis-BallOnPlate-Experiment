@@ -25,6 +25,18 @@ filteredQResults_new <- reactive({
   return(data[included, ])
 })
 
+# Filter pre-calculated complexity metrics
+filteredComplexityMetrics <- reactive({
+  if (!exists("allComplexityMetrics")) {
+    return(NULL)
+  }
+  data <- allComplexityMetrics
+  included <- data[["participant"]] %in% input$filterParticipants
+  included <- included & data[["trialNum"]] %in% input$filterTrials
+  included <- included & data[["condition"]] %in% input$filterCondition
+  data[included, ]
+})
+
 get_mu_dyn_long <- reactive({
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
   if (input$do_slicing) {
