@@ -18,61 +18,18 @@ filteredParams <- reactive({
   return(data[included, ])
 })
 
-filteredQResults_new <- reactive({
-  data <- allQResults
-  included <- data[["participant"]] %in% input$filterParticipants
-  ############## SHOULD GO TO PHASES INSTEAD OF TRIALNUMS ?????
-  return(data[included, ])
-})
-
-# Filter pre-calculated complexity metrics
-filteredComplexityMetrics <- reactive({
-  if (!exists("allComplexityMetrics")) {
-    return(NULL)
-  }
-  data <- allComplexityMetrics
-  included <- data[["participant"]] %in% input$filterParticipants
-  included <- included & data[["trialNum"]] %in% input$filterTrials
-  included <- included & data[["condition"]] %in% input$filterCondition
-  data[included, ]
-})
-
 get_mu_dyn_long <- reactive({
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
   if (input$do_slicing) {
     mu_gait <- get_full_mu_sliced(filteredParams(), allQResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
   } else {
-    mu_gait <- get_full_mu(filteredParams(), allQResults, categories, input$avg_feet, input$add_diff)
+    mu_gait <- get_full_mu(filteredParams(), categories, input$avg_feet, input$add_diff)
   }
 
-  # Get task simulation metrics using cached data with same filtering and slicing
-  tryCatch(
-    {
-      # Get current filter settings
-      selected_participants <- input$filterParticipants
-      selected_trials <- input$filterTrials
+  # These are all automaticallyfiltered based on gait data availability
+  mu <- merge_mu_with_questionnaire(mu_gait, allQResults)
+  mu <- merge_mu_with_task(mu, allTaskMetrics)
+  mu <- merge_mu_with_complexity(mu, allComplexityMetrics)
 
-      if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) {
-        # Filter task metrics by participant and trial
-        mu_task <- allTaskMetrics %>%
-          filter(
-            participant %in% selected_participants,
-            trialNum %in% selected_trials
-          )
-
-        # Merge gait and task data
-        mu_combined <- merge_mu_with_task(mu_gait, mu_task)
-
-        return(mu_combined)
-      } else {
-        cat("No simulation data found, returning gait data only\n")
-        return(mu_gait)
-      }
-    },
-    error = function(e) {
-      cat("Error loading task metrics:", e$message, "\n")
-      cat("Returning gait data only\n")
-      return(mu_gait)
-    }
-  )
+  return(mu)
 })

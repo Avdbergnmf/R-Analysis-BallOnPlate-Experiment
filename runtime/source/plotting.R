@@ -141,11 +141,11 @@ plot_steps_with_overlay <- function(data, selected_participant, selected_trialNu
   condition <- condition_number(selected_participant)
 
   # Assign colors based on condition instead of VFD
-  if (condition == 1) {
-    color <- "yellow" # neither condition
-  } else if (condition == 2) {
+  if (condition == "baseline") {
+    color <- "yellow" # baseline condition
+  } else if (condition == "perturbation") {
     color <- "green" # perturbations only
-  } else if (condition == 3) {
+  } else if (condition == "perturbation_visualization") {
     color <- "blue" # visualizations + perturbations
   } else {
     color <- "gray" # fallback

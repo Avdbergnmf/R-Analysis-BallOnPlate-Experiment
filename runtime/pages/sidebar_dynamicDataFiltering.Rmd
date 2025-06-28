@@ -5,11 +5,13 @@ selectizeInput("filterParticipants", "Participants", choices = participants, sel
 
 #### Trial Filtering
 ```{r}
-selectizeInput("filterTrials", "Trials", choices = allTrials, selected = allTrials, multiple = TRUE)
-selectizeInput("filterCondition", "Condition", choices = c(1, 2, 3), selected = c(1, 2, 3), multiple = TRUE)
+defaultTrials <- c(5,7,8,10,11)
+selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
+selectizeInput("filterCondition", "Condition", choices = c("baseline", "perturbation", "perturbation_visualization"), selected = c("baseline", "perturbation", "perturbation_visualization"), multiple = TRUE)
 ```
 
 #### Step Filtering
+Note: slicing doesn't work completely atm. But left the old code in because I will probably need it later.
 ```{r}
 selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
 

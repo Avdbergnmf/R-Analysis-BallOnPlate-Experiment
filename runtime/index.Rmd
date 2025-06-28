@@ -43,18 +43,21 @@ source('source/get_simulation_data.R', local = FALSE)
 ## Summary tables
 source('source/summarize_gaitparams.R', local = FALSE)
 source('source/summarize_simulation.R', local = FALSE)
+
 source('source/complexity.R', local = FALSE)
 
 # Load or calculate task metrics
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, function() get_all_complexity_metrics(allGaitParams, debug = TRUE))
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, function() get_all_complexity_metrics(allGaitParams, debug = TRUE, use_parallel = TRUE))
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)
 
 # for testing combining of tables
-#mu_gait <- get_full_mu(allGaitParams, allQResults, categories, TRUE, FALSE)
+#mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
+#mu_combined <- merge_mu_with_questionnaire(mu_gait, allQResults)
 #mu_combined <- merge_mu_with_task(mu_gait, allTaskMetrics)
+#mu_combined <- merge_mu_with_complexity(mu_combined, allComplexityMetrics)
 ```
 
 Sidebar {.sidebar}

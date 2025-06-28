@@ -165,12 +165,12 @@ condition_number <- function(participant) {
   v <- has_visualizations(participant, 7)
 
   if (p && v) {
-    return(3) # vis and pert
+    return("perturbation_visualization") # vis and pert
   }
   if (p) {
-    return(2) # pert
+    return("perturbation") # pert
   }
-  return(1) # neither
+  return("baseline") # neither
 }
 
 has_simulation_data <- function(participant, trial) {

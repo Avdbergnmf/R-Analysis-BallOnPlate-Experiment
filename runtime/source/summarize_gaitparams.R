@@ -102,7 +102,7 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
 }
 
 # This table is huge (like 160 columns)
-summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_diff = FALSE) { # note: add diff only works if also averaging over feet
+summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE) { # note: add diff only works if also averaging over feet
   dataTypes <- setdiff(getTypes(data), categories)
 
   # Define the list of columns to remove - We add these later, but remove them here so they are not considered for the summary table
@@ -134,14 +134,68 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
       values_from = value
     )
 
-  if (exists("allComplexityMetrics")) {
-    mu_wide <- merge_mu_with_complexity(mu_wide, allComplexityMetrics)
+  # Note: Questionnaire merging is now handled by merge_mu_with_questionnaire()
+  # This function now just returns the summarized gait data
+
+  # Create the new column using mutate and sapply
+  mu_wide <- add_category_columns(mu_wide)
+
+  # Reorder columns
+  mu_wide <- mu_wide %>%
+    select(all_of(categories), all_of(columns_to_not_summarize), everything())
+
+  return(mu_wide)
+}
+
+#' Filter dataset to only include participant/trial combinations that exist in gait data
+#' @param mu_gait Gait data containing the reference participant/trial combinations
+#' @param data_to_filter Dataset to filter (task, complexity, etc.)
+#' @param data_type_name Descriptive name for logging (e.g., "task", "complexity")
+#' @param debug Logical, whether to print informative messages (default FALSE)
+#' @return Filtered dataset
+filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data", debug = FALSE) {
+  # Get unique participant/trial combinations from gait data
+  gait_combinations <- mu_gait %>%
+    select(participant, trialNum) %>%
+    distinct()
+
+  # Filter the dataset to only keep matching combinations
+  filtered_data <- data_to_filter %>%
+    semi_join(gait_combinations, by = c("participant", "trialNum"))
+
+  # Provide informative feedback only if debug is enabled
+  if (debug) {
+    message(sprintf(
+      "Filtered %s data from %d to %d rows based on gait data availability",
+      data_type_name, nrow(data_to_filter), nrow(filtered_data)
+    ))
   }
 
-  # Properly merge with questionnaire results based on trial mapping
-  if ("answer_type" %in% colnames(allQResults)) {
+  return(filtered_data)
+}
+
+
+#' Merge summarized gait data with questionnaire results
+#' @param mu_gait Summarized gait data
+#' @param allQResults Questionnaire results data
+#' @return Combined data frame
+merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
+  if (is.null(allQResults) || nrow(allQResults) == 0) {
+    message("No questionnaire data available for merging")
+    return(mu_gait)
+  }
+  if (is.null(mu_gait) || nrow(mu_gait) == 0) {
+    message("No gait data available for merging")
+    return(allQResults)
+  }
+
+  mu_gait_copy <- mu_gait
+  q_results_copy <- allQResults
+
+  # Handle questionnaire results based on available columns
+  if ("answer_type" %in% colnames(q_results_copy)) {
     # Create trial mapping for questionnaire results
-    q_results_mapped <- allQResults %>%
+    q_results_mapped <- q_results_copy %>%
       mutate(
         trialNum = case_when(
           answer_type == "baseline_task" ~ 5,
@@ -154,30 +208,54 @@ summarize_table <- function(data, allQResults, categories, avg_feet = TRUE, add_
       filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
 
     # Convert trialNum to numeric in both datasets to ensure compatibility
-    mu_wide$trialNum <- as.numeric(as.character(mu_wide$trialNum))
+    mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
     q_results_mapped$trialNum <- as.numeric(q_results_mapped$trialNum)
 
-    # Merge based on participant and trialNum
-    mu_full <- left_join(mu_wide, q_results_mapped, by = c("participant", "trialNum"))
+    # Filter questionnaire data using the common helper function
+    q_results_filtered <- filter_by_gait_combinations(mu_gait_copy, q_results_mapped, "questionnaire")
+
+    # Merge based on participant and trialNum (using left_join to preserve all gait data)
+    merged_data <- left_join(mu_gait_copy, q_results_filtered, by = c("participant", "trialNum"))
   } else {
-    # Fallback to original merge if no answer_type column
-    mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
+    # Fallback for questionnaire data without answer_type mapping
+    # Still apply filtering based on participant combinations
+    if ("participant" %in% colnames(q_results_copy)) {
+      if ("trialNum" %in% colnames(q_results_copy)) {
+        # If trialNum exists, use the full filtering approach
+        q_results_filtered <- filter_by_gait_combinations(mu_gait_copy, q_results_copy, "questionnaire")
+        # Merge based on participant and trialNum
+        merged_data <- left_join(mu_gait_copy, q_results_filtered, by = c("participant", "trialNum"))
+      } else {
+        # If no trialNum, filter by participant only
+        gait_participants <- mu_gait_copy %>%
+          select(participant) %>%
+          distinct()
+
+        q_results_filtered <- q_results_copy %>%
+          semi_join(gait_participants, by = "participant")
+
+        if (debug) {
+          message(sprintf(
+            "Filtered questionnaire data from %d to %d rows based on gait data availability (participant only)",
+            nrow(q_results_copy), nrow(q_results_filtered)
+          ))
+        }
+
+        # Merge based on participant only
+        merged_data <- left_join(mu_gait_copy, q_results_filtered, by = "participant")
+      }
+    } else {
+      message("No common identifier found between gait and questionnaire data")
+      merged_data <- mu_gait_copy
+    }
   }
 
-  # Create the new column using mutate and sapply
-  mu_full <- add_category_columns(mu_full)
-
-  # Reorder columns
-  mu_full <- mu_full %>%
-    select(all_of(categories), all_of(columns_to_not_summarize), everything())
-
-  return(mu_full)
+  return(merged_data)
 }
 
-
-get_full_mu <- function(allGaitParams, allQResults, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
-  # Join the columns
-  muGait <- summarize_table(allGaitParams, allQResults, c(categories, "heelStrikes.foot"), avg_feet, add_diff) ##### Note that we add heelStrikes.foot here as a category, to make sure we summarize each foot individually
+get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
+  # Get the summarized gait data (without questionnaire merging)
+  muGait <- summarize_table(allGaitParams, c(categories, "heelStrikes.foot"), avg_feet, add_diff) ##### Note that we add heelStrikes.foot here as a category, to make sure we summarize each foot individually
 
   return(muGait)
 }
@@ -279,23 +357,23 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
       values_from = value
     )
 
-  # Merge with allQResults (similar to summarize_table)
-  mu_full <- merge(allQResults, mu_wide, by = c("participant"), all = TRUE)
+  # Note: Questionnaire merging is now handled by merge_mu_with_questionnaire()
+  # This function now just returns the summarized sliced gait data
 
   # Add any category columns (if your pipeline expects them)
-  mu_full <- add_category_columns(mu_full)
+  mu_wide <- add_category_columns(mu_wide)
 
   # Reorder columns so that grouping_cols and any excluded columns appear first
-  mu_full <- mu_full %>%
+  mu_wide <- mu_wide %>%
     select(all_of(grouping_cols), all_of(columns_to_not_summarize), everything())
 
-  return(mu_full)
+  return(mu_wide)
 }
 
 
 get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
                                slice_length = 180, avg_feet = TRUE, add_diff = FALSE, remove_middle_slices = FALSE) {
-  # Summarize gait parameters in time slices
+  # Summarize gait parameters in time slices (without questionnaire merging)
   # Note we include heelStrikes.foot in categories so that per-foot summaries are computed if needed
   muGait <- summarize_table_sliced(
     data = allGaitParams,
@@ -316,7 +394,10 @@ get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
       ungroup()
   }
 
-  return(muGait)
+  # Merge with questionnaire data using the new consistent approach
+  muGait_with_questionnaire <- merge_mu_with_questionnaire(muGait, allQResults)
+
+  return(muGait_with_questionnaire)
 }
 
 filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever reason another slice might be detected for some of the participants, we filter those out here.

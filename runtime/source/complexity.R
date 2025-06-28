@@ -350,16 +350,16 @@ compute_complexity <- function(stride_int) {
   )
 }
 
-#' Compute complexity metrics for all participants and trials (Enhanced Version)
+#' Calculate complexity metrics for a single participant/trial combination
+#' @param participant Participant identifier
+#' @param trial Trial identifier
 #' @param allGaitParams Full gait parameter dataset
-#' @param categories Grouping categories (default c("participant","condition","trialNum"))
-#' @param outlier_col_names Vector of potential outlier column names to check (default c("outlierSteps", "heelStrikes.outlierSteps"))
-#' @param debug Logical, whether to print debug information during processing (default FALSE)
-#' @return Data frame with complexity metrics for step times and widths
-get_all_complexity_metrics <- function(allGaitParams,
-                                       categories = c("participant", "condition", "trialNum"),
-                                       outlier_col_names = c("outlierSteps", "heelStrikes.outlierSteps"),
-                                       debug = FALSE) {
+#' @param outlier_col_names Vector of potential outlier column names to check
+#' @param debug Logical, whether to print debug information
+#' @return Single row data frame with all complexity metrics
+calculate_complexity_single <- function(participant, trial, allGaitParams,
+                                        outlier_col_names = c("outlierSteps", "heelStrikes.outlierSteps"),
+                                        debug = FALSE) {
   # Debug helper function
   debug_log <- function(...) {
     if (debug) {
@@ -368,101 +368,237 @@ get_all_complexity_metrics <- function(allGaitParams,
     }
   }
 
-  # Remove foot-related categories as they're not relevant for complexity metrics
-  categories_no_foot <- setdiff(categories, "heelStrikes.foot")
+  debug_log("Processing participant:", participant, "trial:", trial)
 
-  debug_log("Starting complexity analysis with categories:", paste(categories_no_foot, collapse = ", "))
+  # Filter data for this specific participant/trial
+  trial_data <- allGaitParams %>%
+    filter(participant == !!participant, trialNum == !!trial)
 
-  # Check required columns
-  if (!all(categories_no_foot %in% colnames(allGaitParams))) {
-    stop("allGaitParams must contain all specified category columns")
+  if (nrow(trial_data) == 0) {
+    debug_log("  No data found for this combination")
+    return(data.frame(participant = participant, trialNum = trial))
   }
 
-  # Dynamically detect available complexity types (best of function 1)
-  complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(allGaitParams))
+  # Get condition (assuming it's consistent within a trial)
+  condition <- unique(trial_data$condition)[1]
 
-  if (length(complexity_types) == 0) {
-    stop("No valid complexity data types (stepTimes, stepWidths) found in allGaitParams")
-  }
-
-  debug_log("Found complexity types:", paste(complexity_types, collapse = ", "))
-  debug_log("Looking for outlier columns:", paste(outlier_col_names, collapse = ", "))
+  # Initialize result with identifiers
+  result <- data.frame(
+    participant = participant,
+    condition = condition,
+    trialNum = trial
+  )
 
   # Process each complexity type
-  results <- lapply(complexity_types, function(dataType) {
-    debug_log("Processing complexity type:", dataType)
+  complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(trial_data))
 
-    allGaitParams %>%
-      group_by(across(all_of(categories_no_foot))) %>%
-      group_modify(~ {
-        # Get group identifiers for debug logging
-        group_info <- .y[1, ]
-        group_str <- paste(names(group_info), group_info, sep = "=", collapse = ", ")
-        debug_log("  Processing group:", group_str)
+  for (dataType in complexity_types) {
+    debug_log("  Processing", dataType)
 
-        values <- .x[[dataType]]
-        original_length <- length(values)
-        debug_log("    Original", dataType, "length:", original_length)
+    values <- trial_data[[dataType]]
+    original_length <- length(values)
+    debug_log("    Original length:", original_length)
 
-        # Robust outlier filtering (best of function 2, but parameterized)
-        outlier_col_found <- NULL
-        for (col_name in outlier_col_names) {
-          if (col_name %in% colnames(.x)) {
-            outlier_col_found <- col_name
-            break
-          }
-        }
+    # Apply outlier filtering
+    outlier_col_found <- NULL
+    for (col_name in outlier_col_names) {
+      if (col_name %in% colnames(trial_data)) {
+        outlier_col_found <- col_name
+        break
+      }
+    }
 
-        if (!is.null(outlier_col_found)) {
-          debug_log("    Found outlier column:", outlier_col_found)
-          # Filter out outliers (keep only non-outliers)
-          outlier_mask <- .x[[outlier_col_found]]
-          if (is.logical(outlier_mask)) {
-            values <- values[!outlier_mask]
-          } else {
-            # Handle case where outlier column might be non-logical
-            values <- values[outlier_mask == FALSE]
-          }
-          filtered_length <- length(values)
-          outliers_removed <- original_length - filtered_length
-          debug_log("    After outlier filtering:", filtered_length, "values (removed", outliers_removed, "outliers)")
-        } else {
-          debug_log("    No outlier column found - using all values")
-        }
+    if (!is.null(outlier_col_found)) {
+      debug_log("    Using outlier column:", outlier_col_found)
+      outlier_mask <- trial_data[[outlier_col_found]]
+      if (is.logical(outlier_mask)) {
+        values <- values[!outlier_mask]
+      } else {
+        values <- values[outlier_mask == FALSE]
+      }
+      debug_log("    After filtering:", length(values), "values")
+    }
 
-        # Check for sufficient data
-        if (length(values) < 10) {
-          debug_log("    WARNING: Insufficient data for complexity calculation (", length(values), "values)")
-        }
+    # Calculate complexity metrics
+    complexity_result <- compute_complexity(values)
 
-        # Calculate complexity metrics
-        debug_log("    Computing complexity metrics...")
-        complexity_result <- compute_complexity(values)
+    # Add to result with proper naming
+    for (metric_name in names(complexity_result)) {
+      result[[paste0(dataType, "_complexity.", metric_name)]] <- complexity_result[[metric_name]]
+    }
 
-        # Check for NA results
-        na_count <- sum(sapply(complexity_result, is.na))
-        if (na_count > 0) {
-          debug_log("    WARNING:", na_count, "out of", length(complexity_result), "complexity metrics returned NA")
-        } else {
-          debug_log("    All complexity metrics computed successfully")
-        }
+    debug_log("    Computed", length(complexity_result), "complexity metrics")
+  }
 
-        as.data.frame(complexity_result)
-      }) %>%
-      ungroup() %>%
-      rename_with(~ paste0(dataType, "_complexity.", .x), -all_of(categories_no_foot))
-  })
+  return(result)
+}
 
-  names(results) <- complexity_types
 
-  # Combine all results
-  debug_log("Combining results from", length(complexity_types), "complexity types...")
-  final_result <- reduce(results, left_join, by = categories_no_foot)
+
+#' Complexity calculation function designed for get_data_from_loop framework
+#' This function signature matches what get_data_from_loop expects
+#' @param participant Participant identifier
+#' @param trial Trial identifier
+#' @param ... Additional arguments passed from get_data_from_loop
+#' @return Single row data frame with complexity metrics
+calc_complexity_for_loop <- function(participant, trial, ...) {
+  # Get additional arguments
+  args <- list(...)
+
+  # Extract parameters, with defaults
+  allGaitParams <- args$allGaitParams
+  outlier_col_names <- if (is.null(args$outlier_col_names)) c("outlierSteps", "heelStrikes.outlierSteps") else args$outlier_col_names
+  debug <- if (is.null(args$debug)) FALSE else args$debug
+
+  if (is.null(allGaitParams)) {
+    stop("allGaitParams must be provided in the ... arguments")
+  }
+
+  # Use the existing single calculation function
+  result <- calculate_complexity_single(participant, trial, allGaitParams, outlier_col_names, debug)
+
+  return(result)
+}
+
+#' Main complexity calculation function using get_data_from_loop framework
+#' @param allGaitParams Full gait parameter dataset
+#' @param outlier_col_names Vector of potential outlier column names to check
+#' @param debug Logical, whether to print debug information
+#' @param use_parallel Logical, whether to use parallel processing (default TRUE)
+#' @return Data frame with complexity metrics for all valid combinations
+get_all_complexity_metrics <- function(allGaitParams,
+                                       outlier_col_names = c("outlierSteps", "heelStrikes.outlierSteps"),
+                                       debug = FALSE,
+                                       use_parallel = TRUE) {
+  # Debug helper function
+  debug_log <- function(...) {
+    if (debug) {
+      cat("[DEBUG]", ..., "\n")
+      flush.console()
+    }
+  }
+
+  debug_log("Starting complexity analysis using get_data_from_loop framework")
+  debug_log("Parallel processing:", use_parallel)
+
+  # Store original participants and allTrials if they exist, or get from data
+  if (!exists("participants", envir = .GlobalEnv)) {
+    participants <<- unique(allGaitParams$participant)
+    debug_log("Set participants from data:", paste(participants, collapse = ", "))
+  }
+
+  if (!exists("allTrials", envir = .GlobalEnv)) {
+    allTrials <<- unique(allGaitParams$trialNum)
+    debug_log("Set allTrials from data:", paste(allTrials, collapse = ", "))
+  }
+
+  # Use the appropriate loop function from your framework
+  if (use_parallel) {
+    debug_log("Using get_data_from_loop_parallel")
+
+    # For parallel processing, we need to bypass the file verification
+    # since we're working with in-memory data
+    valid_combinations <- allGaitParams %>%
+      select(participant, trialNum) %>%
+      distinct() %>%
+      arrange(participant, trialNum)
+
+    debug_log("Found", nrow(valid_combinations), "valid combinations")
+
+    # Set up parallel processing using your framework's approach
+    numCores <- parallel::detectCores() - 1
+    cl <- parallel::makeCluster(numCores)
+    doParallel::registerDoParallel(cl)
+
+    # Export required variables and functions to cluster
+    parallel::clusterExport(cl, c(
+      "allGaitParams", "outlier_col_names", "debug",
+      "calc_complexity_for_loop", "calculate_complexity_single", "compute_complexity",
+      "sampen", "apen", "mse", "dfa_alpha", "lyapunov", "poincare_sd"
+    ), envir = environment())
+
+    # Load required packages on each worker
+    parallel::clusterEvalQ(cl, {
+      library(dplyr)
+    })
+
+    # Run the parallel loop using your framework pattern
+    results_list <- foreach::foreach(
+      i = 1:nrow(valid_combinations),
+      .combine = rbind,
+      .packages = c("dplyr")
+    ) %dopar% {
+      participant <- valid_combinations$participant[i]
+      trial <- valid_combinations$trialNum[i]
+
+      calc_complexity_for_loop(
+        participant, trial,
+        allGaitParams = allGaitParams,
+        outlier_col_names = outlier_col_names,
+        debug = FALSE # Turn off debug in parallel workers
+      )
+    }
+
+    # Clean up cluster
+    parallel::stopCluster(cl)
+    result <- as.data.frame(results_list)
+  } else {
+    debug_log("Using get_data_from_loop (sequential)")
+
+    # For sequential, we can use a modified approach that bypasses file verification
+    # Get valid combinations from the data itself
+    valid_combinations <- allGaitParams %>%
+      select(participant, trialNum) %>%
+      distinct() %>%
+      arrange(participant, trialNum)
+
+    debug_log("Found", nrow(valid_combinations), "valid combinations")
+
+    # Initialize result
+    result <- data.frame()
+    total_combinations <- nrow(valid_combinations)
+
+    # Process each combination with progress bar (like your framework)
+    for (i in 1:total_combinations) {
+      participant <- valid_combinations$participant[i]
+      trial <- valid_combinations$trialNum[i]
+
+      # Progress bar (matching your framework style)
+      progress_percent <- (i / total_combinations) * 100
+      progress_bar_length <- 50
+      num_hashes <- floor(progress_bar_length * progress_percent / 100)
+      num_dashes <- progress_bar_length - num_hashes
+      progress_bar <- paste0(
+        "[", paste(rep("#", num_hashes), collapse = ""),
+        paste(rep("-", num_dashes), collapse = ""), "]"
+      )
+
+      if (!debug) { # Show progress bar unless in debug mode
+        cat(sprintf(
+          "\rProgress: %s %.2f%% On Participant: %s, Trial: %s",
+          progress_bar, progress_percent, participant, trial
+        ))
+        flush.console()
+      }
+
+      # Calculate complexity for this combination
+      single_result <- calc_complexity_for_loop(
+        participant, trial,
+        allGaitParams = allGaitParams,
+        outlier_col_names = outlier_col_names,
+        debug = debug
+      )
+
+      result <- rbind(result, single_result)
+    }
+
+    if (!debug) cat("\n") # New line after progress bar
+  }
 
   debug_log("Complexity analysis complete!")
-  debug_log("Final result dimensions:", nrow(final_result), "rows x", ncol(final_result), "columns")
+  debug_log("Final result dimensions:", nrow(result), "rows x", ncol(result), "columns")
 
-  return(final_result)
+  return(result)
 }
 
 #' Merge summarized gait data with complexity metrics
@@ -482,5 +618,10 @@ merge_mu_with_complexity <- function(mu_gait, complexity_data) {
   complexity_copy <- complexity_data
   mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
   complexity_copy$trialNum <- as.numeric(as.character(complexity_copy$trialNum))
-  full_join(mu_gait_copy, complexity_copy, by = c("participant", "trialNum"))
+
+  # Filter complexity data using the common helper function
+  complexity_filtered <- filter_by_gait_combinations(mu_gait_copy, complexity_copy, "complexity") # defined in summarize_simulation.R
+
+  # Merge based on participant and trialNum (using left_join to preserve all gait data)
+  left_join(mu_gait_copy, complexity_filtered, by = c("participant", "trialNum"))
 }

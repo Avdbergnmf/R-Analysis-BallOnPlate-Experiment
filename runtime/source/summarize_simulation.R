@@ -1,3 +1,39 @@
+#' Calculate total score from simulation data
+#'
+#' @param sim_data Enhanced simulation data from get_simulation_data()
+#' @return List with final_score, time_in_bowl_bonus, and total_score
+#' @export
+calculate_total_score <- function(sim_data) {
+    # Initialize default values
+    final_score <- NA_real_
+    time_in_bowl_bonus <- 0
+
+    # Get final score from simulation data
+    if ("score" %in% colnames(sim_data)) {
+        # Get the final (last) non-NA score value instead of maximum
+        score_values <- sim_data$score[!is.na(sim_data$score)]
+        if (length(score_values) > 0) {
+            final_score <- tail(score_values, 1) # Take the last value instead of max
+        }
+    }
+
+    # Add time_in_bowl bonus points if the column exists
+    if ("time_in_bowl" %in% colnames(sim_data)) {
+        time_in_bowl_values <- sim_data$time_in_bowl[!is.na(sim_data$time_in_bowl)]
+        if (length(time_in_bowl_values) > 0) {
+            # Convert time_in_bowl to points (assuming 1 second = 1 point, adjust as needed)
+            time_in_bowl_bonus <- tail(time_in_bowl_values, 1)
+        }
+    }
+
+    # Return calculated scores
+    return(list(
+        final_score = final_score,
+        time_in_bowl_bonus = time_in_bowl_bonus,
+        total_score = final_score + time_in_bowl_bonus
+    ))
+}
+
 #' Compute task metrics for a single simulation dataset
 #'
 #' @param sim_data Enhanced simulation data from get_simulation_data()
@@ -7,16 +43,6 @@
 compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     if (is.null(sim_data) || nrow(sim_data) == 0) {
         return(tibble())
-    }
-
-    # Get final score from simulation data
-    final_score <- NA_real_
-    if ("score" %in% colnames(sim_data)) {
-        # Get the maximum non-NA score value
-        score_values <- sim_data$score[!is.na(sim_data$score)]
-        if (length(score_values) > 0) {
-            final_score <- max(score_values)
-        }
     }
 
     # Filter to only use real simulation data (when ball is on plate)
@@ -82,8 +108,14 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
         ))
 
     # Combine all metrics
-    result <- bind_cols(sim_info, abs_metrics, reg_metrics) %>%
-        mutate(total_score = final_score)
+    result <- bind_cols(sim_info, abs_metrics, reg_metrics)
+
+    # add total score
+    scores <- calculate_total_score(sim_data)
+    result <- result %>%
+        mutate(
+            total_score = scores$total_score
+        )
 
     return(result)
 }
@@ -213,13 +245,16 @@ merge_mu_with_task <- function(mu_gait, mu_task) {
     mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
     mu_task_copy$trialNum <- as.numeric(as.character(mu_task_copy$trialNum))
 
+    # Filter task data using the common helper function
+    mu_task_filtered <- filter_by_gait_combinations(mu_gait_copy, mu_task_copy, "task")
+
     # Add task. prefix to all task metric columns (except participant and trialNum)
-    task_metrics_cols <- setdiff(colnames(mu_task_copy), c("participant", "trialNum"))
-    mu_task_renamed <- mu_task_copy %>%
+    task_metrics_cols <- setdiff(colnames(mu_task_filtered), c("participant", "trialNum"))
+    mu_task_renamed <- mu_task_filtered %>%
         rename_with(~ paste0("task.", .x), all_of(task_metrics_cols))
 
-    # Merge based on participant and trialNum
-    merged_data <- full_join(
+    # Merge based on participant and trialNum (using left_join to preserve all gait data)
+    merged_data <- left_join(
         mu_gait_copy,
         mu_task_renamed,
         by = c("participant", "trialNum")
