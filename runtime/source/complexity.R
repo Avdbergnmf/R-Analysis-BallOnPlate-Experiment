@@ -460,150 +460,33 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
   return(result)
 }
 
-#' Main complexity calculation function using get_data_from_loop framework
-#' @param allGaitParams Full gait parameter dataset
-#' @param outlier_col_names Vector of potential outlier column names to check
-#' @param debug Logical, whether to print debug information
-#' @param use_parallel Logical, whether to use parallel processing (default TRUE)
+#' Calculate complexity metrics for all participants and trials using get_data_from_loop framework
+#' @param parallel Whether to use parallel processing (default TRUE)
 #' @return Data frame with complexity metrics for all valid combinations
-get_all_complexity_metrics <- function(allGaitParams,
-                                       outlier_col_names = c("outlierSteps", "heelStrikes.outlierSteps"),
-                                       debug = FALSE,
-                                       use_parallel = TRUE) {
-  # Debug helper function
-  debug_log <- function(...) {
-    if (debug) {
-      cat("[DEBUG]", ..., "\n")
-      flush.console()
-    }
+#' @note This function requires allGaitParams to be available in the global environment
+get_all_complexity_metrics <- function(parallel = TRUE) {
+  # Check if allGaitParams exists in the global environment
+  if (!exists("allGaitParams", envir = .GlobalEnv)) {
+    stop("allGaitParams not found in global environment. Please ensure gait parameters are calculated first.")
   }
 
-  debug_log("Starting complexity analysis using get_data_from_loop framework")
-  debug_log("Parallel processing:", use_parallel)
+  # Get allGaitParams from global environment
+  allGaitParams <- get("allGaitParams", envir = .GlobalEnv)
 
-  # Store original participants and allTrials if they exist, or get from data
-  if (!exists("participants", envir = .GlobalEnv)) {
-    participants <<- unique(allGaitParams$participant)
-    debug_log("Set participants from data:", paste(participants, collapse = ", "))
+  outlier_col_names <- c("outlierSteps", "heelStrikes.outlierSteps")
+  debug <- !parallel # Enable debug when parallel is FALSE
+
+  # Create a wrapper function that matches get_data_from_loop expectations
+  complexity_function <- function(participant, trial) {
+    return(calculate_complexity_single(participant, trial, allGaitParams, outlier_col_names, debug))
   }
 
-  if (!exists("allTrials", envir = .GlobalEnv)) {
-    allTrials <<- unique(allGaitParams$trialNum)
-    debug_log("Set allTrials from data:", paste(allTrials, collapse = ", "))
-  }
-
-  # Use the appropriate loop function from your framework
-  if (use_parallel) {
-    debug_log("Using get_data_from_loop_parallel")
-
-    # For parallel processing, we need to bypass the file verification
-    # since we're working with in-memory data
-    valid_combinations <- allGaitParams %>%
-      select(participant, trialNum) %>%
-      distinct() %>%
-      arrange(participant, trialNum)
-
-    debug_log("Found", nrow(valid_combinations), "valid combinations")
-
-    # Set up parallel processing using your framework's approach
-    numCores <- parallel::detectCores() - 1
-    cl <- parallel::makeCluster(numCores)
-    doParallel::registerDoParallel(cl)
-
-    # Export required variables and functions to cluster
-    parallel::clusterExport(cl, c(
-      "allGaitParams", "outlier_col_names", "debug",
-      "calc_complexity_for_loop", "calculate_complexity_single", "compute_complexity",
-      "sampen", "apen", "mse", "dfa_alpha", "lyapunov", "poincare_sd"
-    ), envir = environment())
-
-    # Load required packages on each worker
-    parallel::clusterEvalQ(cl, {
-      library(dplyr)
-    })
-
-    # Run the parallel loop using your framework pattern
-    results_list <- foreach::foreach(
-      i = 1:nrow(valid_combinations),
-      .combine = rbind,
-      .packages = c("dplyr")
-    ) %dopar% {
-      participant <- valid_combinations$participant[i]
-      trial <- valid_combinations$trialNum[i]
-
-      calc_complexity_for_loop(
-        participant, trial,
-        allGaitParams = allGaitParams,
-        outlier_col_names = outlier_col_names,
-        debug = FALSE # Turn off debug in parallel workers
-      )
-    }
-
-    # Clean up cluster
-    parallel::stopCluster(cl)
-    result <- as.data.frame(results_list)
+  # Use the standard get_data_from_loop framework
+  if (parallel) {
+    return(get_data_from_loop_parallel(complexity_function, datasets_to_verify = c("leftfoot", "rightfoot")))
   } else {
-    debug_log("Using get_data_from_loop (sequential)")
-
-    # For sequential, we can use a modified approach that bypasses file verification
-    # Get valid combinations from the data itself
-    valid_combinations <- allGaitParams %>%
-      select(participant, trialNum) %>%
-      distinct() %>%
-      arrange(participant, trialNum)
-
-    debug_log("Found", nrow(valid_combinations), "valid combinations")
-
-    # Optimized: pre-allocate list to avoid repeated rbind operations
-    total_combinations <- nrow(valid_combinations)
-    results_list <- vector("list", total_combinations)
-
-    # Process each combination with progress bar (like your framework)
-    for (i in 1:total_combinations) {
-      participant <- valid_combinations$participant[i]
-      trial <- valid_combinations$trialNum[i]
-
-      # Progress bar (matching your framework style)
-      progress_percent <- (i / total_combinations) * 100
-      progress_bar_length <- 50
-      num_hashes <- floor(progress_bar_length * progress_percent / 100)
-      num_dashes <- progress_bar_length - num_hashes
-      progress_bar <- paste0(
-        "[", paste(rep("#", num_hashes), collapse = ""),
-        paste(rep("-", num_dashes), collapse = ""), "]"
-      )
-
-      if (!debug) { # Show progress bar unless in debug mode
-        cat(sprintf(
-          "\rProgress: %s %.2f%% On Participant: %s, Trial: %s",
-          progress_bar, progress_percent, participant, trial
-        ))
-        flush.console()
-      }
-
-      # Calculate complexity for this combination
-      single_result <- calc_complexity_for_loop(
-        participant, trial,
-        allGaitParams = allGaitParams,
-        outlier_col_names = outlier_col_names,
-        debug = debug
-      )
-
-      # Store in pre-allocated list instead of rbind for better performance
-      results_list[[i]] <- single_result
-    }
-
-    # Combine all results efficiently using rbindlist
-    result <- data.table::rbindlist(results_list, fill = TRUE)
-    result <- as.data.frame(result) # Convert back for compatibility
-
-    if (!debug) cat("\n") # New line after progress bar
+    return(get_data_from_loop(complexity_function, datasets_to_verify = c("leftfoot", "rightfoot")))
   }
-
-  debug_log("Complexity analysis complete!")
-  debug_log("Final result dimensions:", nrow(result), "rows x", ncol(result), "columns")
-
-  return(result)
 }
 
 #' Merge summarized gait data with complexity metrics
