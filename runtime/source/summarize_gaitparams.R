@@ -271,48 +271,26 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
 ### SUMMARIZE AGAIN AND CALCULATE DIFF, SO WE CAN USE FOR CORRELATIONN PLOT
 
 summarize_across_conditions <- function(data) {
-  # Check if this is questionnaire data (has answer_type) or gait data
-  if ("answer_type" %in% colnames(data)) {
-    # This is questionnaire data - group by answer_type and condition
-    if ("heelStrikes.foot" %in% colnames(data)) {
-      # Group by participant, answer_type, condition, and heelStrikes.foot
-      summarized_data <- data %>%
-        group_by(participant, answer_type, condition, heelStrikes.foot) %>%
-        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-    } else {
-      # Group by participant, answer_type, and condition only
-      summarized_data <- data %>%
-        group_by(participant, answer_type, condition) %>%
-        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-    }
+  # Determine base grouping columns based on data type
+  base_groups <- if ("answer_type" %in% colnames(data)) {
+    # Questionnaire data
+    c("participant", "answer_type", "condition")
   } else {
-    # This is gait data - use original logic but adapt for new structure
-    # Filter for the relevant trial numbers if trialNum exists
-    if ("trialNum" %in% colnames(data)) {
-      data <- data %>%
-        dplyr::filter(trialNum %in% c(2, 3, 5, 6))
-
-      # Add condition column based on trial numbers
-      data <- data %>%
-        dplyr::mutate(trial_condition = dplyr::case_when(
-          trialNum %in% c(2, 3) ~ "condition_1",
-          trialNum %in% c(5, 6) ~ "condition_2"
-        ))
-    }
-
-    # Check if 'heelStrikes.foot' exists in the data
-    if ("heelStrikes.foot" %in% colnames(data)) {
-      # Group by participant, condition, and heelStrikes.foot
-      summarized_data <- data %>%
-        group_by(participant, condition, heelStrikes.foot) %>%
-        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-    } else {
-      # Group by participant and condition only
-      summarized_data <- data %>%
-        group_by(participant, condition) %>%
-        summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-    }
+    # Gait data - use existing condition column (no hardcoded filtering!)
+    c("participant", "condition")
   }
+
+  # Add heelStrikes.foot to grouping if it exists
+  grouping_cols <- if ("heelStrikes.foot" %in% colnames(data)) {
+    c(base_groups, "heelStrikes.foot")
+  } else {
+    base_groups
+  }
+
+  # Single summarization step
+  summarized_data <- data %>%
+    group_by(across(all_of(grouping_cols))) %>%
+    summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
 
   return(summarized_data)
 }
