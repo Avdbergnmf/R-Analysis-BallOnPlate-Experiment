@@ -197,27 +197,33 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
 
 #' Get task metrics for all participants and trials
 #'
-#' @param participants List of participant identifiers
-#' @param trials List of trial numbers
-#' @param slice_length Optional length of time slices in seconds
-#' @param remove_middle_slices Optional flag to remove middle slices
+#' @param parallel Whether to use parallel processing (default TRUE)
 #' @return Tibble with task metrics for all participant/trial combinations
 #' @export
-get_all_task_metrics <- function() {
-    return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("task", "level")))
+get_all_task_metrics <- function(parallel = TRUE) {
+    if (parallel) {
+        return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("task", "level")))
+    } else {
+        return(get_data_from_loop(get_metrics, datasets_to_verify = c("task", "level")))
+    }
 }
 
 #' Get attempt metrics for all participants and trials
 #'
 #' @param min_attempt_duration Minimum duration (s) for an attempt to be counted
+#' @param parallel Whether to use parallel processing (default TRUE)
 #' @return Tibble with attempt metrics for all participant/trial combinations
 #' @export
-get_all_attempt_metrics <- function(min_attempt_duration = 0) {
+get_all_attempt_metrics <- function(min_attempt_duration = 0, parallel = TRUE) {
     attempt_fun <- function(p, t) {
         get_attempts(p, t, min_attempt_duration)
     }
 
-    return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("task", "level")))
+    if (parallel) {
+        return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("task", "level")))
+    } else {
+        return(get_data_from_loop(attempt_fun, datasets_to_verify = c("task", "level")))
+    }
 }
 
 #' Merge mu gait data with mu_task simulation data

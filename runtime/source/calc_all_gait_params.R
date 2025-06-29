@@ -1,7 +1,8 @@
 ####### DEFINITIONS
 # Getting types for later use
 xOptions <- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
-xOptions2D <- colnames(get_t_data(participants[1], "leftfoot", 1)) # options for pos rot trackers
+# xOptions2D is now loaded in initialization.R to avoid heavy operations during sourcing
+# xOptions2D <- colnames(get_t_data(participants[1], "leftfoot", 1)) # options for pos rot trackers
 categories <- c("participant", "condition", "trialNum") #  "heelStrikes.foot"
 # categoriesInputs <- append(categories, "None")
 columns_to_not_summarize <- c("visualizations", "perturbations") # these are categorical columns we may want to use for our statistics but we dont want to summarize in our mu table
@@ -114,7 +115,14 @@ calculate_gait_parameters <- function(participant, trialNum) {
 }
 
 #' Calculate gait parameters for all participants and trials
+#' @param parallel Whether to use parallel processing (default TRUE)
 #' @return Tibble with gait parameters for all combinations
-calc_all_gait_params <- function() {
-  return(get_data_from_loop_parallel(calculate_gait_parameters)) # _parallel
+calc_all_gait_params <- function(parallel = TRUE) {
+  # Ensure heavy data is initialized in main session
+  ensure_global_data_initialized()
+  if (parallel) {
+    return(get_data_from_loop_parallel(calculate_gait_parameters))
+  } else {
+    return(get_data_from_loop(calculate_gait_parameters))
+  }
 }

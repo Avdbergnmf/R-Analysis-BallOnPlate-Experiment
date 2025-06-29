@@ -21,9 +21,13 @@ get_rotations_data <- function() {
   return(rotations)
 }
 
-rotations_data <- get_rotations_data() # just load once
+# rotations_data is now loaded in initialization.R to avoid heavy operations during sourcing
+# rotations_data <- get_rotations_data() # just load once
 
 load_rotations <- function(participant, trialNum) {
+  # Ensure rotations_data is loaded (moved to initialization.R for performance)
+  ensure_global_data_initialized()
+
   if (is.null(rotations_data)) {
     rotations_data <- get_rotations_data()
   }

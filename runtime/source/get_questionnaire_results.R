@@ -93,7 +93,7 @@ calculate_all_scores <- function(qType) {
   return(allScores)
 }
 
-get_all_questionnaire_results <- function() {
+get_all_questionnaire_results <- function(parallel = TRUE) {
   all_questionnaires <- c("IMI", "UserExperience")
 
   # Calculate scores for all questionnaires

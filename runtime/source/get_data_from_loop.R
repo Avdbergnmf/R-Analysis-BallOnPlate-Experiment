@@ -5,12 +5,44 @@ getTypes <- function(dt) {
 }
 
 ############ FUNCTIONS
-# Helper function to load or calculate and save data
-load_or_calculate <- function(filePath, calculate_function) {
+#' Load or calculate and save data with parallel processing control
+#'
+#' This function checks if a cached result file exists. If it does, it loads the data.
+#' If not, it calls the calculation function and saves the result for future use.
+#' The parallel parameter controls whether the calculation uses parallel processing.
+#'
+#' @param filePath Path to the cached result file (.rds)
+#' @param calculate_function Function to call if no cached result exists
+#' @param parallel Whether to use parallel processing (default TRUE)
+#'   - TRUE: Use parallel processing for faster computation on multi-core systems
+#'   - FALSE: Use sequential processing for debugging or small datasets
+#'
+#' @examples
+#' # Use parallel processing (default)
+#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params)
+#'
+#' # Force sequential processing for debugging
+#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
+#'
+#' # Mixed approach - different functions with different parallel settings
+#' allQResults <- load_or_calculate("results/quest.rds", get_all_questionnaire_results, parallel = FALSE)
+#' allTaskMetrics <- load_or_calculate("results/task.rds", get_all_task_metrics, parallel = TRUE)
+#'
+#' @return The loaded or calculated data
+load_or_calculate <- function(filePath, calculate_function, parallel = TRUE) {
     if (file.exists(filePath)) {
         data <- readRDS(filePath)
     } else {
-        data <- calculate_function()
+        # Check if the calculate_function accepts a parallel parameter
+        func_args <- names(formals(calculate_function))
+        if ("parallel" %in% func_args) {
+            data <- calculate_function(parallel = parallel)
+        } else if ("use_parallel" %in% func_args) {
+            data <- calculate_function(use_parallel = parallel)
+        } else {
+            # Function doesn't support parallel parameter, call as-is
+            data <- calculate_function()
+        }
         saveRDS(data, filePath)
     }
     return(data)
@@ -99,28 +131,18 @@ print_verification_results <- function(verification_results) {
     return(as.data.frame(results_df))
 }
 
-get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
-    valid_combinations <- get_valid_combinations(datasets_to_verify)
-
-    # Set up parallel backend to use multiple processors
-    numCores <- detectCores() - 1 # Leave one core free for system processes
+#' Create and setup a parallel cluster
+#'
+#' This helper initializes a parallel cluster and loads all
+#' required source files on the workers. It returns the
+#' cluster object so it can be reused across multiple calls.
+create_parallel_cluster <- function(numCores = detectCores() - 1) {
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
-    # Load packages once on each worker
+    # Load packages and source files once on each worker
     clusterEvalQ(cl, {
         source("source/setup.R", local = FALSE)
-    })
-
-    # Export necessary variables and functions to the cluster - improved exports for efficiency
-    clusterExport(cl, c(
-        "participants", "allTrials", "get_data_function", "add_identifiers_and_categories",
-        "dataFolder", "dataExtraFolder", "questionnaireInfoFolder", "qTypes", "qAnswers",
-        "trackers", "filenameDict", "categories"
-    ), envir = environment())
-
-    # Source only essential functions on each worker (in dependency order)
-    clusterEvalQ(cl, {
         source("source/data_loading.R", local = FALSE)
         source("source/pre_processing.R", local = FALSE)
         source("source/find_foot_events.R", local = FALSE)
@@ -130,7 +152,32 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         source("source/get_simulation_data.R", local = FALSE)
         source("source/summarize_simulation.R", local = FALSE)
         source("source/summarize_gaitparams.R", local = FALSE)
+
+        # Initialize heavy data once per worker (instead of on every function call)
+        ensure_global_data_initialized()
     })
+
+    return(cl)
+}
+
+get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), cl = NULL, ...) {
+    valid_combinations <- get_valid_combinations(datasets_to_verify)
+
+    # Use existing cluster or create our own
+    own_cluster <- FALSE
+    if (is.null(cl)) {
+        cl <- create_parallel_cluster()
+        own_cluster <- TRUE
+    } else {
+        registerDoParallel(cl)
+    }
+
+    # Export necessary variables and functions to the cluster - improved exports for efficiency
+    clusterExport(cl, c(
+        "participants", "allTrials", "get_data_function", "add_identifiers_and_categories",
+        "dataFolder", "dataExtraFolder", "questionnaireInfoFolder", "qTypes", "qAnswers",
+        "trackers", "filenameDict", "categories"
+    ), envir = environment())
 
     # Use list building instead of .combine = rbind for much better performance
     data_list <- foreach(
@@ -161,8 +208,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         )
     }
 
-    # Stop the cluster
-    stopCluster(cl)
+    # Stop the cluster if we created it inside this function
+    if (own_cluster) {
+        stopCluster(cl)
+    }
 
     # Check for errors in the results
     error_results <- sapply(data_list, function(x) is.list(x) && !is.null(x$error) && x$error)

@@ -10,6 +10,14 @@ runtime: shinyrmd
 ```{r setup, include=FALSE}
 rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
 
+# =============================================================================
+# PARALLEL PROCESSING CONTROL
+# =============================================================================
+# Set to TRUE for faster computation on multi-core systems (recommended for production)
+# Set to FALSE for debugging, small datasets, or troubleshooting cluster issues
+USE_PARALLEL <- TRUE
+# =============================================================================
+
 source('source/setup.R')
 source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
@@ -29,11 +37,11 @@ simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
-# Load or calculate the data
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
-allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params)
+# Load or calculate the data using the global parallel setting
+allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = USE_PARALLEL)
+allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params, parallel = USE_PARALLEL)
 
-dataTypes         <- setdiff(getTypes(allGaitParams), categories)
+dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
 ## The simulation source
 source('source/profile_shapes.R', local = FALSE)
@@ -46,9 +54,9 @@ source('source/summarize_simulation.R', local = FALSE)
 
 source('source/complexity.R', local = FALSE)
 
-# Load or calculate task metrics
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, function() get_all_complexity_metrics(allGaitParams, debug = TRUE, use_parallel = TRUE))
+# Load or calculate task and complexity metrics using the global parallel setting
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = USE_PARALLEL)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, parallel = USE_PARALLEL)
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)

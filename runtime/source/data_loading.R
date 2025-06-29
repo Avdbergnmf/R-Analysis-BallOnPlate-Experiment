@@ -12,12 +12,15 @@ allTrials <- c(2, 3, 5, 7, 8, 9, 10, 11)
 # trial 4 is standing familiarization with the task
 # trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
 
-participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
-trackerPath <- file.path(file.path(dataFolder, participants[1]), "trackers")
-# Optimized CSV reading: use fread instead of read.csv for better performance
-filenameDict <- data.table::fread(file.path(dataExtraFolder, "filenameDict.csv"), stringsAsFactors = FALSE)
-filenameDict <- setNames(as.list(filenameDict[[2]]), filenameDict[[1]])
-trackers <- names(filenameDict)
+# Heavy operations moved to initialization.R to avoid repeated execution during sourcing
+# These variables are now loaded once via initialize_global_data():
+# - participants: list of participant directories
+# - trackerPath: path to tracker files for first participant
+# - filenameDict: mapping of tracker types to filename prefixes
+# - trackers: list of available tracker types
+
+# Ensure initialization has been called before using these variables
+ensure_global_data_initialized()
 ################ Data retrieval / helper methods ################
 
 # Data retrieval functions

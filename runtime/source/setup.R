@@ -60,3 +60,6 @@ library(dbscan) # Density-based clustering for outlier detection
 # Development and utilities
 library(devtools) # Development tools
 library(markdown) # Markdown rendering for data dictionary
+
+# Load initialization functions
+source("source/initialization.R", local = FALSE)
