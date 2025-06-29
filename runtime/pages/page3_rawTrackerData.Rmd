@@ -42,8 +42,8 @@ updatePlotOptions <- function(xtracker, ytracker, target_x, target_y, current_x 
   selected_x <- if(!is.null(current_x) && current_x %in% xchoices) current_x else xchoices[min(2, length(xchoices))]
   selected_y <- if(!is.null(current_y) && current_y %in% ychoices) current_y else ychoices[min(3, length(ychoices))]
   
-  updateSelectInput(session = getDefaultReactiveDomain(), target_x, choices = xchoices, selected = selected_x)
-  updateSelectInput(session = getDefaultReactiveDomain(), target_y, choices = ychoices, selected = selected_y)
+  updateSelectizeInput(session = getDefaultReactiveDomain(), target_x, choices = xchoices, selected = selected_x)
+  updateSelectizeInput(session = getDefaultReactiveDomain(), target_y, choices = ychoices, selected = selected_y)
 }
 
 # Update plot options when any relevant input changes

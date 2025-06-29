@@ -14,7 +14,7 @@ radioButtons("sim_frame", "Coordinate Frame",
 checkboxInput("sim_fixAspect", "Equal aspect ratio", TRUE)
 
 # Variable selection for time series
-selectInput("sim_vars", "Time-series variables",
+selectizeInput("sim_vars", "Time-series variables",
   choices = NULL, multiple = TRUE)
 
 # Downsampling
@@ -113,7 +113,7 @@ observe({
       keep <- intersect(c("q", "x", "e", "e_total_needed"), available_vars)
       if (length(keep) == 0) keep <- available_vars[1]
     }
-    updateSelectInput(session, "sim_vars",
+    updateSelectizeInput(session, "sim_vars",
       choices = available_vars,
       selected = keep
     )

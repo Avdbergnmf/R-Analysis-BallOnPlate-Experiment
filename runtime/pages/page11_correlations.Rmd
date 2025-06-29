@@ -1,7 +1,7 @@
 ### Options
 
 ```{r}
-selectInput("par", "Parametric data", 
+selectizeInput("par", "Parametric data", 
             choices = c("parametric", "nonparametric", "bayes", "robust"), 
             selected = "parametric", multiple = FALSE)
 
