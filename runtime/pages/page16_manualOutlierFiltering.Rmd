@@ -77,6 +77,7 @@ Column
 ```{r}
 # Add this new checkbox input above the DataTable
 checkboxInput("filter_outliers_table", "Filter table by current participant and trial", value = TRUE)
+checkboxInput("show_outliers_on_plot", "Show outliers on plot (disable for large datasets)", value = TRUE)
 ```
 
 ```{r}
@@ -87,6 +88,7 @@ DT::dataTableOutput("selectedOutliersTable")
 
 # Initialize a reactive value for plot refresh trigger
 refresh_trigger <- reactiveVal(0)
+last_refresh_trigger <- reactiveVal(0)
 
 observeEvent(input$importOutliers, {
   req(input$importOutliers)
@@ -109,8 +111,9 @@ observeEvent(input$importOutliers, {
         
         # Update the selected_outliers reactive value
         selected_outliers(df)
-        showNotification("Outliers imported successfully", type = "message")
-        refresh_trigger(refresh_trigger() + 1)
+        showNotification(paste("Outliers imported successfully:", nrow(df), "outliers loaded"), type = "message")
+        # Don't immediately refresh to avoid freezing - let user navigate to see the results
+        # refresh_trigger(refresh_trigger() + 1)
       } else {
         showNotification("Invalid CSV format. Please ensure the file has 'participant', 'trialNum', and either 'time' or 'heelStrikes.time' columns.", type = "error")
       }
@@ -163,6 +166,18 @@ observeEvent(input$refresh_plot, {
   if (is.null(axis_limits$y)) {
     axis_limits$y <- c(input$ylim_min_16, input$ylim_max_16)
   }
+  
+  # Show warning if there are many outliers and auto-disable if too many
+  num_outliers <- nrow(selected_outliers())
+  if (num_outliers > 500) {
+    updateCheckboxInput(session, "show_outliers_on_plot", value = FALSE)
+    showNotification(paste("Auto-disabled outlier display due to", num_outliers, "outliers. Enable manually if needed."), 
+                     type = "warning", duration = 5)
+  } else if (num_outliers > 100) {
+    showNotification(paste("Refreshing plot with", num_outliers, "outliers - this may take a moment..."), 
+                     type = "message", duration = 3)
+  }
+  
   refresh_trigger(refresh_trigger() + 1)
 })
 
@@ -253,12 +268,13 @@ output$manualOutlierPlot <- renderPlotly({
   current_yaxis <- input$yplot_16
   
   # Only regenerate base plot if parameters changed or forced refresh
+  current_refresh_trigger <- refresh_trigger()
   need_new_plot <- is.null(plot_cache()) || 
                    plot_participant() != current_participant || 
                    plot_trial() != current_trial ||
                    plot_xaxis() != current_xaxis ||
                    plot_yaxis() != current_yaxis ||
-                   refresh_trigger() > 0  # Only if manually triggered
+                   current_refresh_trigger != last_refresh_trigger()  # Only if refresh was triggered
   
   if (need_new_plot) {
     # Check if we have data to plot
@@ -286,6 +302,7 @@ output$manualOutlierPlot <- renderPlotly({
     plot_trial(current_trial)  
     plot_xaxis(current_xaxis)
     plot_yaxis(current_yaxis)
+    last_refresh_trigger(current_refresh_trigger)  # Update the last trigger value
   } else {
     # Use cached base plot
     base_plot <- plot_cache()
@@ -307,12 +324,33 @@ output$manualOutlierPlot <- renderPlotly({
   # Get current outliers - optimize with vectorized operations
   current_outliers_data <- current_outliers()
   
-  # Optimize outlier matching with vectorized approach
-  if (nrow(current_outliers_data) > 0 && nrow(current_data) > 0) {
-    # Create a distance matrix and find matches efficiently
-    time_diffs <- outer(current_data$time, current_outliers_data$time, 
-                        function(x, y) abs(x - y))
-    is_outlier <- apply(time_diffs <= input$outlier_threshold, 1, any)
+  # Efficient outlier matching - only if user wants to show outliers on plot
+  if (input$show_outliers_on_plot && nrow(current_outliers_data) > 0 && nrow(current_data) > 0) {
+    # Show progress for large outlier datasets
+    if (nrow(current_outliers_data) > 50) {
+      showNotification(paste("Processing", nrow(current_outliers_data), "outliers..."), 
+                       type = "message", duration = 1)
+    }
+    
+    # Use a much more efficient approach with binning
+    threshold <- input$outlier_threshold
+    
+    # Create expanded ranges for each outlier
+    outlier_ranges <- data.frame(
+      start = current_outliers_data$time - threshold,
+      end = current_outliers_data$time + threshold
+    )
+    
+    # Check if each data point falls within any outlier range
+    # This is much faster than nested loops
+    is_outlier <- logical(nrow(current_data))
+    
+    for (i in seq_len(nrow(outlier_ranges))) {
+      within_range <- current_data$time >= outlier_ranges$start[i] & 
+                      current_data$time <= outlier_ranges$end[i]
+      is_outlier <- is_outlier | within_range
+    }
+    
     current_data$is_outlier <- is_outlier
   } else {
     current_data$is_outlier <- FALSE
