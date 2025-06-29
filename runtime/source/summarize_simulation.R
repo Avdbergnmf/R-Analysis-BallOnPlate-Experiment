@@ -202,7 +202,7 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
 #' @export
 get_all_task_metrics <- function(parallel = TRUE) {
     if (parallel) {
-        return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("task", "level")))
+        return(get_data_from_loop_parallel(get_metrics, datasets_to_verify = c("task", "level"), log_to_file = ENABLE_FILE_LOGGING))
     } else {
         return(get_data_from_loop(get_metrics, datasets_to_verify = c("task", "level")))
     }
@@ -220,7 +220,7 @@ get_all_attempt_metrics <- function(min_attempt_duration = 0, parallel = TRUE) {
     }
 
     if (parallel) {
-        return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("task", "level")))
+        return(get_data_from_loop_parallel(attempt_fun, datasets_to_verify = c("task", "level"), log_to_file = ENABLE_FILE_LOGGING))
     } else {
         return(get_data_from_loop(attempt_fun, datasets_to_verify = c("task", "level")))
     }

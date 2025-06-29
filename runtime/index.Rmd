@@ -16,6 +16,13 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # Set to TRUE for faster computation on multi-core systems (recommended for production)
 # Set to FALSE for debugging, small datasets, or troubleshooting other issues
 USE_PARALLEL <- TRUE 
+
+# =============================================================================
+# LOGGING CONTROL
+# =============================================================================
+# Set to TRUE to enable detailed logging of parallel processing to files
+# Set to FALSE to disable file logging for faster processing and cleaner output
+ENABLE_FILE_LOGGING <- TRUE
 # =============================================================================
 
 source('source/setup.R')

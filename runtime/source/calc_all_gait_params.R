@@ -114,7 +114,7 @@ calc_all_gait_params <- function(parallel = TRUE) {
   # Ensure heavy data is initialized in main session
   ensure_global_data_initialized()
   if (parallel) {
-    return(get_data_from_loop_parallel(calculate_gait_parameters))
+    return(get_data_from_loop_parallel(calculate_gait_parameters, log_to_file = ENABLE_FILE_LOGGING))
   } else {
     return(get_data_from_loop(calculate_gait_parameters))
   }

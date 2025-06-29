@@ -390,7 +390,7 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   )
 
   # Process each complexity type
-  complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(trial_data))
+  complexity_types <- intersect(c("heelStrikes.time", "stepWidths"), colnames(trial_data))
 
   for (dataType in complexity_types) {
     debug_log("  Processing", dataType)
@@ -486,7 +486,7 @@ get_all_complexity_metrics <- function(parallel = TRUE) {
 
   # Use the standard get_data_from_loop framework
   if (parallel) {
-    return(get_data_from_loop_parallel(complexity_function, datasets_to_verify = c("leftfoot", "rightfoot")))
+    return(get_data_from_loop_parallel(complexity_function, datasets_to_verify = c("leftfoot", "rightfoot"), log_to_file = ENABLE_FILE_LOGGING))
   } else {
     return(get_data_from_loop(complexity_function, datasets_to_verify = c("leftfoot", "rightfoot")))
   }
