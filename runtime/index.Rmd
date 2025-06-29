@@ -52,7 +52,7 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Load or calculate the data using the global parallel setting
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
-allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params, force_recalc = TRUE)
+allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params, force_recalc = FALSE)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
