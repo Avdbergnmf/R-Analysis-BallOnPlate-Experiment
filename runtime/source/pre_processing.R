@@ -1,16 +1,4 @@
 #### Some pre-processing we use later in plotting and get_foot_events
-adjust_times_based_on_data <- function(data) {
-  minTime <- data$time[1]
-  maxTime <- data$time[length(data$time)] - minTime
-  adjusted_data <- adjust_times(data, minTime, maxTime)
-  return(adjusted_data)
-}
-
-adjust_times <- function(dataset, minTime, maxTime = 180) { # make sure we start at t=0
-  dataset$time <- dataset$time - minTime
-  dataset <- subset(dataset, time <= maxTime) # dataset <- subset(dataset)
-  return(dataset)
-}
 
 get_rotations_data <- function() {
   rotations_file <- "./data_extra/rotations_kinematic_data.csv" # manually created file with participant, trial, and rotation (in degrees)
@@ -53,8 +41,8 @@ preprocess_data <- function(participant, trialNum, dataName) {
     return(data.frame())
   }
 
-  # get_p_results(participant,"start_time",trialNum) ifelse(get_p_results(participant, "practice", trialNum) == "True", 120, 180)
-  data <- adjust_times_based_on_data(data)
+  # Apply trial duration capping
+  data <- apply_trial_duration_cap(data, trialNum)
 
   if (is_kinematic_data(data)) {
     rotation <- load_rotations(participant, trialNum)

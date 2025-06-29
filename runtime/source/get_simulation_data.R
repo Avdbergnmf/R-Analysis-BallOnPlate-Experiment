@@ -121,8 +121,9 @@ get_simulation_variable_names <- function() {
 #' @return Tibble with simulation data or empty tibble if no data found
 #' @export
 get_simulation_data <- function(participant, trial) {
-    # Load raw simulation data
+    # Load raw simulation data and apply trial duration capping
     sim_data <- get_t_data(participant, "sim", trial)
+    sim_data <- apply_trial_duration_cap(sim_data, trial)
 
     # Filter out non-simulation steps
     sim_data <- sim_data %>%
@@ -132,14 +133,17 @@ get_simulation_data <- function(participant, trial) {
         return(tibble())
     }
 
-    # Get level data for arcDeg
+    # Get level data for arcDeg and apply trial duration capping
     level_data <- get_t_data(participant, "level", trial)
+    level_data <- apply_trial_duration_cap(level_data, trial)
 
     # Process the simulation data
     sim_data <- process_simulation_data(sim_data, level_data)
 
-    # Load task data to get plate input position and running score
+    # Load task data and apply trial duration capping
     task_data <- get_t_data(participant, "task", trial)
+    task_data <- apply_trial_duration_cap(task_data, trial)
+
     if (!is.null(task_data) && nrow(task_data) > 0) {
         # Add pInput if available
         if (all(c("time", "pInput") %in% colnames(task_data))) {

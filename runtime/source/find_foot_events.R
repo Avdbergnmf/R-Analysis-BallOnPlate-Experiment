@@ -66,13 +66,56 @@ filter_extremes <- function(local_maxima, local_minima, time_vector, pos_vector,
 
 # Helper function to filter extremes based on hip position
 filter_by_hip_position <- function(local_maxima, local_minima, relFootPos) {
-  count_wrong_side_of_hip <- length(relFootPos[local_maxima] > 0) + length(relFootPos[local_maxima] > 0)
-  local_maxima <- local_maxima[relFootPos[local_maxima] > 0]
-  local_minima <- local_minima[relFootPos[local_minima] < 0]
+  # Identify steps that are on the wrong side of hip (for suspect marking)
+  suspect_maxima_mask <- relFootPos[local_maxima] <= 0
+  suspect_minima_mask <- relFootPos[local_minima] >= 0
+
+  suspect_maxima_indices <- which(suspect_maxima_mask)
+  suspect_minima_indices <- which(suspect_minima_mask)
+
+  # For fallback removal (when no other foot data), still filter out wrong side
+  filtered_maxima <- local_maxima[relFootPos[local_maxima] > 0]
+  filtered_minima <- local_minima[relFootPos[local_minima] < 0]
+
+  count_wrong_side_of_hip <- sum(suspect_maxima_mask) + sum(suspect_minima_mask)
+
+  # Add logging
+  if (count_wrong_side_of_hip > 0) {
+    print(paste("found", count_wrong_side_of_hip, "max+min on wrong side of hip (marked as suspect)."))
+  }
 
   return(list(
-    maxima = local_maxima, minima = local_minima,
+    maxima = filtered_maxima, minima = filtered_minima,
+    suspect_maxima_indices = suspect_maxima_indices,
+    suspect_minima_indices = suspect_minima_indices,
     count_wrong_side_of_hip = count_wrong_side_of_hip
+  ))
+}
+
+# Helper function to filter extremes based on other foot position
+filter_by_other_foot_position <- function(local_maxima, local_minima, relFootPos, threshold = 0.05) {
+  # Same logic as hip filtering but with different threshold and sign expectations
+  # relFootPos should be current_foot_pos_x - other_foot_pos_x
+
+  # For heel strikes (maxima): expect some separation, keep if abs(relFootPos) > threshold
+  valid_maxima_mask <- abs(relFootPos[local_maxima]) > threshold
+  valid_maxima <- local_maxima[valid_maxima_mask]
+
+  # For toe-offs (minima): more lenient, keep if abs(relFootPos) > threshold/2
+  valid_minima_mask <- abs(relFootPos[local_minima]) > (threshold / 2)
+  valid_minima <- local_minima[valid_minima_mask]
+
+  # Count removed extrema
+  count_wrong_side_of_foot <- sum(!valid_maxima_mask) + sum(!valid_minima_mask)
+
+  # Add logging
+  if (count_wrong_side_of_foot > 0) {
+    print(paste("removed", count_wrong_side_of_foot, "max+min due to insufficient foot separation."))
+  }
+
+  return(list(
+    maxima = valid_maxima, minima = valid_minima,
+    count_wrong_side_of_foot = count_wrong_side_of_foot
   ))
 }
 
@@ -89,13 +132,31 @@ check_alternation <- function(local_maxima, local_minima) {
     ))
   }
 
+  # Debug logging
+  cat(sprintf(
+    "DEBUG: Alternation check - Input: %d maxima, %d minima\n",
+    length(local_maxima), length(local_minima)
+  ))
+
   i <- 1
   while (i <= length(local_minima) && i <= length(local_maxima)) {
     if (i > length(local_minima) || i > length(local_maxima)) break
 
+    # Debug current state
+    if (i <= length(local_maxima) && i <= length(local_minima)) {
+      cat(sprintf(
+        "DEBUG: Iteration %d - maxima[%d]=%d, minima[%d]=%d\n",
+        i, i, local_maxima[i], i, local_minima[i]
+      ))
+    }
+
     # Remove maxima that come before their corresponding minima
     while (i <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] < local_minima[i]) {
       if (length(local_maxima) < i) break
+      cat(sprintf(
+        "DEBUG: Removing maxima[%d]=%d (comes before minima[%d]=%d)\n",
+        i, local_maxima[i], i, local_minima[i]
+      ))
       local_maxima <- local_maxima[-i]
       N_removed_min <- N_removed_min + 1
       if (length(local_maxima) < i) break
@@ -104,6 +165,10 @@ check_alternation <- function(local_maxima, local_minima) {
     # Remove minima that come after the next maxima
     while ((i + 1) <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] > local_minima[i + 1]) {
       if (length(local_minima) < (i + 1)) break
+      cat(sprintf(
+        "DEBUG: Removing minima[%d]=%d (comes after maxima[%d]=%d)\n",
+        i + 1, local_minima[i + 1], i, local_maxima[i]
+      ))
       local_minima <- local_minima[-(i + 1)]
       N_removed_max <- N_removed_max + 1
       if (length(local_minima) < (i + 1)) break
@@ -111,6 +176,11 @@ check_alternation <- function(local_maxima, local_minima) {
 
     i <- i + 1
   }
+
+  cat(sprintf(
+    "DEBUG: Alternation check - Output: %d maxima, %d minima (removed %d max, %d min)\n",
+    length(local_maxima), length(local_minima), N_removed_min, N_removed_max
+  ))
 
   return(list(
     maxima = local_maxima, minima = local_minima,
@@ -130,7 +200,7 @@ create_output_dataframes <- function(footData, local_maxima, local_minima) {
   return(list(heelStrikes = heelStrikes, toeOffs = toeOffs))
 }
 
-detect_foot_events_coordinates <- function(footData, hipData) {
+detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NULL) {
   # Check if hip data is stationary
   useHip <- !is_hip_stationary(hipData)
   checkAlternation <- TRUE
@@ -148,16 +218,53 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   local_maxima <- extremes$maxima
   local_minima <- extremes$minima
 
+  cat(sprintf(
+    "DEBUG: Initial detection - %d maxima, %d minima\n",
+    length(local_maxima), length(local_minima)
+  ))
+
   # Filter extremes based on time and position
   filtered <- filter_extremes(local_maxima, local_minima, footData$time, relFootPos_filtered)
   local_maxima <- filtered$maxima
   local_minima <- filtered$minima
 
-  # Filter by hip position
-  if (useHip) { # but only if we have the hip data.
-    hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos)
-    local_maxima <- hip_filtered$maxima
-    local_minima <- hip_filtered$minima
+  cat(sprintf(
+    "DEBUG: After time/position filtering - %d maxima, %d minima\n",
+    length(local_maxima), length(local_minima)
+  ))
+
+  # Filter by other foot position, with hip as fallback
+  position_filtered <- NULL
+  hip_filtered <- NULL
+
+  # Always try to filter by other foot position first
+  skipOtherFootCheck <- TRUE
+  if (!is.null(otherFootData) && nrow(otherFootData) > 0 && !skipOtherFootCheck) {
+    # Calculate relative foot position: current_foot_pos_x - other_foot_pos_x
+    other_foot_pos_x <- approx(otherFootData$time, otherFootData$pos_x,
+      xout = footData$time, rule = 1
+    )$y
+    relFootPos_x <- footData$pos_x - other_foot_pos_x
+
+    position_filtered <- filter_by_other_foot_position(local_maxima, local_minima, relFootPos_x)
+    local_maxima <- position_filtered$maxima
+    local_minima <- position_filtered$minima
+
+    cat(sprintf(
+      "DEBUG: After other foot filtering - %d maxima, %d minima\n",
+      length(local_maxima), length(local_minima)
+    ))
+  }
+
+  # Always check hip position for suspect marking (if hip data available)
+  if (!is.null(hipData) && nrow(hipData) > 0) {
+    hip_pos_x <- approx(hipData$time, hipData$pos_x,
+      xout = footData$time, rule = 1
+    )$y
+    relFootPos_x_hip <- footData$pos_x - hip_pos_x
+
+    hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos_x_hip)
+    # Don't update local_maxima/local_minima here - hip filtering is only for suspect marking
   }
 
   # Check alternation
@@ -172,13 +279,18 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   local_maxima <- refine_res$maxima
   suspect_unstable_idx <- refine_res$suspect_unstable
 
+  cat(sprintf(
+    "DEBUG: After refinement - %d maxima, %d minima\n",
+    length(local_maxima), length(local_minima)
+  ))
+
   # Ensure lengths match
   lMax <- length(local_maxima)
   lMin <- length(local_minima)
   if (lMax != lMin) {
-    if (lMax > lMin) {
-      print("Something REALLY WRONG... check detect_foot_events_coordinates()")
-    }
+    # if (lMax > lMin) {
+    #  print("Something REALLY WRONG... check detect_foot_events_coordinates()")
+    # }
     trimLength <- min(lMax, lMin)
     local_maxima <- local_maxima[1:trimLength]
     local_minima <- local_minima[1:trimLength]
@@ -186,6 +298,11 @@ detect_foot_events_coordinates <- function(footData, hipData) {
     if (exists("suspect_unstable_idx")) {
       suspect_unstable_idx <- suspect_unstable_idx[suspect_unstable_idx <= trimLength]
     }
+
+    cat(sprintf(
+      "DEBUG: After length matching - %d maxima, %d minima\n",
+      length(local_maxima), length(local_minima)
+    ))
   }
 
   # Logging
@@ -195,9 +312,7 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   if (filtered$N_removed_pos > 0) {
     print(paste("removed", filtered$N_removed_pos, "max+min due to pos difference constraint."))
   }
-  if (useHip && hip_filtered$count_wrong_side_of_hip > 0) {
-    print(paste("removed", hip_filtered$count_wrong_side_of_hip, " extrema due to wrong side of hip"))
-  }
+  # Position-based filtering logging is now handled within the filtering logic above
   if (alternation$N_removed_max + alternation$N_removed_min > 0) {
     print(paste("removed", alternation$N_removed_max, "maxima, and", alternation$N_removed_min, "minima due to wrong alternation."))
   }
@@ -210,9 +325,25 @@ detect_foot_events_coordinates <- function(footData, hipData) {
   output <- create_output_dataframes(footData, local_maxima, local_minima)
   # Add 'suspect' column default FALSE
   output$heelStrikes$suspect <- FALSE
-  # flag unstable
+
+  # Flag unstable steps from refinement
   if (length(suspect_unstable_idx) > 0) {
     output$heelStrikes$suspect[suspect_unstable_idx] <- TRUE
+  }
+
+  # Flag suspect steps based on hip position (only if hip filtering was performed and other foot data was available)
+  if (!is.null(hip_filtered) && !is.null(position_filtered)) {
+    # Map original indices to final indices after all filtering
+    original_maxima_before_filtering <- extremes$maxima
+
+    # Find which of the original suspect indices are still in our final maxima
+    for (suspect_idx in hip_filtered$suspect_maxima_indices) {
+      original_suspect_index <- original_maxima_before_filtering[suspect_idx]
+      final_position <- which(local_maxima == original_suspect_index)
+      if (length(final_position) > 0) {
+        output$heelStrikes$suspect[final_position] <- TRUE
+      }
+    }
   }
 
   print(paste("--- ---totalsteps: ", length(output$heelStrikes$time)))
@@ -228,8 +359,8 @@ find_foot_events <- function(participant, trialNum) {
   hip <- preprocessedData$hip
 
   # Detect toe-off and heelstrikes
-  footEventsLeft <- detect_foot_events_coordinates(leftfoot, hip)
-  footEventsRight <- detect_foot_events_coordinates(rightfoot, hip)
+  footEventsLeft <- detect_foot_events_coordinates(leftfoot, hip, rightfoot)
+  footEventsRight <- detect_foot_events_coordinates(rightfoot, hip, leftfoot)
 
   # Add a 'foot' column to each event dataframe
   footEventsLeft$heelStrikes$foot <- "Left"
@@ -303,7 +434,7 @@ refine_heelstrike <- function(footData, local_maxima, local_minima,
   # Only process heel-strikes that have a corresponding next toe-off
   max_iterations <- min(length(local_maxima), length(local_minima) - 1)
 
-  if (max_iterations == 0) {
+  if (max_iterations <= 0) {
     # No valid pairs to process - mark all as suspect
     return(list(maxima = local_maxima, suspect_unstable = seq_along(local_maxima)))
   }
@@ -317,8 +448,8 @@ refine_heelstrike <- function(footData, local_maxima, local_minima,
   footData$dy <- c(NA, diff(footData$smoothed_y) / diff(footData$time))
 
   # Vectorized processing of heel-strike pairs
-  heelstrike_indices <- local_maxima[1:max_iterations]
-  toeoff_indices <- local_minima[2:(max_iterations + 1)]
+  heelstrike_indices <- local_maxima[seq_len(max_iterations)]
+  toeoff_indices <- local_minima[seq_len(max_iterations) + 1]
 
   # Vectorized function to find first stable point in each segment
   find_stable_point <- function(start_idx, end_idx) {

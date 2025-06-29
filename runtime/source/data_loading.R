@@ -333,3 +333,74 @@ get_question_weights <- function(qType) { # qType = IMI / UserExperience
 
   return(questionnaire)
 }
+
+# Get trial duration using predefined defaults
+get_trial_duration <- function(trialNum) {
+  # Define reasonable default durations based on trial type
+  default_durations <- list(
+    "1" = 120, # warmup - 2 minutes
+    "2" = 300, # baseline - 5 minutes
+    "3" = 300, # familiarisation_walk - 5 minutes
+    "4" = 120, # familiarisation_stand - 2 minutes
+    "5" = 300, # baseline_task - 5 minutes
+    "6" = 120, # familiarisation_training - 2 minutes
+    "7" = 300, # training1 - 5 minutes
+    "8" = 600, # training2 - 10 minutes
+    "9" = 300, # washout - 5 minutes
+    "10" = 300, # retention - 5 minutes
+    "11" = 300 # transfer - 5 minutes
+  )
+
+  trial_key <- as.character(trialNum)
+
+  # Use default duration if available, otherwise fallback to 180s
+  if (trial_key %in% names(default_durations)) {
+    return(default_durations[[trial_key]])
+  } else {
+    warning(sprintf("No default duration found for trial %s, using 180s", trialNum))
+    return(180)
+  }
+}
+
+adjust_times <- function(dataset, minTime, maxTime = 180) { # make sure we start at t=0
+  dataset$time <- dataset$time - minTime
+  dataset <- subset(dataset, time <= maxTime) # dataset <- subset(dataset)
+  return(dataset)
+}
+
+# Apply trial duration capping to any dataset with a time column
+apply_trial_duration_cap <- function(data, trialNum) {
+  if (is.null(data) || nrow(data) == 0 || !"time" %in% colnames(data)) {
+    return(data)
+  }
+
+  trial_duration <- get_trial_duration(trialNum)
+  minTime <- data$time[1]
+
+  # Debug logging
+  original_rows <- nrow(data)
+  original_time_range <- range(data$time, na.rm = TRUE)
+
+  # Use the existing adjust_times function
+  result <- adjust_times(data, minTime, trial_duration)
+
+  final_rows <- nrow(result)
+  if (final_rows > 0) {
+    final_time_range <- range(result$time, na.rm = TRUE)
+    cat(sprintf(
+      "DEBUG: Trial %s - Duration cap %.1fs | Original: %d rows (%.1f-%.1fs) | Final: %d rows (%.1f-%.1fs) | Kept: %.1f%%\n",
+      trialNum, trial_duration, original_rows,
+      original_time_range[1], original_time_range[2],
+      final_rows, final_time_range[1], final_time_range[2],
+      (final_rows / original_rows) * 100
+    ))
+  } else {
+    cat(sprintf(
+      "DEBUG: Trial %s - Duration cap %.1fs | Original: %d rows (%.1f-%.1fs) | Final: 0 rows (ALL DATA FILTERED OUT!)\n",
+      trialNum, trial_duration, original_rows,
+      original_time_range[1], original_time_range[2]
+    ))
+  }
+
+  return(result)
+}
