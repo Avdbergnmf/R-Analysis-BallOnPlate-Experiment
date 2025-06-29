@@ -424,10 +424,10 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
     if (debug) {
       msg <- paste("[DEBUG]", paste(..., collapse = " "))
       debug_messages <<- c(debug_messages, msg)
-      # Also print immediately if not in parallel mode using message() for proper capture
-      if (exists("USE_PARALLEL", envir = .GlobalEnv) && !get("USE_PARALLEL", envir = .GlobalEnv)) {
-        message(msg)
-      }
+      # Always output immediately during execution for capture.output() to catch it
+      # Use cat() with flush for immediate output that gets captured by parallel logging
+      cat(msg, "\n")
+      flush.console()
     }
   }
 
@@ -606,30 +606,8 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   # Use the provided loop function
   result <- loop_function(complexity_function, datasets_to_verify = datasets_to_verify)
 
-  # Extract and display debug messages from parallel processing
+  # Remove debug messages from the final result (they were already output during execution)
   if ("debug_messages" %in% colnames(result)) {
-    debug_msgs <- result$debug_messages
-    if (!is.null(debug_msgs)) {
-      # Collect all debug messages for proper logging
-      all_debug_messages <- character(0)
-      for (i in seq_along(debug_msgs)) {
-        if (!is.null(debug_msgs[[i]]) && length(debug_msgs[[i]]) > 0) {
-          header <- sprintf("=== Debug messages for P%s-T%s ===", result$participant[i], result$trialNum[i])
-          all_debug_messages <- c(all_debug_messages, header, debug_msgs[[i]], "")
-        }
-      }
-
-      # Output debug messages using message() for proper logging capture
-      if (length(all_debug_messages) > 0) {
-        message("COMPLEXITY DEBUG OUTPUT:")
-        message("=======================")
-        for (msg in all_debug_messages) {
-          message(msg)
-        }
-        message("=======================")
-      }
-    }
-    # Remove debug messages from the final result
     result$debug_messages <- NULL
   }
 
