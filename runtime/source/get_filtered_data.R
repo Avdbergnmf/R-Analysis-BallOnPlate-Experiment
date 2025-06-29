@@ -1,21 +1,34 @@
-# Filter data based on inputs
+# Optimized filtering using data.table for better performance in Shiny reactives
+# Create data.table version once for efficient filtering
+.allGaitParams_dt <- NULL
+
+# Initialize data.table version when first called
+init_gait_data_table <- function() {
+  if (is.null(.allGaitParams_dt)) {
+    # Convert to data.table and set keys for efficient filtering
+    .allGaitParams_dt <<- data.table::as.data.table(allGaitParams)
+    data.table::setkey(.allGaitParams_dt, participant, trialNum, condition)
+  }
+}
 
 filteredParams <- reactive({
   # Force dependency on `refresh_trigger()`
   refresh_trigger()
 
-  data <- allGaitParams
-  included <- data[["participant"]] %in% input$filterParticipants
-  # Trial based
-  included <- included & data[["trialNum"]] %in% input$filterTrials
-  included <- included & data[["condition"]] %in% input$filterCondition
+  # Initialize data.table version if needed
+  init_gait_data_table()
 
-  # Step based
-  included <- included & data[["heelStrikes.outlierSteps"]] %in% input$filterOutliers
+  # Use data.table filtering for much better performance on large datasets
+  dt_filtered <- .allGaitParams_dt[
+    participant %in% input$filterParticipants &
+      trialNum %in% input$filterTrials &
+      condition %in% input$filterCondition &
+      heelStrikes.outlierSteps %in% input$filterOutliers &
+      heelStrikes.foot %in% input$filterSide
+  ]
 
-  included <- included & data[["heelStrikes.foot"]] %in% input$filterSide
-
-  return(data[included, ])
+  # Convert back to data.frame for compatibility with rest of application
+  return(as.data.frame(dt_filtered))
 })
 
 get_mu_dyn_long <- reactive({
