@@ -8,6 +8,11 @@ runtime: shinyrmd
 ---
 
 ```{r setup, include=FALSE}
+
+# to reset:
+# Kill ALL R processes (including your current session - use with caution!)
+# system("pkill -f '^R$|Rterm|rsession'")
+
 rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
 
 # =============================================================================
@@ -55,8 +60,8 @@ taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Load or calculate the data using the global parallel setting
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = USE_PARALLEL)
-allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params, parallel = USE_PARALLEL)
+allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
+allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
@@ -71,8 +76,8 @@ source('source/summarize_simulation.R', local = FALSE)
 source('source/complexity.R', local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = USE_PARALLEL)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, parallel = USE_PARALLEL)
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics)
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)
