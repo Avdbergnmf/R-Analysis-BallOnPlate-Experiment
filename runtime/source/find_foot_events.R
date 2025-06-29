@@ -312,13 +312,18 @@ refine_heelstrike <- function(footData, local_maxima, local_minima,
     dx <- diff(segment$smoothed_x) / diff(segment$time)
     dy <- diff(segment$smoothed_y) / diff(segment$time)
 
+    # Find stable points
     stable_points <- which(abs(dx) < change_threshold & abs(dy) < change_threshold)
 
     if (length(stable_points) > 0) {
+      # Take the first stable point
       stable_point <- stable_points[1]
+
+      # Update the heelstrike time to the stable point
       refined_local_maxima <- c(refined_local_maxima, local_maxima[i] + stable_point)
+      # print(paste("Stable point found for heelstrike at time:", heelstrike_time,". Shifted by:", segment$time[stable_point] - heelstrike_time,"s"))
     } else {
-      # Keep original but mark as unstable
+      if (!is.na(min(dx))) { # this happens if there is no more data after the heelstrike, this almost always results in a wrong step, so we remove it
       refined_local_maxima <- c(refined_local_maxima, local_maxima[i])
       unstable_indices <- c(unstable_indices, length(refined_local_maxima))
       message(

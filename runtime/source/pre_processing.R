@@ -193,33 +193,30 @@ calculate_step_statistics <- function(data, group_vars = c("participant")) {
     group_by(across(all_of(group_vars))) %>%
     summarise(
       total_steps = n(), # Use n() to count the number of rows
-      included_steps = sum(!heelStrikes.targetIgnoreSteps & !heelStrikes.outlierSteps),
-      removed_steps = sum(heelStrikes.outlierSteps),
-      target_steps = sum(heelStrikes.targetIgnoreSteps),
+      included_steps = sum(!heelStrikes.outlierSteps & !heelStrikes.suspect, na.rm = TRUE),
+      outlier_steps = sum(heelStrikes.outlierSteps, na.rm = TRUE),
+      suspect_steps = sum(heelStrikes.suspect & !heelStrikes.outlierSteps, na.rm = TRUE),
       .groups = "drop"
     )
 
-  # Calculate the average and standard deviation for included steps
-  total_steps_avg <- mean(step_summary$total_steps)
-  total_steps_sd <- sd(step_summary$total_steps)
+  # Calculate the average and standard deviation for each metric
+  total_steps_avg <- mean(step_summary$total_steps, na.rm = TRUE)
+  total_steps_sd <- sd(step_summary$total_steps, na.rm = TRUE)
 
-  # Calculate the average and standard deviation for included steps
-  included_steps_avg <- mean(step_summary$included_steps)
-  included_steps_sd <- sd(step_summary$included_steps)
+  included_steps_avg <- mean(step_summary$included_steps, na.rm = TRUE)
+  included_steps_sd <- sd(step_summary$included_steps, na.rm = TRUE)
 
-  # Calculate the average and standard deviation for removed steps
-  removed_steps_avg <- mean(step_summary$removed_steps)
-  removed_steps_sd <- sd(step_summary$removed_steps)
+  outlier_steps_avg <- mean(step_summary$outlier_steps, na.rm = TRUE)
+  outlier_steps_sd <- sd(step_summary$outlier_steps, na.rm = TRUE)
 
-  # Calculate the average and standard deviation for target steps
-  target_steps_avg <- mean(step_summary$target_steps)
-  target_steps_sd <- sd(step_summary$target_steps)
+  suspect_steps_avg <- mean(step_summary$suspect_steps, na.rm = TRUE)
+  suspect_steps_sd <- sd(step_summary$suspect_steps, na.rm = TRUE)
 
   # Create a result data frame
   result <- data.frame(
-    Metric = c("Total Steps", "Included Steps", "Removed Steps", "Target Steps"),
-    Average = c(total_steps_avg, included_steps_avg, removed_steps_avg, target_steps_avg),
-    SD = c(total_steps_sd, included_steps_sd, removed_steps_sd, target_steps_sd)
+    Metric = c("Total Steps", "Included Steps", "Outlier Steps", "Suspect Steps"),
+    Average = c(total_steps_avg, included_steps_avg, outlier_steps_avg, suspect_steps_avg),
+    SD = c(total_steps_sd, included_steps_sd, outlier_steps_sd, suspect_steps_sd)
   )
 
   return(result)

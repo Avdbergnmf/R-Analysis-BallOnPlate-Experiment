@@ -52,13 +52,14 @@ initialize_global_parameters <- function() {
     # Categories for data grouping and analysis
     categories <<- c("participant", "condition", "trialNum")
     columns_to_not_summarize <<- c("visualizations", "perturbations")
-    categoriesExtra <<- c(categories, columns_to_not_summarize)
+    categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
     categoriesExtraInputs <<- append(categoriesExtra, c("heelStrikes.foot", "slice_index", "None"))
 
     # =============================================================================
     # OUTLIER DETECTION PARAMETERS
     # =============================================================================
     outlier_col_names <<- c("outlierSteps", "heelStrikes.outlierSteps")
+    suspect_col_names <<- c("suspect", "heelStrikes.suspect")
 
     # =============================================================================
     # SIGNAL PROCESSING PARAMETERS

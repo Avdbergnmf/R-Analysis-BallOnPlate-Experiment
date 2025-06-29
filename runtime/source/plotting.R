@@ -416,16 +416,20 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
 
 make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize = 10) {
-  # new marking
-  outlierSteps <- length(data[data$heelStrikes.outlierSteps == TRUE, ]$condition)
-  included <- length(data[data$heelStrikes.outlierSteps == FALSE, ]$condition) # non filtered out
-  total_steps <- length(data$condition)
+  # Calculate step categories
+  outlierSteps <- sum(data$heelStrikes.outlierSteps == TRUE, na.rm = TRUE)
+  suspectSteps <- sum(data$heelStrikes.suspect == TRUE & data$heelStrikes.outlierSteps == FALSE, na.rm = TRUE)
+  included <- sum(data$heelStrikes.outlierSteps == FALSE & data$heelStrikes.suspect == FALSE, na.rm = TRUE)
+  total_steps <- nrow(data)
 
   # Create a data frame for ggplot
   df_filtered <- data.frame(
-    StepType = factor(c("Outlier", "Included")),
-    TotalCount = c(outlierSteps, included)
+    StepType = factor(c("Outlier", "Suspect", "Included"), levels = c("Outlier", "Suspect", "Included")),
+    TotalCount = c(outlierSteps, suspectSteps, included)
   )
+
+  # Remove categories with zero counts
+  df_filtered <- df_filtered[df_filtered$TotalCount > 0, ]
 
   # Calculate label positions for the pie chart
   df_filtered$label_pos <- cumsum(df_filtered$TotalCount) - df_filtered$TotalCount / 2
@@ -435,10 +439,10 @@ make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize =
     geom_bar(stat = "identity", width = 1) +
     coord_polar(theta = "y", start = 0) +
     theme_void() +
-    scale_fill_brewer(palette = "Pastel1") +
+    scale_fill_manual(values = c("Outlier" = "#FF9999", "Suspect" = "#FFD699", "Included" = "#99FF99")) +
     geom_text(aes(label = TotalCount, y = label_pos), color = "black", size = round(baseSize / 2)) +
     ggtitle(paste0(extraTitle, "Total steps = ", total_steps)) +
-    theme_minimal(base_size = baseSize) # get_sized_theme(baseSize)# theme_minimal(base_size = baseSize)
+    theme_minimal(base_size = baseSize)
 
   p <- p + get_proper_legend(show_legend, "right")
 
