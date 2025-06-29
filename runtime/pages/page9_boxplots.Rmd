@@ -3,8 +3,8 @@
 ```{r}
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 #selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
-selectizeInput("varCategory", "Category", choices = categoriesExtraInputs, selected = "VFD", multiple = TRUE)
-selectizeInput("colorCategory", "Color", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
+selectizeInput("varCategory", "Category", choices = categoriesExtraInputs, selected = c("trialNum", "condition"), multiple = TRUE)
+selectizeInput("colorCategory", "Color", choices = categoriesExtraInputs, selected = "participant", multiple = FALSE)
 selectizeInput("shapeCategory", "Shape", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
 checkboxInput("doPaired", "Make it a paired plot",value=FALSE)
 selectizeInput("pairedCategory", "Paired Category", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
