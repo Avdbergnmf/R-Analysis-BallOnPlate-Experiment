@@ -16,11 +16,19 @@ get_p_resultsFile <- function(participant) {
   return(file.path(get_p_dir(participant), "trial_results.csv"))
 }
 
+# Environment for caching trial result files per participant
+.p_results_cache <- new.env(parent = emptyenv())
+
 get_p_results <- function(participant, settingName, trialNumber) {
-  # get the path to the settings file for the participant
-  resultsFile <- get_p_resultsFile(participant)
-  # Optimized CSV reading: use fread instead of read.csv for better performance
-  results <- as.data.frame(data.table::fread(resultsFile))
+  # use cached results if available
+  cache_key <- paste0(participant)
+  if (exists(cache_key, envir = .p_results_cache)) {
+    results <- get(cache_key, envir = .p_results_cache)
+  } else {
+    resultsFile <- get_p_resultsFile(participant)
+    results <- as.data.frame(data.table::fread(resultsFile))
+    assign(cache_key, results, envir = .p_results_cache)
+  }
 
   # find the row where trial_num matches the requested trialNumber
   row_index <- which(results$trial_num == trialNumber)

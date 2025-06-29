@@ -15,16 +15,22 @@ add_identifiers <- function(data, participant, trial) {
 }
 
 add_category_columns <- function(data) {
-  trial <- as.numeric(as.character(data$trialNum))
-  participant <- as.character(data$participant)
+  # participant and trial constant per data frame
+  participant <- as.character(data$participant[1])
+  trial <- as.numeric(as.character(data$trialNum[1]))
 
-  # Add categorical columns
-  data$perturbations <- as.factor(mapply(has_perturbations, participant, trial))
-  data$visualizations <- as.factor(mapply(has_visualizations, participant, trial))
-  data$task <- as.factor(mapply(has_task, participant, trial))
-  data$treadmillSpeed <- as.numeric(mapply(get_move_speed, participant, trial))
+  perturb_val <- has_perturbations(participant, trial)
+  vis_val <- has_visualizations(participant, trial)
+  task_val <- has_task(participant, trial)
+  tread_val <- get_move_speed(participant, trial)
+  cond_val <- condition_number(participant)
 
-  data$condition <- as.factor(sapply(participant, condition_number))
+  n <- nrow(data)
+  data$perturbations <- as.factor(rep(perturb_val, n))
+  data$visualizations <- as.factor(rep(vis_val, n))
+  data$task <- as.factor(rep(task_val, n))
+  data$treadmillSpeed <- as.numeric(rep(tread_val, n))
+  data$condition <- as.factor(rep(cond_val, n))
 
   return(data)
 }
