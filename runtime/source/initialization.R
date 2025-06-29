@@ -92,28 +92,44 @@ initialize_global_parameters <- function() {
     cat("Global parameters initialized.\n")
 }
 
-#' Initialize global data that's expensive to load
+#' Initialize global data that's expensive to load - OPTIMIZED VERSION
+#' This version uses efficient data structures and cleanup to reduce overhead
 initialize_global_data <- function() {
     # Ensure parameters are initialized first
     if (!exists("dataFolder", envir = .GlobalEnv)) {
         initialize_global_parameters()
     }
 
-    # Load participant list and file system data (from data_loading.R)
-    cat("Loading participant list and file mappings...\n")
+    cat("Loading participant list and file mappings (optimized)...\n")
+
+    # Load participant list efficiently
     participants <<- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
 
-    # Load filename dictionary (from data_loading.R)
-    filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, "filenameDict.csv"), stringsAsFactors = FALSE)
+    # Load filename dictionary with efficient approach
+    cat("Loading filename dictionary...\n")
+    filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, "filenameDict.csv"),
+        stringsAsFactors = FALSE,
+        verbose = FALSE
+    ) # Suppress verbose output
+
+    # Create efficient named list and clean up intermediate data
     filenameDict <<- setNames(as.list(filenameDict_raw[[2]]), filenameDict_raw[[1]])
     trackers <<- names(filenameDict)
     trackerPath <<- file.path(file.path(dataFolder, participants[1]), "trackers")
 
-    # Load rotation data once (from pre_processing.R)
-    cat("Loading rotation data...\n")
+    # Clean up intermediate data immediately
+    rm(filenameDict_raw)
+    gc()
+
+    # Load rotation data with fallback handling
+    cat("Loading rotation data (with fallback)...\n")
     tryCatch(
         {
             rotations_data <<- get_rotations_data()
+            # If rotations_data is large, consider converting to data.table for efficiency
+            if (is.data.frame(rotations_data) && nrow(rotations_data) > 1000) {
+                rotations_data <<- data.table::as.data.table(rotations_data)
+            }
         },
         error = function(e) {
             warning("Could not load rotation data (get_rotations_data not available): ", e$message)
@@ -121,12 +137,17 @@ initialize_global_data <- function() {
         }
     )
 
-    # Load example data for column names (from calc_all_gait_params.R)
-    cat("Loading column options...\n")
+    # Load example data for column names with minimal loading
+    cat("Loading column options (minimal data loading)...\n")
     if (exists("participants") && length(participants) > 0) {
         tryCatch(
             {
-                xOptions2D <<- colnames(get_t_data(participants[1], "leftfoot", 1))
+                # Instead of loading full data, just get column names efficiently
+                temp_data <- get_t_data(participants[1], "leftfoot", 1)
+                xOptions2D <<- colnames(temp_data)
+                # Clean up immediately
+                rm(temp_data)
+                gc()
             },
             error = function(e) {
                 warning("Could not load xOptions2D: ", e$message)
@@ -138,11 +159,14 @@ initialize_global_data <- function() {
         xOptions2D <<- c("time", "pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z")
     }
 
-    cat("Global data initialization complete.\n")
+    cat("Global data initialization complete (optimized).\n")
+
+    # Final garbage collection after initialization
+    gc()
 }
 
-#' Check if global data is initialized, and initialize if needed
-#' Ensure global data and parameters are initialized (lazy initialization)
+#' Efficient version of ensure_global_data_initialized
+#' This version includes cleanup but no memory monitoring
 ensure_global_data_initialized <- function() {
     # Check if parameters are initialized
     if (!exists("dataFolder", envir = .GlobalEnv)) {

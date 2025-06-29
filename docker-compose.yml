@@ -10,3 +10,5 @@ services:
     volumes:
       - ./runtime:/home/rstudio/workspace
     env_file: .rstudio.env
+    # Improve container performance without hard limits
+    shm_size: 2g             # Increase shared memory for better performance

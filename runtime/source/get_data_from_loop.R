@@ -131,12 +131,22 @@ print_verification_results <- function(verification_results) {
     return(as.data.frame(results_df))
 }
 
-#' Create and setup a parallel cluster
+#' Create and configure a parallel cluster optimized for efficiency
+#' This function creates a cluster with efficient data handling and
+#' minimal data copying to reduce overhead.
 #'
-#' This helper initializes a parallel cluster and loads all
-#' required source files on the workers. It returns the
-#' cluster object so it can be reused across multiple calls.
-create_parallel_cluster <- function(numCores = detectCores() - 1) {
+#' @param numCores Number of cores to use. If NULL, will auto-detect (detectCores() - 1)
+#' @return A configured cluster object so it can be reused across multiple calls.
+create_parallel_cluster <- function(numCores = NULL) {
+    # Use standard core detection if not specified
+    if (is.null(numCores)) {
+        numCores <- max(1, detectCores() - 1) # Leave 1 core for system
+        cat(sprintf("Auto-detected %d cores\n", numCores))
+    }
+
+    # Ensure we have at least 1 core
+    numCores <- max(1, numCores)
+
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
@@ -147,6 +157,7 @@ create_parallel_cluster <- function(numCores = detectCores() - 1) {
         source("source/initialization.R", local = FALSE) # Load initialization first
         source("source/pre_processing.R", local = FALSE) # Load pre_processing before data_loading
         source("source/data_loading.R", local = FALSE)
+        source("source/complexity.R", local = FALSE)
         source("source/find_foot_events.R", local = FALSE)
         source("source/calc_all_gait_params.R", local = FALSE)
         source("source/profile_shapes.R", local = FALSE)
@@ -157,6 +168,9 @@ create_parallel_cluster <- function(numCores = detectCores() - 1) {
 
         # Initialize heavy data once per worker (after all functions are available)
         ensure_global_data_initialized()
+
+        # Force garbage collection after initialization
+        gc()
     })
 
     return(cl)
@@ -174,17 +188,23 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         registerDoParallel(cl)
     }
 
-    # Export necessary variables and functions to the cluster - improved exports for efficiency
-    clusterExport(cl, c(
-        "participants", "allTrials", "get_data_function", "add_identifiers_and_categories",
-        "dataFolder", "dataExtraFolder", "questionnaireInfoFolder", "qTypes", "qAnswers",
-        "trackers", "filenameDict", "categories"
-    ), envir = environment())
+    # Export only essential variables - minimize memory copying
+    # Only export what's absolutely necessary for the worker functions
+    essential_vars <- c("get_data_function")
+
+    # Check which variables actually exist before exporting
+    available_vars <- ls(envir = environment())
+    vars_to_export <- intersect(essential_vars, available_vars)
+
+    if (length(vars_to_export) > 0) {
+        clusterExport(cl, vars_to_export, envir = environment())
+    }
 
     # Use list building instead of .combine = rbind for much better performance
     data_list <- foreach(
         i = 1:nrow(valid_combinations),
-        .packages = c("data.table", "dplyr", "pracma", "signal", "zoo")
+        .packages = c("data.table", "dplyr", "pracma", "signal", "zoo"),
+        .options.snow = list(preschedule = FALSE) # Better load balancing
     ) %dopar% {
         tryCatch(
             {
@@ -195,6 +215,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
                 # Calculate gait data and parameters with optional arguments
                 newData <- get_data_function(participant, trial, ...)
                 newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
+
+                # Force garbage collection after processing each item
+                gc()
+
                 newData # Return the new data frame
             },
             error = function(e) {
@@ -242,6 +266,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Combine the list of data frames efficiently using rbindlist instead of rbind
     data <- data.table::rbindlist(data_list, fill = TRUE)
     data <- as.data.frame(data) # Convert back to data.frame for compatibility
+
+    # Clean up memory
+    rm(data_list)
+    gc()
 
     if (nrow(data) == 0) {
         warning("No data was successfully processed from the valid combinations.")

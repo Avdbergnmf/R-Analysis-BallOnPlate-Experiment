@@ -15,7 +15,7 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # =============================================================================
 # Set to TRUE for faster computation on multi-core systems (recommended for production)
 # Set to FALSE for debugging, small datasets, or troubleshooting other issues
-USE_PARALLEL <- TRUE
+USE_PARALLEL <- FALSE 
 # =============================================================================
 
 source('source/setup.R')
@@ -23,6 +23,17 @@ source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
 
 source('source/find_foot_events.R', local = FALSE)
+
+# =============================================================================
+# FORCE REINITIALIZATION AT STARTUP
+# =============================================================================
+# Force a complete reinitialization of all global data and parameters
+# This ensures everything is properly loaded before any calculations begin
+cat("=== FORCING COMPLETE REINITIALIZATION AT STARTUP ===\n")
+initialize_global_parameters()
+initialize_global_data()
+cat("=== REINITIALIZATION COMPLETE ===\n")
+# =============================================================================
 
 ## Get Results
 source('source/get_data_from_loop.R', local = FALSE)
