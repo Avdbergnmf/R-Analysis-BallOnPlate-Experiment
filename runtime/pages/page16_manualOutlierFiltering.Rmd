@@ -404,19 +404,51 @@ observeEvent(input$overwrite_outliers, {
   # Reset all outlier steps to FALSE
   allGaitParams$heelStrikes.outlierSteps <<- FALSE
   
-  # Mark steps as outliers if they match the selected outliers
-  for (i in seq_len(nrow(outliers_data))) {
-    match_indices <- which(
-      allGaitParams$participant == outliers_data$participant[i] &
-      allGaitParams$trialNum == outliers_data$trialNum[i] &
-      abs(allGaitParams$heelStrikes.time - outliers_data$heelStrikes.time[i]) <= input$outlier_threshold
+  if (nrow(outliers_data) > 0) {
+    # Optimized outlier matching: use data.table keyed join instead of quadratic loop
+    library(data.table)
+    
+    # Round times to threshold-based bins for efficient matching (e.g., 0.001s precision)
+    time_precision <- min(0.001, input$outlier_threshold / 10)
+    
+    # Convert to data.table and round times for binning
+    gait_dt <- data.table(
+      participant = allGaitParams$participant,
+      trialNum = allGaitParams$trialNum,
+      time_rounded = round(allGaitParams$heelStrikes.time / time_precision) * time_precision,
+      row_index = seq_len(nrow(allGaitParams))
     )
     
-    if (length(match_indices) > 0) {
-      # Take the first match if multiple are found within the time range
-      #allGaitParams$heelStrikes.outlierSteps[match_indices[1]] <<- TRUE % This results in problems when 2 outlier steps are within the threshold value, better to just remove both then.
-      # Take all matches
-      allGaitParams$heelStrikes.outlierSteps[match_indices] <<- TRUE
+    outliers_dt <- data.table(
+      participant = outliers_data$participant,
+      trialNum = outliers_data$trialNum,
+      time_rounded = round(outliers_data$heelStrikes.time / time_precision) * time_precision
+    )
+    
+    # Set keys for efficient joining
+    setkey(gait_dt, participant, trialNum, time_rounded)
+    setkey(outliers_dt, participant, trialNum, time_rounded)
+    
+    # Find matching rows within threshold using rolling join
+    # Expand the search window to account for threshold
+    threshold_bins <- ceiling(input$outlier_threshold / time_precision)
+    
+    matched_rows <- c()
+    for (bin_offset in -threshold_bins:threshold_bins) {
+      outliers_offset <- copy(outliers_dt)
+      outliers_offset[, time_rounded := time_rounded + bin_offset * time_precision]
+      setkey(outliers_offset, participant, trialNum, time_rounded)
+      
+      matches <- gait_dt[outliers_offset, nomatch = 0L]
+      if (nrow(matches) > 0) {
+        matched_rows <- c(matched_rows, matches$row_index)
+      }
+    }
+    
+    # Remove duplicates and mark outliers
+    matched_rows <- unique(matched_rows)
+    if (length(matched_rows) > 0) {
+      allGaitParams$heelStrikes.outlierSteps[matched_rows] <<- TRUE
     }
   }
   
