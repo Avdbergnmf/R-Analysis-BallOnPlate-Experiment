@@ -513,7 +513,26 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
           for (var_name in available_vars) {
             debug_log("    Processing continuous variable:", var_name)
 
-            values <- sim_data_filtered[[var_name]]
+            # Apply 4 Hz low-pass filter (zero-phase) to continuous data
+            values_raw <- sim_data_filtered[[var_name]]
+
+            times <- sim_data_filtered$time
+            if (!is.null(times) && length(times) == length(values_raw)) {
+              dt <- median(diff(times), na.rm = TRUE)
+              fs <- 1 / dt
+            } else {
+              fs <- 120 # fallback sampling rate if 'time' not present
+            }
+
+            cutoff <- 4 / (fs / 2) # normalised cutoff for butter()
+            if (cutoff >= 1) {
+              values_filt <- values_raw # can't filter if fs too low
+            } else {
+              bf <- signal::butter(4, cutoff, type = "low")
+              # filtfilt ensures zero phase / no delay
+              values_filt <- as.numeric(signal::filtfilt(bf, values_raw))
+            }
+            values <- values_filt
             debug_log("      Raw data length:", length(values), "values")
 
             # Calculate complexity metrics using helper function (cleaning handled inside)

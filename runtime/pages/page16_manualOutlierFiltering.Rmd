@@ -307,8 +307,15 @@ output$manualOutlierPlot <- renderPlotly({
     current_data$is_outlier <- FALSE
   }
   
+  # suspect column present
+  if (!"suspect" %in% colnames(current_data)) current_data$suspect <- FALSE
+  
   # Add outlier highlighting to the plot
   p <- base_plot + 
+    geom_point(data = current_data %>% dplyr::filter(suspect),
+               aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
+                   y = .data[[paste0("heelStrikes.", current_yaxis)]]),
+               color = "orange", size = 4, shape = 21, fill = "orange", alpha = 0.6) +
     geom_point(data = current_data %>% dplyr::filter(is_outlier), 
                aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
                    y = .data[[paste0("heelStrikes.", current_yaxis)]]),

@@ -167,8 +167,10 @@ detect_foot_events_coordinates <- function(footData, hipData) {
     local_minima <- alternation$minima
   }
 
-  # Refine heelstrike
-  local_maxima <- refine_heelstrike(footData, local_maxima, local_minima)
+  # Refine heelstrike and capture unstable labels
+  refine_res <- refine_heelstrike(footData, local_maxima, local_minima)
+  local_maxima <- refine_res$maxima
+  suspect_unstable_idx <- refine_res$suspect_unstable
 
   # Ensure lengths match
   lMax <- length(local_maxima)
@@ -180,6 +182,10 @@ detect_foot_events_coordinates <- function(footData, hipData) {
     trimLength <- min(lMax, lMin)
     local_maxima <- local_maxima[1:trimLength]
     local_minima <- local_minima[1:trimLength]
+    # keep only suspect indices within range after trimming
+    if (exists("suspect_unstable_idx")) {
+      suspect_unstable_idx <- suspect_unstable_idx[suspect_unstable_idx <= trimLength]
+    }
   }
 
   # Logging
@@ -202,6 +208,13 @@ detect_foot_events_coordinates <- function(footData, hipData) {
 
   # Create output dataframes
   output <- create_output_dataframes(footData, local_maxima, local_minima)
+  # Add 'suspect' column default FALSE
+  output$heelStrikes$suspect <- FALSE
+  # flag unstable
+  if (length(suspect_unstable_idx) > 0) {
+    output$heelStrikes$suspect[suspect_unstable_idx] <- TRUE
+  }
+
   print(paste("--- ---totalsteps: ", length(output$heelStrikes$time)))
 
   return(output)
@@ -232,20 +245,25 @@ find_foot_events <- function(participant, trialNum) {
   combinedHeelStrikes <- combinedHeelStrikes[order(combinedHeelStrikes$time), ]
   combinedToeOffs <- combinedToeOffs[order(combinedToeOffs$time), ]
 
-  ensure_alternation <- function(data1, data2) {
-    incorrect_seq <- which(diff(as.numeric(data1$foot == "Left")) == 0)
+  # propagate suspect flags; if missing columns, set FALSE
+  if (!"suspect" %in% colnames(combinedHeelStrikes)) combinedHeelStrikes$suspect <- FALSE
+  if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
+    combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_alt
+    combinedHeelStrikes$suspect_alt <- NULL
+  }
 
-    if (length(incorrect_seq > 0)) {
-      # print(data1[c(incorrect_seq,incorrect_seq+1),])
-      data1 <- data1[-(incorrect_seq + 1), ] # remove the second (later) value
-      data2 <- data2[-(incorrect_seq + 1), ] # remove the second (later) value
-      print(paste("--- ---removed", length(incorrect_seq), "steps total (wrong alternation). Removing at place:", incorrect_seq))
-      # print("----------------------")
+  ensure_alternation <- function(data1, data2) {
+    # mark suspect for same-foot consecutive strikes instead of removing
+    data1$suspect_alt <- FALSE
+    incorrect_seq <- which(diff(as.numeric(data1$foot == "Left")) == 0)
+    if (length(incorrect_seq) > 0) {
+      data1$suspect_alt[incorrect_seq + 1] <- TRUE # mark the second of the two as suspect
+      message("Marked ", length(incorrect_seq), " steps as suspect due to alternation violation.")
     }
     return(list(data1 = data1, data2 = data2))
   }
 
-  # Apply alternation check on heelStrikes and remove index columns
+  # Apply alternation marking (no removal)
   results <- ensure_alternation(combinedHeelStrikes, combinedToeOffs)
   combinedHeelStrikes <- results$data1
   combinedToeOffs <- results$data2
@@ -272,42 +290,43 @@ add_diff_per_foot <- function(relHeelStrikesData) {
   return(diffData)
 }
 
-refine_heelstrike <- function(footData, local_maxima, local_minima, smoothing_window = 5, change_threshold = 0.05) {
-  # Refine heelstrike times
+refine_heelstrike <- function(footData, local_maxima, local_minima,
+                              smoothing_window = 5, change_threshold = 0.05) {
+  # Refine heelstrike times and record unstable cases
   refined_local_maxima <- c()
+  unstable_indices <- integer(0) # store indices (in local_maxima) with no stable point
+
   for (i in seq_along(local_maxima)) {
     heelstrike_time <- footData$time[local_maxima[i]]
-    toeoff_time <- footData$time[local_minima[i + 1]]
+    toeoff_time <- footData$time[min(i + 1, length(local_minima))]
 
-    # Extract the segment from heelstrike to the next toe-off
+    # Extract segment between heel-strike and next toe-off
     segment <- footData %>%
       dplyr::filter(time >= heelstrike_time & time <= toeoff_time)
 
-    # Smooth the x and y positions
+    # Smooth x & y positions
     segment$smoothed_x <- zoo::rollmean(segment$pos_x, smoothing_window, fill = NA)
     segment$smoothed_y <- zoo::rollmean(segment$pos_y, smoothing_window, fill = NA)
 
-    # Calculate the rate of change
+    # Rate of change
     dx <- diff(segment$smoothed_x) / diff(segment$time)
     dy <- diff(segment$smoothed_y) / diff(segment$time)
 
-    # Find stable points
     stable_points <- which(abs(dx) < change_threshold & abs(dy) < change_threshold)
 
     if (length(stable_points) > 0) {
-      # Take the first stable point
       stable_point <- stable_points[1]
-
-      # Update the heelstrike time to the stable point
       refined_local_maxima <- c(refined_local_maxima, local_maxima[i] + stable_point)
-      # print(paste("Stable point found for heelstrike at time:", heelstrike_time,". Shifted by:", segment$time[stable_point] - heelstrike_time,"s"))
     } else {
-      if (!is.na(min(dx))) { # this happens if there is no more data after the heelstrike, this almost always results in a wrong step, so we remove it
-        refined_local_maxima <- c(refined_local_maxima, local_maxima[i])
-      }
-
-      print(paste("No stable point found for heelstrike at time:", heelstrike_time, ". Minimum change x:", min(dx), ". Minimum change y:", min(dy)))
+      # Keep original but mark as unstable
+      refined_local_maxima <- c(refined_local_maxima, local_maxima[i])
+      unstable_indices <- c(unstable_indices, length(refined_local_maxima))
+      message(
+        "No stable point found for heelstrike at time ", heelstrike_time,
+        "; labelled as SUSPECT_UNSTABLE."
+      )
     }
   }
-  return(refined_local_maxima)
+
+  return(list(maxima = refined_local_maxima, suspect_unstable = unstable_indices))
 }
