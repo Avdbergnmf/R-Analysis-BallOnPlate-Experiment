@@ -5,30 +5,26 @@ getTypes <- function(dt) {
 }
 
 ############ FUNCTIONS
-#' Load or calculate and save data with parallel processing control
+#' Load cached results or calculate them if not available
 #'
-#' This function checks if a cached result file exists. If it does, it loads the data.
-#' If not, it calls the calculation function and saves the result for future use.
-#' The parallel parameter controls whether the calculation uses parallel processing.
+#' This function checks if a file exists and loads it. If not, it runs the
+#' calculation function and saves the result. This is useful for expensive
+#' calculations that you want to cache.
 #'
-#' @param filePath Path to the cached result file (.rds)
-#' @param calculate_function Function to call if no cached result exists
-#' @param parallel Whether to use parallel processing (default TRUE)
-#'   - TRUE: Use parallel processing for faster computation on multi-core systems
-#'   - FALSE: Use sequential processing for debugging or small datasets
+#' @param filePath Path to the cached file (usually .rds)
+#' @param calculate_function Function to call if cache doesn't exist
+#' @param parallel Whether to use parallel processing (default: TRUE)
+#' @param ... Additional arguments passed to calculate_function
+#' @return The loaded or calculated data
 #'
 #' @examples
-#' # Use parallel processing (default)
-#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params)
+#' # Basic usage with parallel processing controlled by global setting
+#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = USE_PARALLEL)
 #'
-#' # Force sequential processing for debugging
-#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
+#' # Examples with different functions
+#' allQResults <- load_or_calculate("results/quest.rds", get_all_questionnaire_results, parallel = USE_PARALLEL)
+#' allTaskMetrics <- load_or_calculate("results/task.rds", get_all_task_metrics, parallel = USE_PARALLEL)
 #'
-#' # Mixed approach - different functions with different parallel settings
-#' allQResults <- load_or_calculate("results/quest.rds", get_all_questionnaire_results, parallel = FALSE)
-#' allTaskMetrics <- load_or_calculate("results/task.rds", get_all_task_metrics, parallel = TRUE)
-#'
-#' @return The loaded or calculated data
 load_or_calculate <- function(filePath, calculate_function, parallel = TRUE) {
     if (file.exists(filePath)) {
         data <- readRDS(filePath)
@@ -37,8 +33,6 @@ load_or_calculate <- function(filePath, calculate_function, parallel = TRUE) {
         func_args <- names(formals(calculate_function))
         if ("parallel" %in% func_args) {
             data <- calculate_function(parallel = parallel)
-        } else if ("use_parallel" %in% func_args) {
-            data <- calculate_function(use_parallel = parallel)
         } else {
             # Function doesn't support parallel parameter, call as-is
             data <- calculate_function()
@@ -136,56 +130,100 @@ print_verification_results <- function(verification_results) {
 #' minimal data copying to reduce overhead.
 #'
 #' @param numCores Number of cores to use. If NULL, will auto-detect (detectCores() - 1)
+#' @param maxJobs Maximum number of jobs that will be processed. Cores will not exceed this number.
 #' @return A configured cluster object so it can be reused across multiple calls.
-create_parallel_cluster <- function(numCores = NULL) {
+create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     # Use standard core detection if not specified
+    available_cores <- detectCores()
     if (is.null(numCores)) {
-        numCores <- max(1, detectCores() - 1) # Leave 1 core for system
-        cat(sprintf("Auto-detected %d cores\n", numCores))
+        numCores <- max(1, available_cores - 1) # Leave 1 core for system
+        cat(sprintf("[%s] Auto-detected %d cores (using %d of %d available)\n", format(Sys.time(), "%H:%M:%S"), numCores, numCores, available_cores))
+    } else {
+        cat(sprintf("[%s] Using %d cores (requested: %d, available: %d)\n", format(Sys.time(), "%H:%M:%S"), numCores, numCores, available_cores))
     }
 
     # Ensure we have at least 1 core
     numCores <- max(1, numCores)
 
+    # Don't use more cores than jobs available
+    if (!is.null(maxJobs) && maxJobs > 0) {
+        if (numCores > maxJobs) {
+            cat(sprintf("[%s] Optimizing: reducing cores from %d to %d to match number of jobs\n", format(Sys.time(), "%H:%M:%S"), numCores, maxJobs))
+            numCores <- maxJobs
+        } else {
+            cat(sprintf("[%s] Core allocation: using %d cores for %d jobs\n", format(Sys.time(), "%H:%M:%S"), numCores, maxJobs))
+        }
+    }
+
+    cat(sprintf("[%s] Creating cluster with %d worker processes...\n", format(Sys.time(), "%H:%M:%S"), numCores))
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
+    cat(sprintf("[%s] Initializing worker processes (loading packages and data)...\n", format(Sys.time(), "%H:%M:%S")))
+
     # Load packages and source files once on each worker
     clusterEvalQ(cl, {
-        # Source files in dependency order
-        source("source/setup.R", local = FALSE)
-        source("source/initialization.R", local = FALSE) # Load initialization first
-        source("source/pre_processing.R", local = FALSE) # Load pre_processing before data_loading
-        source("source/data_loading.R", local = FALSE)
-        source("source/complexity.R", local = FALSE)
-        source("source/find_foot_events.R", local = FALSE)
-        source("source/calc_all_gait_params.R", local = FALSE)
-        source("source/profile_shapes.R", local = FALSE)
-        source("source/simulation_core.R", local = FALSE)
-        source("source/get_simulation_data.R", local = FALSE)
-        source("source/summarize_simulation.R", local = FALSE)
-        source("source/summarize_gaitparams.R", local = FALSE)
+        # Set a flag to prevent recursive initialization during sourcing
+        .WORKER_INITIALIZING <<- TRUE
 
-        # Initialize heavy data once per worker (after all functions are available)
-        ensure_global_data_initialized()
+        tryCatch(
+            {
+                # Source files in dependency order
+                source("source/setup.R", local = FALSE)
+                source("source/initialization.R", local = FALSE) # Load initialization first
+                source("source/pre_processing.R", local = FALSE) # Load pre_processing before data_loading
+                source("source/data_loading.R", local = FALSE)
+                source("source/complexity.R", local = FALSE)
+                source("source/find_foot_events.R", local = FALSE)
+                source("source/calc_all_gait_params.R", local = FALSE)
+                source("source/profile_shapes.R", local = FALSE)
+                source("source/simulation_core.R", local = FALSE)
+                source("source/get_simulation_data.R", local = FALSE)
+                source("source/summarize_simulation.R", local = FALSE)
+                source("source/summarize_gaitparams.R", local = FALSE)
 
-        # Force garbage collection after initialization
-        gc()
+                # Clear the flag before initialization
+                rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
+
+                # Initialize heavy data once per worker (after all functions are available)
+                ensure_global_data_initialized()
+
+                # Force garbage collection after initialization
+                gc()
+            },
+            error = function(e) {
+                # Clean up flag on error
+                if (exists(".WORKER_INITIALIZING", envir = .GlobalEnv)) {
+                    rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
+                }
+                stop("Worker initialization failed: ", e$message)
+            }
+        )
     })
+
+    cat(sprintf("[%s] Worker initialization completed.\n", format(Sys.time(), "%H:%M:%S")))
 
     return(cl)
 }
 
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), cl = NULL, ...) {
+    start_time <- Sys.time()
     valid_combinations <- get_valid_combinations(datasets_to_verify)
+
+    # Log parallel processing setup
+    cat(sprintf("\n=== Starting Parallel Processing ===\n"))
+    cat(sprintf("[%s] Function: %s\n", format(Sys.time(), "%H:%M:%S"), deparse(substitute(get_data_function))))
+    cat(sprintf("[%s] Total jobs: %d\n", format(Sys.time(), "%H:%M:%S"), nrow(valid_combinations)))
 
     # Use existing cluster or create our own
     own_cluster <- FALSE
     if (is.null(cl)) {
-        cl <- create_parallel_cluster()
+        cl <- create_parallel_cluster(maxJobs = nrow(valid_combinations))
         own_cluster <- TRUE
+        cat(sprintf("[%s] Created new cluster with %d cores\n", format(Sys.time(), "%H:%M:%S"), length(cl)))
     } else {
         registerDoParallel(cl)
+        cat(sprintf("[%s] Using existing cluster with %d cores\n", format(Sys.time(), "%H:%M:%S"), length(cl)))
     }
 
     # Export only essential variables - minimize memory copying
@@ -200,6 +238,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         clusterExport(cl, vars_to_export, envir = environment())
     }
 
+    # Start parallel processing
+    cat(sprintf("[%s] Starting parallel execution...\n", format(Sys.time(), "%H:%M:%S")))
+    processing_start <- Sys.time()
+
     # Use list building instead of .combine = rbind for much better performance
     data_list <- foreach(
         i = 1:nrow(valid_combinations),
@@ -212,6 +254,9 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
                 participant <- valid_combinations$participant[i]
                 trial <- valid_combinations$trial[i]
 
+                # Track timing for this job
+                job_start <- Sys.time()
+
                 # Calculate gait data and parameters with optional arguments
                 newData <- get_data_function(participant, trial, ...)
                 newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
@@ -219,12 +264,24 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
                 # Force garbage collection after processing each item
                 gc()
 
-                newData # Return the new data frame
+                job_end <- Sys.time()
+                job_duration <- as.numeric(difftime(job_end, job_start, units = "secs"))
+
+                # Return successful result with metadata
+                list(
+                    success = TRUE,
+                    data = newData,
+                    participant = participant,
+                    trial = trial,
+                    duration = job_duration,
+                    rows = nrow(newData)
+                )
             },
             error = function(e) {
                 # Return detailed error information
                 list(
                     error = TRUE,
+                    success = FALSE,
                     message = e$message,
                     participant = if (exists("participant")) participant else "unknown",
                     trial = if (exists("trial")) trial else "unknown",
@@ -234,45 +291,124 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         )
     }
 
+    processing_end <- Sys.time()
+    processing_duration <- as.numeric(difftime(processing_end, processing_start, units = "secs"))
+    cat(sprintf("[%s] Parallel execution completed in %.2f seconds\n", format(Sys.time(), "%H:%M:%S"), processing_duration))
+
     # Stop the cluster if we created it inside this function
     if (own_cluster) {
-        stopCluster(cl)
+        cat(sprintf("[%s] Shutting down cluster...\n", format(Sys.time(), "%H:%M:%S")))
+        tryCatch(
+            {
+                stopCluster(cl)
+                cat(sprintf("[%s] Cluster shutdown completed.\n", format(Sys.time(), "%H:%M:%S")))
+            },
+            error = function(e) {
+                warning("Error during cluster shutdown: ", e$message)
+            }
+        )
     }
 
-    # Check for errors in the results
+    # Process results and separate successful from failed jobs
+    successful_results <- sapply(data_list, function(x) is.list(x) && !is.null(x$success) && x$success)
     error_results <- sapply(data_list, function(x) is.list(x) && !is.null(x$error) && x$error)
-    if (any(error_results)) {
-        error_indices <- which(error_results)
-        cat("Errors occurred in parallel processing:\n")
-        for (idx in error_indices) {
-            error_info <- data_list[[idx]]
+
+    # Log detailed results summary
+    cat(sprintf("\n=== Processing Results Summary ===\n"))
+    cat(sprintf("[%s] Total jobs: %d\n", format(Sys.time(), "%H:%M:%S"), length(data_list)))
+    cat(sprintf("[%s] Successful: %d\n", format(Sys.time(), "%H:%M:%S"), sum(successful_results)))
+    cat(sprintf("[%s] Failed: %d\n", format(Sys.time(), "%H:%M:%S"), sum(error_results)))
+
+    # Report on successful jobs
+    if (any(successful_results)) {
+        successful_data <- data_list[successful_results]
+        total_rows <- sum(sapply(successful_data, function(x) x$rows))
+        avg_duration <- mean(sapply(successful_data, function(x) x$duration))
+        cat(sprintf("[%s] Total rows processed: %d\n", format(Sys.time(), "%H:%M:%S"), total_rows))
+        cat(sprintf("[%s] Average job duration: %.2f seconds\n", format(Sys.time(), "%H:%M:%S"), avg_duration))
+
+        # Show details for each successful job
+        cat(sprintf("[%s] Successful jobs:\n", format(Sys.time(), "%H:%M:%S")))
+        for (i in 1:length(successful_data)) {
+            result <- successful_data[[i]]
             cat(sprintf(
-                "  Task %d (Participant: %s, Trial: %s): %s\n",
-                idx, error_info$participant, error_info$trial, error_info$message
+                "  ✓ P%s-T%s: %d rows (%.2fs)\n",
+                result$participant, result$trial, result$rows, result$duration
+            ))
+        }
+    }
+
+    # Report errors if any occurred
+    if (any(error_results)) {
+        error_data <- data_list[error_results]
+        cat(sprintf("\n[%s] Errors occurred in %d jobs:\n", format(Sys.time(), "%H:%M:%S"), length(error_data)))
+        for (i in 1:length(error_data)) {
+            error_info <- error_data[[i]]
+            cat(sprintf(
+                "  ✗ P%s-T%s: %s\n",
+                error_info$participant, error_info$trial, error_info$message
             ))
             if (!is.null(error_info$call)) {
                 cat(sprintf("    Call: %s\n", error_info$call))
             }
         }
-        # Remove error results from data_list
-        data_list <- data_list[!error_results]
     }
 
-    if (length(data_list) == 0) {
+    if (!any(successful_results)) {
         warning("No data was successfully processed from the valid combinations.")
         return(data.frame())
     }
 
+    # Extract just the data frames from successful results
+    cat(sprintf("[%s] Extracting data from successful results...\n", format(Sys.time(), "%H:%M:%S")))
+    successful_data_frames <- lapply(data_list[successful_results], function(x) x$data)
+
+    # Handle factor level mismatches before combining
+    cat(sprintf("[%s] Preparing data for combination (handling factor levels)...\n", format(Sys.time(), "%H:%M:%S")))
+    successful_data_frames <- lapply(successful_data_frames, function(df) {
+        # Convert all factors to characters to avoid any level mismatch issues
+        # This is the safest approach when combining data from parallel processes
+        for (col_name in names(df)) {
+            if (is.factor(df[[col_name]]) || is.ordered(df[[col_name]])) {
+                df[[col_name]] <- as.character(df[[col_name]])
+            }
+        }
+        return(df)
+    })
+
     # Combine the list of data frames efficiently using rbindlist instead of rbind
-    data <- data.table::rbindlist(data_list, fill = TRUE)
+    cat(sprintf("[%s] Combining %d data frames...\n", format(Sys.time(), "%H:%M:%S"), length(successful_data_frames)))
+    data <- tryCatch(
+        {
+            data.table::rbindlist(successful_data_frames, fill = TRUE)
+        },
+        error = function(e) {
+            cat(sprintf("[%s] Error with rbindlist, falling back to do.call(rbind, ...)...\n", format(Sys.time(), "%H:%M:%S")))
+            warning("rbindlist failed, using rbind fallback: ", e$message)
+            do.call(rbind, successful_data_frames)
+        }
+    )
+    cat(sprintf("[%s] Data combination completed, converting to data.frame...\n", format(Sys.time(), "%H:%M:%S")))
     data <- as.data.frame(data) # Convert back to data.frame for compatibility
 
     # Clean up memory
-    rm(data_list)
-    gc()
+    cat(sprintf("[%s] Cleaning up memory...\n", format(Sys.time(), "%H:%M:%S")))
+    rm(data_list, successful_data_frames)
+    suppressWarnings(gc()) # Suppress connection closing warnings during cleanup
+    cat(sprintf("[%s] Memory cleanup completed.\n", format(Sys.time(), "%H:%M:%S")))
+
+    # Final summary
+    end_time <- Sys.time()
+    total_duration <- as.numeric(difftime(end_time, start_time, units = "secs"))
+
+    cat(sprintf("\n=== Final Summary ===\n"))
+    cat(sprintf("[%s] Total processing time: %.2f seconds\n", format(Sys.time(), "%H:%M:%S"), total_duration))
+    cat(sprintf("[%s] Final dataset: %d rows, %d columns\n", format(Sys.time(), "%H:%M:%S"), nrow(data), ncol(data)))
 
     if (nrow(data) == 0) {
         warning("No data was successfully processed from the valid combinations.")
+    } else {
+        cat(sprintf("[%s] ✓ Parallel processing completed successfully!\n\n", format(Sys.time(), "%H:%M:%S")))
     }
 
     return(data)
@@ -331,7 +467,7 @@ get_valid_combinations <- function(datasets_to_verify) {
     verification_results <- list()
     valid_combinations_list <- list() # Use list instead of growing data frame
 
-    cat("Verifying data availability...\n")
+    cat(sprintf("[%s] Verifying data availability...\n", format(Sys.time(), "%H:%M:%S")))
     for (participant in participants) {
         for (trial in allTrials) {
             # Initialize participant in results if needed
@@ -372,8 +508,8 @@ get_valid_combinations <- function(datasets_to_verify) {
     }
 
     cat(sprintf(
-        "\nFound %d valid combinations out of %d total combinations.\n",
-        nrow(valid_combinations), length(participants) * length(allTrials)
+        "\n[%s] Found %d valid combinations out of %d total combinations.\n",
+        format(Sys.time(), "%H:%M:%S"), nrow(valid_combinations), length(participants) * length(allTrials)
     ))
 
     return(valid_combinations)
