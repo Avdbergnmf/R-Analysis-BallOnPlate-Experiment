@@ -1,3 +1,6 @@
+# Optimized data loading with fast CSV reading using data.table::fread instead of read.csv
+# Note: All packages now loaded centrally in setup.R
+
 ################ PATH DEFINITIONS ################
 dataFolder <- "data"
 dataExtraFolder <- "data_extra"
@@ -11,7 +14,8 @@ allTrials <- c(2, 3, 5, 7, 8, 9, 10, 11)
 
 participants <- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
 trackerPath <- file.path(file.path(dataFolder, participants[1]), "trackers")
-filenameDict <- read.csv(file.path(dataExtraFolder, "filenameDict.csv"), stringsAsFactors = FALSE)
+# Optimized CSV reading: use fread instead of read.csv for better performance
+filenameDict <- data.table::fread(file.path(dataExtraFolder, "filenameDict.csv"), stringsAsFactors = FALSE)
 filenameDict <- setNames(as.list(filenameDict[[2]]), filenameDict[[1]])
 trackers <- names(filenameDict)
 ################ Data retrieval / helper methods ################
@@ -28,7 +32,8 @@ get_p_resultsFile <- function(participant) {
 get_p_results <- function(participant, settingName, trialNumber) {
   # get the path to the settings file for the participant
   resultsFile <- get_p_resultsFile(participant)
-  results <- read.csv(resultsFile)
+  # Optimized CSV reading: use fread instead of read.csv for better performance
+  results <- as.data.frame(data.table::fread(resultsFile))
 
   # find the row where trial_num matches the requested trialNumber
   row_index <- which(results$trial_num == trialNumber)
@@ -57,8 +62,8 @@ get_p_detail <- function(participant, detail) {
   # get the path to the details file for the participant
   detailsFile <- file.path(get_p_dir(participant), "session_info/participant_details.csv")
 
-  # read the csv file into a data frame
-  details <- read.csv(detailsFile)
+  # Optimized CSV reading: use fread instead of read.csv for better performance
+  details <- as.data.frame(data.table::fread(detailsFile))
 
   # retrieve the value of the specific detail
   detailValue <- details[[detail]][1]
@@ -212,8 +217,17 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
 
   tryCatch(
     {
-      data <- read.csv(filePath)
-      return(nrow(data) > 0)
+      # Performance optimization: use file size check instead of reading entire CSV
+      # Files with only headers are typically < 100 bytes, data files are much larger
+      file_size <- file.info(filePath)$size
+      if (file_size > 100) {
+        return(TRUE) # Likely has data beyond headers
+      }
+
+      # For very small files, do a minimal check by reading just the first few lines
+      # This is much faster than reading the entire file
+      first_lines <- readLines(filePath, n = 3, warn = FALSE)
+      return(length(first_lines) > 1) # Header + at least one data row
     },
     error = function(e) {
       return(FALSE)
@@ -237,7 +251,8 @@ get_t_data <- function(participant, trackerType, trialNum) {
   # Use tryCatch for more robust error handling
   data <- tryCatch(
     {
-      read.csv(filePath)
+      # Optimized CSV reading: use fread instead of read.csv for better performance
+      as.data.frame(data.table::fread(filePath))
     },
     error = function(e) {
       message("Failed to read the file: ", filePath, " - ", e$message)
@@ -270,8 +285,8 @@ get_q_data <- function(participant, qType) {
   # Get the path to the questionnaire file for the participant
   questionnaireFile <- get_q_file(participant, qType)
 
-  # Read the CSV file into a data frame
-  questionnaire <- read.csv(questionnaireFile)
+  # Optimized CSV reading: use fread instead of read.csv for better performance
+  questionnaire <- as.data.frame(data.table::fread(questionnaireFile))
 
   # Extract the QuestionID and answer columns
   result <- questionnaire[, c("QuestionID", qAnswers)]
@@ -279,16 +294,39 @@ get_q_data <- function(participant, qType) {
   return(result)
 }
 
+# Caching environment for questionnaire metadata to avoid repeated CSV loading
+.questionnaire_cache <- new.env(parent = emptyenv())
+
+# Cached questionnaire info loading - avoids repeated CSV reads for better performance
 get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ
+  cache_key <- paste0("info_", qType)
+
+  # Return cached data if available
+  if (exists(cache_key, envir = .questionnaire_cache)) {
+    return(get(cache_key, envir = .questionnaire_cache))
+  }
+
+  # Load and cache if not present
   qInfopath <- file.path(questionnaireInfoFolder, paste0(qType, ".csv"))
-  # Read the CSV file into a data frame
-  questionnaire <- read.csv(qInfopath)
+  questionnaire <- as.data.frame(data.table::fread(qInfopath))
+  assign(cache_key, questionnaire, envir = .questionnaire_cache)
+
   return(questionnaire)
 }
 
+# Cached questionnaire weights loading - avoids repeated CSV reads for better performance
 get_question_weights <- function(qType) { # qType = IMI / UserExperience
+  cache_key <- paste0("weights_", qType)
+
+  # Return cached data if available
+  if (exists(cache_key, envir = .questionnaire_cache)) {
+    return(get(cache_key, envir = .questionnaire_cache))
+  }
+
+  # Load and cache if not present
   qpath <- file.path(questionnaireInfoFolder, paste0(qType, "_weights.csv"))
-  # Read the CSV file into a data frame
-  questionnaire <- read.csv(qpath)
+  questionnaire <- as.data.frame(data.table::fread(qpath))
+  assign(cache_key, questionnaire, envir = .questionnaire_cache)
+
   return(questionnaire)
 }

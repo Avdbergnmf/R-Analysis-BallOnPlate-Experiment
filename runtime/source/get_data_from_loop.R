@@ -32,26 +32,22 @@ verify_trial_data <- function(participant, trial, datasets_to_verify) {
         )
     }
 
-    # Print what we're returning
-    # print(sprintf("verify_trial_data returning for participant %s, trial %s:", participant, trial))
-    # print(str(results))
-
     return(results)
 }
 
 # Helper function to print verification results
 print_verification_results <- function(verification_results) {
-    # Create a data frame for the results
-    results_df <- data.frame()
+    # Build list of results instead of repeated rbind for efficiency
+    results_list <- list()
 
     for (participant in names(verification_results)) {
         for (trial in names(verification_results[[participant]])) {
             trial_results <- verification_results[[participant]][[trial]]
 
-            # Create a row for each dataset
+            # Create rows for each dataset
             for (dataset in names(trial_results)) {
                 result <- trial_results[[dataset]]
-                row <- data.frame(
+                results_list[[length(results_list) + 1]] <- data.frame(
                     participant = participant,
                     trial = trial,
                     dataset = dataset,
@@ -59,10 +55,12 @@ print_verification_results <- function(verification_results) {
                     has_data = result$has_data,
                     stringsAsFactors = FALSE
                 )
-                results_df <- rbind(results_df, row)
             }
         }
     }
+
+    # Combine all results efficiently using rbindlist
+    results_df <- data.table::rbindlist(results_list)
 
     # Print summary
     cat("\nData Verification Results:\n")
@@ -98,7 +96,7 @@ print_verification_results <- function(verification_results) {
     }
     cat("\n")
 
-    return(results_df)
+    return(as.data.frame(results_df))
 }
 
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
@@ -109,16 +107,27 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
-    # Export necessary variables and functions to the cluster
-    clusterExport(cl, c("participants", "allTrials", "get_data_function", "add_identifiers_and_categories"), envir = environment())
+    # Source all scripts once before parallel execution for efficiency
+    source("source/setup.R", local = FALSE)
+    source("source/data_loading.R", local = FALSE)
+    source("source/pre_processing.R", local = FALSE)
+    source("source/find_foot_events.R", local = FALSE)
+    source("source/calc_all_gait_params.R", local = FALSE)
+    source("source/profile_shapes.R", local = FALSE)
+    source("source/simulation_core.R", local = FALSE)
+    source("source/get_simulation_data.R", local = FALSE)
+    source("source/summarize_simulation.R", local = FALSE)
+    source("source/summarize_gaitparams.R", local = FALSE)
 
-    # Run the loop in parallel using foreach, but only for valid combinations
-    data_list <- foreach(
-        i = 1:nrow(valid_combinations),
-        .combine = rbind,
-        .packages = c()
-    ) %dopar% {
-        # Source the scripts containing your functions
+    # Export necessary variables and functions to the cluster - improved exports for efficiency
+    clusterExport(cl, c(
+        "participants", "allTrials", "get_data_function", "add_identifiers_and_categories",
+        "dataFolder", "dataExtraFolder", "questionnaireInfoFolder", "qTypes", "qAnswers",
+        "trackers", "filenameDict", "categories"
+    ), envir = environment())
+
+    # Export all sourced functions to cluster
+    clusterEvalQ(cl, {
         source("source/setup.R", local = FALSE)
         source("source/data_loading.R", local = FALSE)
         source("source/pre_processing.R", local = FALSE)
@@ -129,7 +138,13 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         source("source/get_simulation_data.R", local = FALSE)
         source("source/summarize_simulation.R", local = FALSE)
         source("source/summarize_gaitparams.R", local = FALSE)
+    })
 
+    # Use list building instead of .combine = rbind for much better performance
+    data_list <- foreach(
+        i = 1:nrow(valid_combinations),
+        .packages = c("data.table")
+    ) %dopar% {
         # Extract participant and trial for this iteration
         participant <- valid_combinations$participant[i]
         trial <- valid_combinations$trial[i]
@@ -143,8 +158,9 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Stop the cluster
     stopCluster(cl)
 
-    # Combine the list of data frames into one data frame
-    data <- as.data.frame(data_list)
+    # Combine the list of data frames efficiently using rbindlist instead of rbind
+    data <- data.table::rbindlist(data_list, fill = TRUE)
+    data <- as.data.frame(data) # Convert back to data.frame for compatibility
 
     if (nrow(data) == 0) {
         warning("No data was successfully processed from the valid combinations.")
@@ -156,8 +172,8 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), ...) {
     valid_combinations <- get_valid_combinations(datasets_to_verify)
 
-    # Initialize data object
-    data <- data.frame()
+    # Initialize list to store data frames instead of growing data frame
+    data_list <- list()
 
     # Variables for progress bar
     total_iterations <- nrow(valid_combinations)
@@ -183,11 +199,16 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
         newData <- get_data_function(participant, trial, ...)
         newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
 
-        data <- rbind(data, newData)
+        # Store in list instead of repeated rbind for efficiency
+        data_list[[i]] <- newData
     }
 
     # Print final progress bar to indicate completion
     cat("\n")
+
+    # Combine all data frames efficiently using rbindlist
+    data <- data.table::rbindlist(data_list, fill = TRUE)
+    data <- as.data.frame(data) # Convert back to data.frame for compatibility
 
     if (nrow(data) == 0) {
         warning("No data was successfully processed from the valid combinations.")
@@ -199,7 +220,7 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
 get_valid_combinations <- function(datasets_to_verify) {
     # Verify data availability for all combinations
     verification_results <- list()
-    valid_combinations <- data.frame()
+    valid_combinations_list <- list() # Use list instead of growing data frame
 
     cat("Verifying data availability...\n")
     for (participant in participants) {
@@ -212,19 +233,23 @@ get_valid_combinations <- function(datasets_to_verify) {
             # Verify data for this combination
             verification_results[[participant]][[trial]] <- verify_trial_data(participant, trial, datasets_to_verify)
 
-            # Debug output
-            # cat(sprintf("\nDebug - Participant %s, Trial %s:\n", participant, trial))
-            # print(verification_results[[participant]][[trial]])
-
             # Check if all required datasets are present and have data
             all_valid <- all(sapply(verification_results[[participant]][[trial]], function(x) x$exists && x$has_data))
-            # cat(sprintf("All valid: %s\n", all_valid))
 
             if (all_valid) {
-                valid_combinations <- rbind(valid_combinations, data.frame(participant = participant, trial = trial))
+                # Add to list instead of rbind for efficiency
+                valid_combinations_list[[length(valid_combinations_list) + 1]] <- data.frame(participant = participant, trial = trial)
             }
         }
     }
+
+    # Combine valid combinations efficiently using rbindlist
+    valid_combinations <- if (length(valid_combinations_list) > 0) {
+        data.table::rbindlist(valid_combinations_list)
+    } else {
+        data.frame()
+    }
+    valid_combinations <- as.data.frame(valid_combinations) # Convert back for compatibility
 
     # Print verification results
     print_verification_results(verification_results)

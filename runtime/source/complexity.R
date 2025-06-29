@@ -554,9 +554,9 @@ get_all_complexity_metrics <- function(allGaitParams,
 
     debug_log("Found", nrow(valid_combinations), "valid combinations")
 
-    # Initialize result
-    result <- data.frame()
+    # Optimized: pre-allocate list to avoid repeated rbind operations
     total_combinations <- nrow(valid_combinations)
+    results_list <- vector("list", total_combinations)
 
     # Process each combination with progress bar (like your framework)
     for (i in 1:total_combinations) {
@@ -589,8 +589,13 @@ get_all_complexity_metrics <- function(allGaitParams,
         debug = debug
       )
 
-      result <- rbind(result, single_result)
+      # Store in pre-allocated list instead of rbind for better performance
+      results_list[[i]] <- single_result
     }
+
+    # Combine all results efficiently using rbindlist
+    result <- data.table::rbindlist(results_list, fill = TRUE)
+    result <- as.data.frame(result) # Convert back for compatibility
 
     if (!debug) cat("\n") # New line after progress bar
   }
