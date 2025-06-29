@@ -111,7 +111,15 @@ initialize_global_data <- function() {
 
     # Load rotation data once (from pre_processing.R)
     cat("Loading rotation data...\n")
-    rotations_data <<- get_rotations_data()
+    tryCatch(
+        {
+            rotations_data <<- get_rotations_data()
+        },
+        error = function(e) {
+            warning("Could not load rotation data (get_rotations_data not available): ", e$message)
+            rotations_data <<- data.frame() # Empty data frame as fallback
+        }
+    )
 
     # Load example data for column names (from calc_all_gait_params.R)
     cat("Loading column options...\n")
@@ -142,7 +150,9 @@ ensure_global_data_initialized <- function() {
     }
 
     # Check if data is initialized
-    if (!exists("rotations_data", envir = .GlobalEnv) ||
+    if (!exists("participants", envir = .GlobalEnv) ||
+        !exists("filenameDict", envir = .GlobalEnv) ||
+        !exists("rotations_data", envir = .GlobalEnv) ||
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }

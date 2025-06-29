@@ -3,13 +3,12 @@
 
 ################ PARAMETER INITIALIZATION ################
 # All parameters are now defined in initialization.R for centralized configuration
-
-# Ensure initialization has been called before using these variables
-ensure_global_data_initialized()
+# Note: ensure_global_data_initialized() is called by functions that need the data
 ################ Data retrieval / helper methods ################
 
 # Data retrieval functions
 get_p_dir <- function(participant) {
+  ensure_global_data_initialized()
   return(file.path(dataFolder, participant))
 }
 
@@ -172,6 +171,7 @@ has_simulation_data <- function(participant, trial) {
 
 # Helper function to check if a file exists for a given participant, tracker type, and trial
 check_file_exists <- function(participant, trackerType, trialNum) {
+  ensure_global_data_initialized()
   # Validate trackerType
   if (!trackerType %in% names(filenameDict)) {
     warning(sprintf("Invalid tracker type specified: %s", trackerType))
@@ -253,6 +253,7 @@ get_t_data <- function(participant, trackerType, trialNum) {
 
 # For changing up the selection inputs - bit costly, but not really needed to optimize this
 getOptions <- function(tracker, trialNum = 5) { # trial 5 is always available - except for haptic...
+  ensure_global_data_initialized()
   exampleData <- get_t_data(participants[1], tracker, trialNum)
   # Fail gracefully if exampleData is empty or NULL
   if (is.null(exampleData) || nrow(exampleData) == 0) {
@@ -264,6 +265,7 @@ getOptions <- function(tracker, trialNum = 5) { # trial 5 is always available - 
 }
 
 get_q_file <- function(participant, qType) { # qType = IMI / SSQ / VEQ
+  ensure_global_data_initialized()
   return(file.path(get_p_dir(participant), "Questionnaires", paste0("questionnaireID_", qType, "_ALL_answers.csv")))
 }
 
@@ -287,6 +289,7 @@ get_q_data <- function(participant, qType) {
 
 # Cached questionnaire info loading - avoids repeated CSV reads for better performance
 get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ
+  ensure_global_data_initialized()
   cache_key <- paste0("info_", qType)
 
   # Return cached data if available
@@ -304,6 +307,7 @@ get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ
 
 # Cached questionnaire weights loading - avoids repeated CSV reads for better performance
 get_question_weights <- function(qType) { # qType = IMI / UserExperience
+  ensure_global_data_initialized()
   cache_key <- paste0("weights_", qType)
 
   # Return cached data if available
