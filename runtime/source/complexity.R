@@ -372,7 +372,7 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
 
   # Filter data for this specific participant/trial
   trial_data <- allGaitParams %>%
-    filter(participant == !!participant, trialNum == !!trial)
+    dplyr::filter(participant == !!participant, trialNum == !!trial)
 
   if (nrow(trial_data) == 0) {
     debug_log("  No data found for this combination")

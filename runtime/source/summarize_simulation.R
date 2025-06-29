@@ -47,7 +47,7 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
 
     # Filter to only use real simulation data (when ball is on plate)
     analysis_data <- sim_data %>%
-        filter(simulating == TRUE)
+        dplyr::filter(simulating == TRUE)
 
     if (nrow(analysis_data) == 0) {
         return(tibble())
@@ -151,7 +151,7 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
     }
 
     analysis_data <- sim_data %>%
-        filter(simulating == TRUE)
+        dplyr::filter(simulating == TRUE)
 
     if (nrow(analysis_data) == 0) {
         return(tibble())
@@ -188,7 +188,7 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
             ),
             .groups = "drop"
         ) %>%
-        filter(duration >= min_attempt_duration) %>%
+        dplyr::filter(duration >= min_attempt_duration) %>%
         arrange(start_time) %>%
         mutate(attempt = row_number(), .before = 1)
 
@@ -283,7 +283,7 @@ process_task_metrics_sliced <- function(task_data, slice_length = 180, remove_mi
     if (remove_middle_slices) {
         task_data <- task_data %>%
             group_by(trialNum) %>%
-            filter(slice_index == min(slice_index, na.rm = TRUE) | slice_index == max(slice_index, na.rm = TRUE)) %>%
+            dplyr::filter(slice_index == min(slice_index, na.rm = TRUE) | slice_index == max(slice_index, na.rm = TRUE)) %>%
             ungroup()
     }
 
@@ -303,7 +303,7 @@ get_task_metrics_sliced <- function(allTaskMetrics, selected_participants, selec
                                     slice_length = 180, remove_middle_slices = FALSE) {
     # Filter by selected participants and trials
     task_data <- allTaskMetrics %>%
-        filter(
+        dplyr::filter(
             participant %in% selected_participants,
             trialNum %in% selected_trials
         )

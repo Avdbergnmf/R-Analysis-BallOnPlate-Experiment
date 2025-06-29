@@ -126,7 +126,7 @@ get_simulation_data <- function(participant, trial) {
 
     # Filter out non-simulation steps
     sim_data <- sim_data %>%
-        filter(dt > 0)
+        dplyr::filter(dt > 0)
 
     if (nrow(sim_data) == 0) {
         return(tibble())

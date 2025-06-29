@@ -281,7 +281,7 @@ refine_heelstrike <- function(footData, local_maxima, local_minima, smoothing_wi
 
     # Extract the segment from heelstrike to the next toe-off
     segment <- footData %>%
-      filter(time >= heelstrike_time & time <= toeoff_time)
+      dplyr::filter(time >= heelstrike_time & time <= toeoff_time)
 
     # Smooth the x and y positions
     segment$smoothed_x <- zoo::rollmean(segment$pos_x, smoothing_window, fill = NA)
