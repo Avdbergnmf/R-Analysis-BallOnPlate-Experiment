@@ -140,6 +140,51 @@ initialize_global_data <- function() {
             rm(filenameDict_raw)
             gc()
 
+            # Load outlier data
+            cat(sprintf("[%s] Loading outlier data...\n", format(Sys.time(), "%H:%M:%S")))
+            tryCatch(
+                {
+                    outlier_file_path <- file.path(dataExtraFolder, "outliers.csv")
+                    if (file.exists(outlier_file_path)) {
+                        outliers_data <<- data.table::fread(outlier_file_path,
+                            stringsAsFactors = FALSE,
+                            verbose = FALSE
+                        )
+
+                        # Handle backward compatibility: add action column if missing
+                        if (!"action" %in% colnames(outliers_data)) {
+                            outliers_data$action <<- "KILL" # Default to KILL for existing outliers
+                            cat(sprintf(
+                                "[%s] Added default action 'KILL' to %d existing outlier entries\n",
+                                format(Sys.time(), "%H:%M:%S"), nrow(outliers_data)
+                            ))
+                        }
+
+                        # Convert to data.table for efficient lookups
+                        data.table::setkey(outliers_data, participant, trialNum, time)
+                        cat(sprintf(
+                            "[%s] Loaded %d outlier entries\n",
+                            format(Sys.time(), "%H:%M:%S"), nrow(outliers_data)
+                        ))
+                    } else {
+                        warning("Outliers file not found: ", outlier_file_path)
+                        outliers_data <<- data.frame(
+                            participant = character(0),
+                            trialNum = numeric(0),
+                            time = numeric(0)
+                        )
+                    }
+                },
+                error = function(e) {
+                    warning("Could not load outlier data: ", e$message)
+                    outliers_data <<- data.frame(
+                        participant = character(0),
+                        trialNum = numeric(0),
+                        time = numeric(0)
+                    )
+                }
+            )
+
             # Load rotation data with fallback handling
             cat(sprintf("[%s] Loading rotation data (with fallback)...\n", format(Sys.time(), "%H:%M:%S")))
             tryCatch(
@@ -218,6 +263,7 @@ ensure_global_data_initialized <- function() {
     if (!exists("participants", envir = .GlobalEnv) ||
         !exists("filenameDict", envir = .GlobalEnv) ||
         !exists("rotations_data", envir = .GlobalEnv) ||
+        !exists("outliers_data", envir = .GlobalEnv) ||
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }

@@ -1,5 +1,72 @@
 ################ Data Manipulation ################
 
+# Helper function to check if a heel strike should be marked as outlier based on CSV data
+# Returns a list with outlier status and action type
+check_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0.1) {
+  # Ensure global outlier data is available
+  if (!exists("outliers_data", envir = .GlobalEnv) || nrow(outliers_data) == 0) {
+    return(list(is_outlier = FALSE, action = NA))
+  }
+
+  # Convert participant to character for consistent comparison
+  participant_char <- as.character(participant)
+  trialNum_num <- as.numeric(trialNum)
+
+  # Find outliers for this participant and trial
+  participant_outliers <- outliers_data[
+    outliers_data$participant == participant_char &
+      outliers_data$trialNum == trialNum_num,
+  ]
+
+  if (nrow(participant_outliers) == 0) {
+    return(list(is_outlier = FALSE, action = NA))
+  }
+
+  # Check if this time is close to any outlier time (within tolerance)
+  time_diffs <- abs(participant_outliers$time - time)
+  min_diff_idx <- which.min(time_diffs)
+  min_diff <- time_diffs[min_diff_idx]
+
+  if (min_diff <= tolerance) {
+    action <- participant_outliers$action[min_diff_idx]
+    return(list(is_outlier = TRUE, action = action))
+  } else {
+    return(list(is_outlier = FALSE, action = NA))
+  }
+}
+
+# Backward compatibility function
+is_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0.1) {
+  result <- check_outlier_heel_strike(participant, trialNum, time, tolerance)
+  return(result$is_outlier)
+}
+
+# Helper function to mark outlier steps in heel strike data
+mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, tolerance = 0.1) {
+  # Initialize columns if they don't exist
+  if (!"outlierSteps" %in% colnames(heel_strikes_data)) {
+    heel_strikes_data$outlierSteps <- FALSE
+  }
+  if (!"heelStrikeBad" %in% colnames(heel_strikes_data)) {
+    heel_strikes_data$heelStrikeBad <- FALSE
+  }
+
+  # Check each heel strike against outlier data
+  for (i in seq_len(nrow(heel_strikes_data))) {
+    outlier_result <- check_outlier_heel_strike(participant, trialNum, heel_strikes_data$time[i], tolerance)
+
+    if (outlier_result$is_outlier) {
+      if (outlier_result$action == "KILL") {
+        heel_strikes_data$outlierSteps[i] <- TRUE
+      } else if (outlier_result$action == "KEEP") {
+        heel_strikes_data$heelStrikeBad[i] <- TRUE
+      }
+    }
+  }
+
+  return(heel_strikes_data)
+}
+
 # Helper function to check if hip data is stationary
 is_hip_stationary <- function(hipData, threshold_cm = 0.01, time_window = 30) {
   first_seconds <- hipData$time <= (hipData$time[1] + time_window)
@@ -403,6 +470,19 @@ find_foot_events <- function(participant, trialNum) {
   if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
     combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_alt
     combinedHeelStrikes$suspect_alt <- NULL
+  }
+
+  # Mark outlier steps based on CSV data
+  combinedHeelStrikes <- mark_outlier_steps(combinedHeelStrikes, participant, trialNum)
+
+  # Report outlier statistics
+  num_kill_outliers <- sum(combinedHeelStrikes$outlierSteps, na.rm = TRUE)
+  num_keep_outliers <- sum(combinedHeelStrikes$heelStrikeBad, na.rm = TRUE)
+  if (num_kill_outliers > 0 || num_keep_outliers > 0) {
+    cat(sprintf(
+      "DEBUG: Marked %d heel strikes as KILL outliers, %d as KEEP outliers from CSV data\n",
+      num_kill_outliers, num_keep_outliers
+    ))
   }
 
   # Label step numbers. Assuming each heel strike represents a new step

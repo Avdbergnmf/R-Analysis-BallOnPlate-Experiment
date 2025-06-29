@@ -1,6 +1,40 @@
 ### Actions
 
 ```{r}
+# Add JavaScript for table row highlighting without re-rendering
+tags$script(HTML("
+  // Handle custom messages for table row highlighting
+  Shiny.addCustomMessageHandler('highlightTableRow', function(message) {
+    var table = $('#' + message.tableId).DataTable();
+    
+    // Clear existing highlights
+    $('#' + message.tableId + ' tbody tr').removeClass('highlighted-row');
+    
+    // Add highlight to the specified row
+    var row = table.row(message.rowIndex);
+    if (row.length > 0) {
+      $(row.node()).addClass('highlighted-row');
+    }
+  });
+  
+  Shiny.addCustomMessageHandler('clearTableHighlight', function(message) {
+    $('#' + message.tableId + ' tbody tr').removeClass('highlighted-row');
+  });
+"))
+
+# Add CSS for the highlight style
+tags$style(HTML("
+  .highlighted-row {
+    background-color: rgba(255, 255, 0, 0.7) !important;
+  }
+  
+  .highlighted-row td {
+    background-color: rgba(255, 255, 0, 0.7) !important;
+  }
+"))
+```
+
+```{r}
 selectizeInput("participant", "participant",
   choices = participants, selected = participants[1], multiple = FALSE)
 selectizeInput("trialNum", "Trial Number",
@@ -27,6 +61,12 @@ actionButton("refresh_plot", "Refresh Plot")
 # Add a numeric input for the outlier matching threshold
 numericInput("outlier_threshold", "Outlier matching threshold (seconds)",
   min = 0, max = 1, value = 0.01, step = 0.001)
+
+# New: choose how the clicked heel-strike should be treated
+radioButtons("outlier_action", "Heel-strike action", choices = c(
+  "Remove step" = "KILL",
+  "Keep as boundary" = "KEEP"),
+  selected = "KILL", inline = TRUE)
 
 fileInput("importOutliers", "Import Outliers from CSV",
   accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"))
@@ -80,6 +120,17 @@ checkboxInput("filter_outliers_table", "Filter table by current participant and 
 checkboxInput("show_outliers_on_plot", "Show outliers on plot (disable for large datasets)", value = TRUE)
 ```
 
+**Outlier Actions:**
+- **❌ Remove Step** (unchecked): Completely excludes the step from all analyses  
+- **➡️ Keep as Boundary** (checked): Keeps step data but marks heel-strike as suspect
+- Use the **Toggle** column checkboxes to change between actions
+- **Hover** over outliers on the plot to highlight them in the table
+- Click heel strikes on the plot to add/remove outliers entirely
+
+**Plot Symbols:**
+- **❌ (Red X)**: KILL outliers - completely removed from analysis
+- **▲ (Blue Triangle)**: KEEP outliers - preserved as boundary markers
+
 ```{r}
 DT::dataTableOutput("selectedOutliersTable")
 ```
@@ -89,6 +140,9 @@ DT::dataTableOutput("selectedOutliersTable")
 # Initialize a reactive value for plot refresh trigger
 refresh_trigger <- reactiveVal(0)
 last_refresh_trigger <- reactiveVal(0)
+
+# Initialize a reactive value for tracking table content changes
+table_content_hash <- reactiveVal(NULL)
 
 observeEvent(input$importOutliers, {
   req(input$importOutliers)
@@ -108,6 +162,15 @@ observeEvent(input$importOutliers, {
           df$time <- df$heelStrikes.time
           df$heelStrikes.time <- NULL
         }
+        
+        # Add action column if missing (backward compatibility)
+        if (!"action" %in% colnames(df)) {
+          df$action <- "KILL"  # Default to KILL for imported outliers
+          showNotification("Added default 'KILL' action to imported outliers without action column", type = "message")
+        }
+        
+        # Ensure action column has valid values
+        df$action[!df$action %in% c("KILL", "KEEP")] <- "KILL"
         
         # Update the selected_outliers reactive value
         selected_outliers(df)
@@ -129,6 +192,7 @@ selected_outliers <- reactiveVal(data.frame(
   participant = character(),
   trialNum = numeric(),
   time = numeric(),
+  action = character(),
   stringsAsFactors = FALSE
 ))
 
@@ -239,8 +303,9 @@ observeEvent(event_data("plotly_click"), {
         # Add the outlier
         new_outlier <- data.frame(
           participant = closest_step$participant,
-          trialNum = closest_step$trialNum,
-          time = closest_step$time,
+          trialNum    = closest_step$trialNum,
+          time        = closest_step$time,
+          action      = input$outlier_action,
           stringsAsFactors = FALSE
         )
         updated_outliers <- rbind(current_outliers, new_outlier)
@@ -359,23 +424,59 @@ output$manualOutlierPlot <- renderPlotly({
   # suspect column present
   if (!"suspect" %in% colnames(current_data)) current_data$suspect <- FALSE
   
-  # Add outlier highlighting to the plot
+  # Add outlier highlighting to the plot with different symbols for different actions
+  # First add suspect points (orange)
   p <- base_plot + 
     geom_point(data = current_data %>% dplyr::filter(suspect),
                aes(x = .data[[current_xaxis]],
                    y = .data[[current_yaxis]]),
-               color = "orange", size = 4, shape = 21, fill = "orange", alpha = 0.6) +
-    geom_point(data = current_data %>% dplyr::filter(is_outlier), 
-               aes(x = .data[[current_xaxis]],
-                   y = .data[[current_yaxis]]),
-               color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
+               color = "orange", size = 4, shape = 21, fill = "orange", alpha = 0.6)
+  
+  # Add KILL outliers (X symbol)
+  kill_outliers <- current_data %>% dplyr::filter(is_outlier)
+  if (nrow(kill_outliers) > 0) {
+    # Match outliers with their actions from the outlier data
+    kill_outliers$action_type <- sapply(seq_len(nrow(kill_outliers)), function(i) {
+      outlier_result <- check_outlier_heel_strike(current_participant, current_trial, 
+                                                 kill_outliers$time[i], input$outlier_threshold)
+      if (outlier_result$is_outlier) {
+        return(outlier_result$action)
+      } else {
+        return("KILL")  # Default
+      }
+    })
+    
+    # Add KILL outliers (X symbol, red)
+    kill_data <- kill_outliers %>% dplyr::filter(action_type == "KILL")
+    if (nrow(kill_data) > 0) {
+      p <- p + geom_point(data = kill_data,
+                         aes(x = .data[[current_xaxis]],
+                             y = .data[[current_yaxis]],
+                             text = paste("KILL Outlier<br>Time:", round(time, 3),
+                                        "<br>Participant:", participant,
+                                        "<br>Trial:", trialNum)),
+                         color = "red", size = 6, shape = 4, alpha = 0.8)  # Shape 4 = X
+    }
+    
+    # Add KEEP outliers (arrow symbol, blue)
+    keep_data <- kill_outliers %>% dplyr::filter(action_type == "KEEP")
+    if (nrow(keep_data) > 0) {
+      p <- p + geom_point(data = keep_data,
+                         aes(x = .data[[current_xaxis]],
+                             y = .data[[current_yaxis]],
+                             text = paste("KEEP Outlier<br>Time:", round(time, 3),
+                                        "<br>Participant:", participant,
+                                        "<br>Trial:", trialNum)),
+                         color = "blue", size = 6, shape = 17, alpha = 0.8)  # Shape 17 = triangle (arrow-like)
+    }
+  }
   
   # Capture current limits once to avoid reactivity
   x_range_init <- isolate(axis_limits$x)
   y_range_init <- isolate(axis_limits$y)
   
   # Convert to plotly (no reactive dependency on axis_limits)
-  p <- ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
+  p <- ggplotly(p, width = input$plotwidth, height = input$plotheight, tooltip = "text") %>%
     style(
       hoverinfo = "none",
       traces = which(sapply(.$x$data, function(d) d$type) == "scatter" & sapply(.$x$data, function(d) d$mode) == "lines")
@@ -390,49 +491,15 @@ output$manualOutlierPlot <- renderPlotly({
       ),
       yaxis = list(range = y_range_init)
     ) %>%
-    event_register("plotly_click") %>% event_register("plotly_selected")
+    event_register("plotly_click") %>% 
+    event_register("plotly_selected") %>%
+    event_register("plotly_hover") %>%
+    event_register("plotly_unhover")
   
   return(p)
 })
 
-# Create a reactive value to store the row to be removed
-selected_row_to_remove <- reactiveVal(NULL)
 
-# When a row is selected in the table
-observeEvent(input$selectedOutliersTable_rows_selected, {
-  selected_row <- input$selectedOutliersTable_rows_selected
-  if (!is.null(selected_row)) {
-    selected_row_to_remove(selected_row)
-    # Show confirmation dialog for removing outlier
-    showModal(modalDialog(
-      title = "Confirm Outlier Removal",
-      "Are you sure you want to remove this outlier?",
-      footer = tagList(
-        modalButton("Cancel"),
-        actionButton("confirmRemove", "Remove")
-      )
-    ))
-  }
-})
-
-# Handle the confirmation of removal
-observeEvent(input$confirmRemove, {
-  selected_row <- selected_row_to_remove()
-  if (!is.null(selected_row)) {
-    current_outliers <- selected_outliers()
-    updated_outliers <- current_outliers[-selected_row, ]
-    selected_outliers(updated_outliers)
-    showNotification("Outlier removed", type = "message")
-    # Reset the selected row
-    selected_row_to_remove(NULL)
-  }
-  removeModal()
-})
-
-# Cancel button logic (optional, but recommended)
-observeEvent(input$selectedOutliersTable_rows_selected, {
-  selected_row_to_remove(NULL)
-})
 
 # Render the selected outliers table
 output$selectedOutliersTable <- DT::renderDataTable({
@@ -445,26 +512,196 @@ output$selectedOutliersTable <- DT::renderDataTable({
     filtered_outliers <- selected_outliers()
   }
   
-  filtered_outliers <- filtered_outliers %>%
-    dplyr::mutate(row_num = dplyr::row_number()) %>% 
-    dplyr::arrange(desc(row_num)) %>% 
-    dplyr::select(-row_num)
+  # Create a simple hash of the table content to detect actual changes
+  content_for_hash <- paste(
+    nrow(filtered_outliers),
+    if(nrow(filtered_outliers) > 0) {
+      # Simple hash based on key columns
+      paste(filtered_outliers$participant, filtered_outliers$trialNum, 
+            round(filtered_outliers$time, 4), filtered_outliers$action, collapse = "|")
+    } else "",
+    input$filter_outliers_table,
+    current_participant,
+    current_trial,
+    sep = "_"
+  )
   
-  DT::datatable(
+  # Only proceed with full re-render if content actually changed
+  if (is.null(table_content_hash()) || table_content_hash() != content_for_hash) {
+    table_content_hash(content_for_hash)
+  }
+  
+  filtered_outliers <- filtered_outliers %>%
+    dplyr::mutate(
+      # Create stable unique identifiers for each outlier
+      unique_id = paste0("toggle_", 
+                        gsub("[^A-Za-z0-9]", "_", participant), "_",
+                        trialNum, "_",
+                        round(time * 1000)),  # Convert to milliseconds for uniqueness
+      # Add a user-friendly action description with symbols
+      Action_Type = ifelse(action == "KILL", "❌ Remove Step", "➡️ Keep as Boundary"),
+      # Create checkbox column for toggling action using stable IDs
+      Toggle_Action = paste0('<input type="checkbox" id="', unique_id, '" ', 
+                            ifelse(action == "KEEP", 'checked', ''), 
+                            ' onchange="Shiny.setInputValue(\'', unique_id, '\', this.checked, {priority: \'event\'})">'),
+      # Round time for better display
+      time = round(time, 4)
+    ) %>% 
+    dplyr::arrange(desc(time)) %>%  # Sort by time instead of row_num
+    dplyr::select(participant, trialNum, time, Action_Type, Toggle_Action) %>%
+    dplyr::rename(
+      Participant = participant,
+      Trial = trialNum,
+      Time = time,
+      "Action Type" = Action_Type,
+      "Toggle (✓ = Keep)" = Toggle_Action
+    )
+  
+        # Create the base datatable with state preservation
+  dt_table <- DT::datatable(
     filtered_outliers,
     options = list(
       pageLength = 100,
-      search = NULL #list(regex = TRUE, caseInsensitive = TRUE)
+      search = NULL, #list(regex = TRUE, caseInsensitive = TRUE)
+      columnDefs = list(
+        list(targets = 4, orderable = FALSE) # Make toggle column non-sortable
+      ),
+      # Preserve table state across re-renders
+      stateSave = TRUE,
+      stateDuration = 60 * 60, # Save state for 1 hour
+      # Preserve order, search, pagination
+      order = list(list(2, 'desc')), # Default sort by Time column (index 2) descending
+      # More stable rendering
+      deferRender = TRUE,
+      processing = FALSE
     ),
-    selection = 'single'
+    selection = 'none',  # Disable row selection
+    escape = FALSE  # Allow HTML in the toggle column
   ) %>%
     DT::formatStyle(
-      columns = c('participant', 'trialNum'),
+      columns = c('Participant', 'Trial'),
       backgroundColor = DT::styleEqual(
         c(current_participant, current_trial),
         c('rgba(255, 255, 0, 0.5)', 'rgba(255, 255, 0, 0.5)')
       )
+    ) %>%
+    DT::formatStyle(
+      columns = 'Action Type',
+      backgroundColor = DT::styleEqual(
+        c('❌ Remove Step', '➡️ Keep as Boundary'),
+        c('rgba(255, 100, 100, 0.3)', 'rgba(100, 255, 100, 0.3)')
+      )
     )
+  
+  # Note: Hover highlighting is now handled separately to preserve table state
+  
+  return(dt_table)
+})
+
+# Handle checkbox toggles for action type changes
+# Use a more stable approach with unique identifiers
+observe({
+  current_outliers_data <- selected_outliers()
+  
+  if (nrow(current_outliers_data) > 0) {
+    # Create stable unique identifiers for each outlier
+    for (i in seq_len(nrow(current_outliers_data))) {
+      # Create a unique ID based on participant, trial, and time
+      unique_id <- paste0("toggle_", 
+                         gsub("[^A-Za-z0-9]", "_", current_outliers_data$participant[i]), "_",
+                         current_outliers_data$trialNum[i], "_",
+                         round(current_outliers_data$time[i] * 1000))  # Convert to milliseconds for uniqueness
+      
+      toggle_input_name <- unique_id
+      
+      if (!is.null(input[[toggle_input_name]])) {
+        # Get the current state of the checkbox
+        is_checked <- input[[toggle_input_name]]
+        new_action <- ifelse(is_checked, "KEEP", "KILL")
+        
+        # Update the action for this outlier if it has changed
+        if (current_outliers_data$action[i] != new_action) {
+          # Use isolate to prevent reactive dependency loop
+          isolate({
+            updated_data <- selected_outliers()
+            updated_data$action[i] <- new_action
+            selected_outliers(updated_data)
+          })
+          
+          # Show notification
+          action_desc <- ifelse(new_action == "KILL", "Remove Step", "Keep as Boundary")
+          showNotification(
+            paste("Changed outlier action to:", action_desc, 
+                  "for participant", current_outliers_data$participant[i],
+                  "trial", current_outliers_data$trialNum[i],
+                  "at time", round(current_outliers_data$time[i], 3)),
+            type = "message",
+            duration = 2
+          )
+          
+          # Break after first change to avoid multiple updates in one cycle
+          break
+        }
+      }
+    }
+  }
+})
+
+# Create a proxy for the data table to handle hover highlighting without full re-renders
+table_proxy <- DT::dataTableProxy('selectedOutliersTable')
+
+# Handle plot hover events for table highlighting using JavaScript
+observeEvent(event_data("plotly_hover"), {
+  hover_data <- event_data("plotly_hover")
+  
+  if (!is.null(hover_data) && !is.null(hover_data$x)) {
+    current_participant <- input$participant
+    current_trial <- as.numeric(input$trialNum)
+    hovered_time <- hover_data$x
+    
+    # Check if this is an outlier point
+    outlier_result <- check_outlier_heel_strike(current_participant, current_trial, 
+                                               hovered_time, input$outlier_threshold)
+    
+    if (outlier_result$is_outlier) {
+      # Find the matching row in the current table data
+      current_data <- if (input$filter_outliers_table) current_outliers() else selected_outliers()
+      
+      if (nrow(current_data) > 0) {
+        # Find matching row by time (with tolerance)
+        time_matches <- abs(current_data$time - hovered_time) <= input$outlier_threshold
+        participant_matches <- current_data$participant == current_participant
+        trial_matches <- current_data$trialNum == current_trial
+        
+        matching_rows <- which(time_matches & participant_matches & trial_matches)
+        
+        if (length(matching_rows) > 0) {
+          # Use JavaScript to highlight the row without re-rendering the table
+          row_index <- matching_rows[1] - 1  # Convert to 0-based index for JavaScript
+          
+          session$sendCustomMessage(
+            type = 'highlightTableRow',
+            message = list(tableId = 'selectedOutliersTable', rowIndex = row_index)
+          )
+        }
+      }
+    } else {
+      # Clear any existing highlights
+      session$sendCustomMessage(
+        type = 'clearTableHighlight',
+        message = list(tableId = 'selectedOutliersTable')
+      )
+    }
+  }
+})
+
+# Handle plot unhover events
+observeEvent(event_data("plotly_unhover"), {
+  # Clear any existing highlights
+  session$sendCustomMessage(
+    type = 'clearTableHighlight',
+    message = list(tableId = 'selectedOutliersTable')
+  )
 })
 
 # Export rotations to CSV
@@ -483,53 +720,52 @@ observeEvent(input$overwrite_outliers, {
   
   # Reset all outlier steps to FALSE
   allGaitParams$outlierSteps <<- FALSE
+  if (!"heelStrikeBad" %in% colnames(allGaitParams)) {
+    allGaitParams$heelStrikeBad <<- FALSE
+  } else {
+    allGaitParams$heelStrikeBad <<- FALSE
+  }
   
   if (nrow(outliers_data) > 0) {
-    # Optimized outlier matching: use data.table keyed join instead of quadratic loop
-    library(data.table)
-    
-    # Round times to threshold-based bins for efficient matching (e.g., 0.001s precision)
-    time_precision <- min(0.001, input$outlier_threshold / 10)
-    
-    # Convert to data.table and round times for binning
-    gait_dt <- data.table(
-      participant = allGaitParams$participant,
-      trialNum = allGaitParams$trialNum,
-      time_rounded = round(allGaitParams$time / time_precision) * time_precision,
-      row_index = seq_len(nrow(allGaitParams))
-    )
-    
-    outliers_dt <- data.table(
-      participant = outliers_data$participant,
-      trialNum = outliers_data$trialNum,
-      time_rounded = round(outliers_data$time / time_precision) * time_precision
-    )
-    
-    # Set keys for efficient joining
-    setkey(gait_dt, participant, trialNum, time_rounded)
-    setkey(outliers_dt, participant, trialNum, time_rounded)
-    
-    # Find matching rows within threshold using rolling join
-    # Expand the search window to account for threshold
-    threshold_bins <- ceiling(input$outlier_threshold / time_precision)
-    
-    matched_rows <- c()
-    for (bin_offset in -threshold_bins:threshold_bins) {
-      outliers_offset <- copy(outliers_dt)
-      outliers_offset[, time_rounded := time_rounded + bin_offset * time_precision]
-      setkey(outliers_offset, participant, trialNum, time_rounded)
-      
-      matches <- gait_dt[outliers_offset, nomatch = 0L]
-      if (nrow(matches) > 0) {
-        matched_rows <- c(matched_rows, matches$row_index)
+    # Split by action for efficiency
+    outlier_kill <- outliers_data[outliers_data$action == "KILL", ]
+    outlier_keep <- outliers_data[outliers_data$action == "KEEP", ]
+
+    # Helper to mark rows function
+    mark_rows <- function(df_in, target_col) {
+      if (nrow(df_in) == 0) return()
+      library(data.table)
+      time_precision <- min(0.001, input$outlier_threshold / 10)
+      gait_dt <- data.table(
+        participant = allGaitParams$participant,
+        trialNum    = allGaitParams$trialNum,
+        time_round  = round(allGaitParams$time / time_precision) * time_precision,
+        row_index   = seq_len(nrow(allGaitParams))
+      )
+      out_dt <- data.table(
+        participant = df_in$participant,
+        trialNum    = df_in$trialNum,
+        time_round  = round(df_in$time / time_precision) * time_precision
+      )
+      setkey(gait_dt, participant, trialNum, time_round)
+      setkey(out_dt , participant, trialNum, time_round)
+      threshold_bins <- ceiling(input$outlier_threshold / time_precision)
+      matched <- c()
+      for (b in -threshold_bins:threshold_bins) {
+        tmp <- copy(out_dt)
+        tmp[, time_round := time_round + b * time_precision]
+        setkey(tmp, participant, trialNum, time_round)
+        m <- gait_dt[tmp, nomatch = 0L]
+        if (nrow(m) > 0) matched <- c(matched, m$row_index)
+      }
+      matched <- unique(matched)
+      if (length(matched)) {
+        allGaitParams[[target_col]][matched] <<- TRUE
       }
     }
-    
-    # Remove duplicates and mark outliers
-    matched_rows <- unique(matched_rows)
-    if (length(matched_rows) > 0) {
-      allGaitParams$outlierSteps[matched_rows] <<- TRUE
-    }
+
+    mark_rows(outlier_kill, "outlierSteps")
+    mark_rows(outlier_keep, "heelStrikeBad")
   }
   
   # Increment the trigger to force an update of filteredGaitParams

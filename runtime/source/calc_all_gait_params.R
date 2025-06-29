@@ -64,12 +64,23 @@ calculate_gait_parameters <- function(participant, trialNum) {
   stepLengths <- relHeelStrikesData$actual_pos_z # Calculate step lengths
   speed <- stepLengths / stepTimes # Calculate speed
 
-  # Initial outlier detection that doesn't work so well.
-  heelStrikesData$outlierSteps <- detect_outliers_modified_z_scores(stepTimes, threshold = 6) # another option: stepTimes > median(stepTimes) * 2 | stepTimes < median(stepTimes) * 0.5
-  currentlyIgnoredSteps <- heelStrikesData$outlierSteps
-  heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(speed, currentlyIgnoredSteps, 6)
-  currentlyIgnoredSteps <- currentlyIgnoredSteps | heelStrikesData$outlierSteps
-  heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(stepLengths, currentlyIgnoredSteps, 10)
+  # Note: outlierSteps column should already be populated by find_foot_events() from CSV data
+  # If outlierSteps column doesn't exist, initialize as FALSE
+  if (!"outlierSteps" %in% colnames(heelStrikesData)) {
+    warning("outlierSteps column not found in heel strikes data. Initializing as FALSE.")
+    heelStrikesData$outlierSteps <- FALSE
+  }
+
+  # Report outlier statistics for this participant/trial
+  num_outliers <- sum(heelStrikesData$outlierSteps, na.rm = TRUE)
+  total_steps <- nrow(heelStrikesData)
+  if (num_outliers > 0) {
+    cat(sprintf(
+      "DEBUG: Participant %s Trial %s - %d/%d steps marked as outliers (%.1f%%)\n",
+      participant, trialNum, num_outliers, total_steps,
+      100 * num_outliers / total_steps
+    ))
+  }
 
   # Remove the first step from all parameters (first step is always wrong)
   stepTimes <- stepTimes[-1]
