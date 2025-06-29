@@ -85,30 +85,24 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
             avg_time_on_plate = avg_attempt_duration
         )
 
-    # Compute metrics for parameters that need absolute values
+    # Compute metrics for all parameters in a single operation
     # Only include data when ball is on the plate (using simulating column)
-    abs_metrics <- analysis_data %>%
+    param_metrics <- analysis_data %>%
         summarise(across(
-            all_of(intersect(param_names, abs_params)),
+            all_of(param_names),
             list(
+                mean = ~ if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE),
                 sd = ~ sd(., na.rm = TRUE),
-                mean = ~ mean(abs(.), na.rm = TRUE)
-            )
-        ))
-
-    # Compute metrics for regular parameters
-    # Only include data when ball is on the plate (using simulating column)
-    reg_metrics <- analysis_data %>%
-        summarise(across(
-            all_of(setdiff(param_names, abs_params)),
-            list(
-                sd = ~ sd(., na.rm = TRUE),
-                mean = ~ mean(., na.rm = TRUE)
+                cv = ~ {
+                    m <- if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE)
+                    s <- sd(., na.rm = TRUE)
+                    if (is.finite(m) && is.finite(s) && m != 0) s / m else NA_real_
+                }
             )
         ))
 
     # Combine all metrics
-    result <- bind_cols(sim_info, abs_metrics, reg_metrics)
+    result <- bind_cols(sim_info, param_metrics)
 
     # add total score
     scores <- calculate_total_score(sim_data)
@@ -173,17 +167,15 @@ compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
             duration = end_time - start_time,
             # Compute metrics for all data within each attempt (already filtered for simulating == TRUE)
             across(
-                all_of(intersect(param_names, abs_params)),
+                all_of(param_names),
                 list(
-                    mean = ~ mean(abs(.), na.rm = TRUE),
-                    sd = ~ sd(., na.rm = TRUE)
-                )
-            ),
-            across(
-                all_of(setdiff(param_names, abs_params)),
-                list(
-                    mean = ~ mean(., na.rm = TRUE),
-                    sd = ~ sd(., na.rm = TRUE)
+                    mean = ~ if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE),
+                    sd = ~ sd(., na.rm = TRUE),
+                    cv = ~ {
+                        m <- if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE)
+                        s <- sd(., na.rm = TRUE)
+                        if (is.finite(m) && is.finite(s) && m != 0) s / m else NA_real_
+                    }
                 )
             ),
             .groups = "drop"
