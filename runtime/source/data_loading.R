@@ -1,23 +1,8 @@
 # Optimized data loading with fast CSV reading using data.table::fread instead of read.csv
 # Note: All packages now loaded centrally in setup.R
 
-################ PATH DEFINITIONS ################
-dataFolder <- "data"
-dataExtraFolder <- "data_extra"
-questionnaireInfoFolder <- "questionnaires"
-qTypes <- c("IMI", "UserExperience")
-qAnswers <- c("baseline_task", "training2", "retention", "transfer") # the column names of the different questionnaire answers
-allTrials <- c(2, 3, 5, 7, 8, 9, 10, 11)
-# trial 1 is just selecting the walking speed
-# trial 4 is standing familiarization with the task
-# trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
-
-# Heavy operations moved to initialization.R to avoid repeated execution during sourcing
-# These variables are now loaded once via initialize_global_data():
-# - participants: list of participant directories
-# - trackerPath: path to tracker files for first participant
-# - filenameDict: mapping of tracker types to filename prefixes
-# - trackers: list of available tracker types
+################ PARAMETER INITIALIZATION ################
+# All parameters are now defined in initialization.R for centralized configuration
 
 # Ensure initialization has been called before using these variables
 ensure_global_data_initialized()

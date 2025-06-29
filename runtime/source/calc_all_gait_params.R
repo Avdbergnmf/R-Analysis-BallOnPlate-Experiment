@@ -1,13 +1,6 @@
-####### DEFINITIONS
-# Getting types for later use
-xOptions <- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
-# xOptions2D is now loaded in initialization.R to avoid heavy operations during sourcing
-# xOptions2D <- colnames(get_t_data(participants[1], "leftfoot", 1)) # options for pos rot trackers
-categories <- c("participant", "condition", "trialNum") #  "heelStrikes.foot"
-# categoriesInputs <- append(categories, "None")
-columns_to_not_summarize <- c("visualizations", "perturbations") # these are categorical columns we may want to use for our statistics but we dont want to summarize in our mu table
-categoriesExtra <- c(categories, columns_to_not_summarize)
-categoriesExtraInputs <- append(categoriesExtra, c("heelStrikes.foot", "slice_index", "None"))
+####### PARAMETER INITIALIZATION
+# All parameters are now defined in initialization.R for centralized configuration
+# This includes: xOptions, categories, columns_to_not_summarize, categoriesExtra, categoriesExtraInputs, xOptions2D
 
 add_identifiers_and_categories <- function(data, participant, trial) {
   data <- add_identifiers(data, participant, trial)

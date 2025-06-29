@@ -465,6 +465,9 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
 #' @return Data frame with complexity metrics for all valid combinations
 #' @note This function requires allGaitParams to be available in the global environment
 get_all_complexity_metrics <- function(parallel = TRUE) {
+  # Ensure global parameters and data are initialized
+  ensure_global_data_initialized()
+
   # Check if allGaitParams exists in the global environment
   if (!exists("allGaitParams", envir = .GlobalEnv)) {
     stop("allGaitParams not found in global environment. Please ensure gait parameters are calculated first.")
@@ -473,7 +476,7 @@ get_all_complexity_metrics <- function(parallel = TRUE) {
   # Get allGaitParams from global environment
   allGaitParams <- get("allGaitParams", envir = .GlobalEnv)
 
-  outlier_col_names <- c("outlierSteps", "heelStrikes.outlierSteps")
+  # Use centralized parameters
   debug <- !parallel # Enable debug when parallel is FALSE
 
   # Create a wrapper function that matches get_data_from_loop expectations

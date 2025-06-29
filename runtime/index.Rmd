@@ -14,7 +14,7 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # PARALLEL PROCESSING CONTROL
 # =============================================================================
 # Set to TRUE for faster computation on multi-core systems (recommended for production)
-# Set to FALSE for debugging, small datasets, or troubleshooting cluster issues
+# Set to FALSE for debugging, small datasets, or troubleshooting other issues
 USE_PARALLEL <- TRUE
 # =============================================================================
 
@@ -29,8 +29,7 @@ source('source/get_data_from_loop.R', local = FALSE)
 source('source/calc_all_gait_params.R', local = FALSE)
 source('source/get_questionnaire_results.R', local = FALSE)
 
-# File paths
-resultsFolder <- "results"
+# File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
 simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
@@ -51,7 +50,6 @@ source('source/get_simulation_data.R', local = FALSE)
 ## Summary tables
 source('source/summarize_gaitparams.R', local = FALSE)
 source('source/summarize_simulation.R', local = FALSE)
-
 source('source/complexity.R', local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
