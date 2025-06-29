@@ -28,9 +28,9 @@ filteredParams <- reactive({
     participant %in% input$filterParticipants &
       trialNum %in% input$filterTrials &
       condition %in% input$filterCondition &
-      heelStrikes.outlierSteps %in% input$filterOutliers &
-      heelStrikes.suspect %in% input$filterSuspect &
-      heelStrikes.foot %in% input$filterSide
+      outlierSteps %in% input$filterOutliers &
+      suspect %in% input$filterSuspect &
+      foot %in% input$filterSide
   ]
 
   # Convert back to data.frame for compatibility with rest of application

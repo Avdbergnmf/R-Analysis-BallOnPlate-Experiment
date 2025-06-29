@@ -71,38 +71,23 @@ calculate_gait_parameters <- function(participant, trialNum) {
   currentlyIgnoredSteps <- currentlyIgnoredSteps | heelStrikesData$outlierSteps
   heelStrikesData$outlierSteps <- heelStrikesData$outlierSteps | detect_outliers_modified_z_scores(stepLengths, currentlyIgnoredSteps, 10)
 
-  # Make a list of all the gait parameters
-  gaitParams <- list(
-    stepTimes = stepTimes,
-    # stanceTimes = stanceTimes, ####### These are not working well atm. Toe-offs are not filtered properly
-    # swingStanceRatio = swingTimes / stanceTimes,
-    # swingTimes = swingTimes,
-    # finalStepWidths = finalStepWidths,
-    stepLengths = stepLengths,
-    # finalStepLengths = finalStepLengths,
-    stepWidths = stepWidths,
-    centered_stepLengths = stepLengths - mean(stepLengths),
-    centered_stepWidths = stepWidths - mean(stepWidths),
-    speed = speed,
-    heelStrikes = heelStrikesData,
-    toeOffs = toeOffsData,
-    relHeelStrikes = relHeelStrikesData,
-    diffData = diffData
-  )
+  # Remove the first step from all parameters (first step is always wrong)
+  stepTimes <- stepTimes[-1]
+  stepLengths <- stepLengths[-1]
+  stepWidths <- stepWidths[-1]
+  speed <- speed[-1]
+  heelStrikesData <- heelStrikesData[-1, ]
 
-  # Remove all the first steps, because they are always wrong.
-  gaitParams <- lapply(gaitParams, function(x) {
-    # Check if the element is a vector or data frame
-    if (is.vector(x)) {
-      # Remove the first element for vectors
-      x[-1]
-    } else if (is.data.frame(x)) {
-      # Remove the first row for data frames
-      x[-1, ]
-    } else {
-      x # Return the element unchanged if it is not a vector or data frame
-    }
-  })
+  # Create the main data frame based on heelStrikes data (which contains suspect column)
+  gaitParams <- heelStrikesData
+
+  # Add calculated gait parameters as columns
+  gaitParams$stepTimes <- stepTimes
+  gaitParams$stepLengths <- stepLengths
+  gaitParams$stepWidths <- stepWidths
+  gaitParams$centered_stepLengths <- stepLengths - mean(stepLengths, na.rm = TRUE)
+  gaitParams$centered_stepWidths <- stepWidths - mean(stepWidths, na.rm = TRUE)
+  gaitParams$speed <- speed
 
   return(gaitParams)
 }

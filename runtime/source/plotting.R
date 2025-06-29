@@ -70,16 +70,14 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
   both <- rbind(rightData, leftData)
   both <- both[order(both$time), ] # Order by time
 
-  rParams <- filteredGaitParams[filteredGaitParams$heelStrikes.foot == "Right", ]
-  lParams <- filteredGaitParams[filteredGaitParams$heelStrikes.foot == "Left", ]
-  rTargets <- rParams[rParams$heelStrikes.targetIgnoreSteps, ]
-  lTargets <- lParams[lParams$heelStrikes.targetIgnoreSteps, ]
+  rParams <- filteredGaitParams[filteredGaitParams$foot == "Right", ]
+  lParams <- filteredGaitParams[filteredGaitParams$foot == "Left", ]
 
   # Separate outliers from non-outliers
-  rOutliers <- rParams[rParams$heelStrikes.outlierSteps, ]
-  lOutliers <- lParams[lParams$heelStrikes.outlierSteps, ]
-  rParams <- rParams[!rParams$heelStrikes.outlierSteps, ]
-  lParams <- lParams[!lParams$heelStrikes.outlierSteps, ]
+  rOutliers <- rParams[rParams$outlierSteps, ]
+  lOutliers <- lParams[lParams$outlierSteps, ]
+  rParams <- rParams[!rParams$outlierSteps, ]
+  lParams <- lParams[!lParams$outlierSteps, ]
 
   # Create the plot
   targetSize <- round(baseSize / 2)
@@ -92,14 +90,11 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
     # geom_point(data = rParams, aes(x = .data[[paste0("toeOffs.", x_axis)]], y = .data[[paste0("toeOffs.", y_axis)]]), shape = 24, color = "red", size = footEventSize) +
     # geom_point(data = lParams, aes(x = .data[[paste0("toeOffs.", x_axis)]], y = .data[[paste0("toeOffs.", y_axis)]]), shape = 24, color = "blue", size = footEventSize) + # 12=empty square
     # heelstrikes
-    geom_point(data = rParams, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 25, color = "red", size = footEventSize) + # 16=ball
-    geom_point(data = lParams, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 25, color = "blue", size = footEventSize) +
-    # targets
-    geom_point(data = rTargets, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 10, color = "red", size = targetSize) +
-    geom_point(data = lTargets, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 10, color = "blue", size = targetSize) + # 10=target
+    geom_point(data = rParams, aes(x = .data[[x_axis]], y = .data[[y_axis]]), shape = 25, color = "red", size = footEventSize) + # 16=ball
+    geom_point(data = lParams, aes(x = .data[[x_axis]], y = .data[[y_axis]]), shape = 25, color = "blue", size = footEventSize) +
     # outlier steps (with filled icons and larger size)
-    geom_point(data = rOutliers, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 25, fill = "red", alpha = 0.5, color = "red", size = outlierSize) +
-    geom_point(data = lOutliers, aes(x = .data[[paste0("heelStrikes.", x_axis)]], y = .data[[paste0("heelStrikes.", y_axis)]]), shape = 25, fill = "blue", alpha = 0.5, color = "blue", size = outlierSize) + # 21 = filled circle
+    geom_point(data = rOutliers, aes(x = .data[[x_axis]], y = .data[[y_axis]]), shape = 25, fill = "red", alpha = 0.5, color = "red", size = outlierSize) +
+    geom_point(data = lOutliers, aes(x = .data[[x_axis]], y = .data[[y_axis]]), shape = 25, fill = "blue", alpha = 0.5, color = "blue", size = outlierSize) + # 21 = filled circle
     # geom_point(data = rOutliers, aes(x = .data[[paste0("toeOffs.", x_axis)]], y = .data[[paste0("toeOffs.", y_axis)]]), shape = 24, fill = "red", alpha = 0.5, color = "red", size = outlierSize) +
     # geom_point(data = lOutliers, aes(x = .data[[paste0("toeOffs.", x_axis)]], y = .data[[paste0("toeOffs.", y_axis)]]), shape = 24, fill = "blue", alpha = 0.5, color = "blue", size = outlierSize) +
     scale_color_manual(values = c("Right" = "black", "Left" = "grey")) +
@@ -417,9 +412,9 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
 make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize = 10) {
   # Calculate step categories
-  outlierSteps <- sum(data$heelStrikes.outlierSteps == TRUE, na.rm = TRUE)
-  suspectSteps <- sum(data$heelStrikes.suspect == TRUE & data$heelStrikes.outlierSteps == FALSE, na.rm = TRUE)
-  included <- sum(data$heelStrikes.outlierSteps == FALSE & data$heelStrikes.suspect == FALSE, na.rm = TRUE)
+  outlierSteps <- sum(data$outlierSteps == TRUE, na.rm = TRUE)
+  suspectSteps <- sum(data$suspect == TRUE & data$outlierSteps == FALSE, na.rm = TRUE)
+  included <- sum(data$outlierSteps == FALSE & data$suspect == FALSE, na.rm = TRUE)
   total_steps <- nrow(data)
 
   # Create a data frame for ggplot

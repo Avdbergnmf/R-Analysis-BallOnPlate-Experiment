@@ -10,7 +10,7 @@ get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
 
   if (avg_feet) {
     data <- data %>%
-      group_by(across(all_of(setdiff(categories, "heelStrikes.foot")))) %>%
+      group_by(across(all_of(setdiff(categories, "foot")))) %>%
       summarise(
         mean = mean(mean, na.rm = TRUE),
         sd = mean(sd, na.rm = TRUE),
@@ -24,8 +24,8 @@ get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
 
 # Calculate complexity metrics for specified data types (combining both feet)
 get_complexity_combined <- function(dataType, categories, data) {
-  # Remove heelStrikes.foot from categories since we want to combine feet
-  categories_no_foot <- setdiff(categories, "heelStrikes.foot")
+  # Remove foot from categories since we want to combine feet
+  categories_no_foot <- setdiff(categories, "foot")
 
   # Calculate complexity metrics for each group (combining both feet)
   complexity_data <- data %>%
@@ -51,12 +51,12 @@ get_complexity_combined <- function(dataType, categories, data) {
 # Average across feet and also calculate diff between left and right foot and add it to mu
 average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   # Get summaries averaging over feet
-  categories_no_foot <- setdiff(categories, "heelStrikes.foot")
+  categories_no_foot <- setdiff(categories, "foot")
   mu_avg <- lapply(types, get_summ_by_foot, categories_no_foot, data, avg_feet = TRUE)
   mu_avg <- setNames(mu_avg, types)
 
   if (add_diff) {
-    # Keep heelStrikes.foot in categories for per-foot summaries
+    # Keep foot in categories for per-foot summaries
     categories_with_foot <- categories
 
     # Step 1: Get per-foot summaries without averaging over feet
@@ -67,7 +67,7 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
     mu_diff <- lapply(mu_per_foot, function(df) {
       # Pivot the data wider to have separate columns for left and right foot measurements
       df_wide <- df %>%
-        pivot_wider(names_from = heelStrikes.foot, values_from = c(mean, sd, cv))
+        pivot_wider(names_from = foot, values_from = c(mean, sd, cv))
 
       # Ensure both left and right foot data are available
       # df_wide <- df_wide %>%
@@ -111,7 +111,7 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
 
   if (avg_feet) {
     mu <- average_over_feet(data, types, categories, add_diff = add_diff)
-    categories <- setdiff(categories, "heelStrikes.foot") # remove heelStrikes.foot from category list
+    categories <- setdiff(categories, "foot") # remove foot from category list
   } else {
     # If not averaging over feet, compute mu normally
     mu <- lapply(types, get_summ_by_foot, categories, data, avg_feet = FALSE)
@@ -263,7 +263,7 @@ merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
 
 get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
   # Get the summarized gait data (without questionnaire merging)
-  muGait <- summarize_table(allGaitParams, c(categories, "heelStrikes.foot"), avg_feet, add_diff) ##### Note that we add heelStrikes.foot here as a category, to make sure we summarize each foot individually
+  muGait <- summarize_table(allGaitParams, c(categories, "foot"), avg_feet, add_diff) ##### Note that we add foot here as a category, to make sure we summarize each foot individually
 
   return(muGait)
 }
@@ -280,9 +280,9 @@ summarize_across_conditions <- function(data) {
     c("participant", "condition")
   }
 
-  # Add heelStrikes.foot to grouping if it exists
-  grouping_cols <- if ("heelStrikes.foot" %in% colnames(data)) {
-    c(base_groups, "heelStrikes.foot")
+  # Add foot to grouping if it exists
+  grouping_cols <- if ("foot" %in% colnames(data)) {
+    c(base_groups, "foot")
   } else {
     base_groups
   }
@@ -321,7 +321,7 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
 
   if (avg_feet) {
     mu <- average_over_feet(data, types, grouping_cols, add_diff = add_diff)
-    grouping_cols <- setdiff(grouping_cols, "heelStrikes.foot")
+    grouping_cols <- setdiff(grouping_cols, "foot")
   } else {
     mu <- lapply(types, get_summ_by_foot, grouping_cols, data, avg_feet = FALSE)
     mu <- setNames(mu, types)
@@ -360,13 +360,13 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
 get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
                                slice_length = 180, avg_feet = TRUE, add_diff = FALSE, remove_middle_slices = FALSE) {
   # Summarize gait parameters in time slices (without questionnaire merging)
-  # Note we include heelStrikes.foot in categories so that per-foot summaries are computed if needed
+  # Note we include foot in categories so that per-foot summaries are computed if needed
   muGait <- summarize_table_sliced(
     data = allGaitParams,
     allQResults = allQResults,
-    categories = c(categories, "heelStrikes.foot"),
+    categories = c(categories, "foot"),
     slice_length = slice_length,
-    time_col = "heelStrikes.time",
+    time_col = "time",
     avg_feet = avg_feet,
     add_diff = add_diff
   )

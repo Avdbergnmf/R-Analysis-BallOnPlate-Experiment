@@ -268,6 +268,12 @@ find_foot_events <- function(participant, trialNum) {
   combinedHeelStrikes <- results$data1
   combinedToeOffs <- results$data2
 
+  # Merge suspect_alt into suspect column (again, after alternation check)
+  if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
+    combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_alt
+    combinedHeelStrikes$suspect_alt <- NULL
+  }
+
   # Label step numbers. Assuming each heel strike represents a new step
   combinedHeelStrikes$step <- seq_len(nrow(combinedHeelStrikes))
   combinedToeOffs$step <- seq_len(nrow(combinedToeOffs))
@@ -292,45 +298,84 @@ add_diff_per_foot <- function(relHeelStrikesData) {
 
 refine_heelstrike <- function(footData, local_maxima, local_minima,
                               smoothing_window = 5, change_threshold = 0.05) {
-  # Refine heelstrike times and record unstable cases
-  refined_local_maxima <- c()
-  unstable_indices <- integer(0) # store indices (in local_maxima) with no stable point
+  # Vectorized heel-strike refinement - much faster than loop-based approach
 
-  for (i in seq_along(local_maxima)) {
-    heelstrike_time <- footData$time[local_maxima[i]]
-    toeoff_time <- footData$time[min(i + 1, length(local_minima))]
+  # Only process heel-strikes that have a corresponding next toe-off
+  max_iterations <- min(length(local_maxima), length(local_minima) - 1)
 
-    # Extract segment between heel-strike and next toe-off
-    segment <- footData %>%
-      dplyr::filter(time >= heelstrike_time & time <= toeoff_time)
+  if (max_iterations == 0) {
+    # No valid pairs to process - mark all as suspect
+    return(list(maxima = local_maxima, suspect_unstable = seq_along(local_maxima)))
+  }
 
-    # Smooth x & y positions
-    segment$smoothed_x <- zoo::rollmean(segment$pos_x, smoothing_window, fill = NA)
-    segment$smoothed_y <- zoo::rollmean(segment$pos_y, smoothing_window, fill = NA)
+  # Pre-smooth the entire dataset once (vectorized operation)
+  footData$smoothed_x <- zoo::rollmean(footData$pos_x, smoothing_window, fill = NA)
+  footData$smoothed_y <- zoo::rollmean(footData$pos_y, smoothing_window, fill = NA)
 
-    # Rate of change
-    dx <- diff(segment$smoothed_x) / diff(segment$time)
-    dy <- diff(segment$smoothed_y) / diff(segment$time)
+  # Calculate rate of change for entire dataset (vectorized)
+  footData$dx <- c(NA, diff(footData$smoothed_x) / diff(footData$time))
+  footData$dy <- c(NA, diff(footData$smoothed_y) / diff(footData$time))
 
-    # Find stable points
-    stable_points <- which(abs(dx) < change_threshold & abs(dy) < change_threshold)
+  # Vectorized processing of heel-strike pairs
+  heelstrike_indices <- local_maxima[1:max_iterations]
+  toeoff_indices <- local_minima[2:(max_iterations + 1)]
+
+  # Vectorized function to find first stable point in each segment
+  find_stable_point <- function(start_idx, end_idx) {
+    if (start_idx >= end_idx) {
+      return(start_idx)
+    } # Edge case
+
+    segment_indices <- start_idx:end_idx
+    dx_segment <- footData$dx[segment_indices]
+    dy_segment <- footData$dy[segment_indices]
+
+    # Find stable points (vectorized logical operations)
+    stable_mask <- abs(dx_segment) < change_threshold & abs(dy_segment) < change_threshold
+    stable_mask[is.na(stable_mask)] <- FALSE
+
+    stable_points <- which(stable_mask)
 
     if (length(stable_points) > 0) {
-      # Take the first stable point
-      stable_point <- stable_points[1]
-
-      # Update the heelstrike time to the stable point
-      refined_local_maxima <- c(refined_local_maxima, local_maxima[i] + stable_point)
-      # print(paste("Stable point found for heelstrike at time:", heelstrike_time,". Shifted by:", segment$time[stable_point] - heelstrike_time,"s"))
+      return(start_idx + stable_points[1] - 1) # Convert back to global index
     } else {
-      if (!is.na(min(dx))) { # this happens if there is no more data after the heelstrike, this almost always results in a wrong step, so we remove it
-      refined_local_maxima <- c(refined_local_maxima, local_maxima[i])
-      unstable_indices <- c(unstable_indices, length(refined_local_maxima))
-      message(
-        "No stable point found for heelstrike at time ", heelstrike_time,
-        "; labelled as SUSPECT_UNSTABLE."
-      )
+      # Check if we have valid data (any non-NA values)
+      if (any(!is.na(dx_segment))) {
+        return(start_idx) # Keep original if no stable point but valid data
+      } else {
+        return(NA) # Mark as invalid
+      }
     }
+  }
+
+  # Apply vectorized refinement using mapply
+  refined_indices <- mapply(find_stable_point, heelstrike_indices, toeoff_indices, SIMPLIFY = TRUE)
+
+  # Identify unstable (suspect) heel-strikes
+  unstable_mask <- is.na(refined_indices)
+  unstable_indices <- which(unstable_mask)
+
+  # Remove NA values and keep valid refined indices
+  valid_mask <- !unstable_mask
+  refined_local_maxima <- refined_indices[valid_mask]
+
+  # Report unstable heel-strikes (vectorized message creation)
+  if (sum(unstable_mask) > 0) {
+    heelstrike_times <- footData$time[heelstrike_indices[unstable_mask]]
+    message(
+      "No stable point found for ", sum(unstable_mask), " heel-strikes at times: ",
+      paste(round(heelstrike_times, 3), collapse = ", "), "; labelled as SUSPECT_UNSTABLE."
+    )
+  }
+
+  # Handle any remaining heel-strikes that don't have a next toe-off
+  if (length(local_maxima) > max_iterations) {
+    remaining_heelstrikes <- local_maxima[(max_iterations + 1):length(local_maxima)]
+    refined_local_maxima <- c(refined_local_maxima, remaining_heelstrikes)
+    # Mark these as suspect since we couldn't refine them
+    remaining_indices <- (length(refined_local_maxima) - length(remaining_heelstrikes) + 1):length(refined_local_maxima)
+    unstable_indices <- c(unstable_indices, remaining_indices)
+    message("Marked ", length(remaining_heelstrikes), " heel-strikes as suspect (no corresponding toe-off for refinement)")
   }
 
   return(list(maxima = refined_local_maxima, suspect_unstable = unstable_indices))

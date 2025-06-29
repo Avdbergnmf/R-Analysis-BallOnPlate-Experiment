@@ -193,9 +193,9 @@ calculate_step_statistics <- function(data, group_vars = c("participant")) {
     group_by(across(all_of(group_vars))) %>%
     summarise(
       total_steps = n(), # Use n() to count the number of rows
-      included_steps = sum(!heelStrikes.outlierSteps & !heelStrikes.suspect, na.rm = TRUE),
-      outlier_steps = sum(heelStrikes.outlierSteps, na.rm = TRUE),
-      suspect_steps = sum(heelStrikes.suspect & !heelStrikes.outlierSteps, na.rm = TRUE),
+      included_steps = sum(!outlierSteps & !suspect, na.rm = TRUE),
+      outlier_steps = sum(outlierSteps, na.rm = TRUE),
+      suspect_steps = sum(suspect & !outlierSteps, na.rm = TRUE),
       .groups = "drop"
     )
 

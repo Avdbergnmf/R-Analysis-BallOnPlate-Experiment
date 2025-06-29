@@ -412,7 +412,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
 #' @param debug Logical, whether to collect debug information (works with parallel processing)
 #' @return Single row data frame with complexity metrics (and debug_messages column if debug=TRUE)
 calculate_complexity_single <- function(participant, trial, allGaitParams,
-                                        outlier_col_names = c("outlierSteps", "heelStrikes.outlierSteps"),
+                                        outlier_col_names = c("outlierSteps"),
                                         include_continuous = TRUE,
                                         continuous_vars = c("p"),
                                         debug = TRUE) {
@@ -568,7 +568,7 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
 
   # Extract parameters, with defaults
   allGaitParams <- args$allGaitParams
-  outlier_col_names <- if (is.null(args$outlier_col_names)) c("outlierSteps", "heelStrikes.outlierSteps") else args$outlier_col_names
+  outlier_col_names <- if (is.null(args$outlier_col_names)) c("outlierSteps") else args$outlier_col_names
   include_continuous <- if (is.null(args$include_continuous)) TRUE else args$include_continuous
   continuous_vars <- if (is.null(args$continuous_vars)) c("p") else args$continuous_vars
   debug <- if (is.null(args$debug)) FALSE else args$debug

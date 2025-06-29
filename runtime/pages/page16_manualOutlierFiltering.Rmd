@@ -93,15 +93,26 @@ observeEvent(input$importOutliers, {
   tryCatch(
     {
       df <- read.csv(input$importOutliers$datapath, stringsAsFactors = FALSE)
-      if (all(c("participant", "trialNum", "heelStrikes.time") %in% colnames(df))) {
+      # Check for either new format (time) or legacy format (heelStrikes.time)
+    has_new_format <- all(c("participant", "trialNum", "time") %in% colnames(df))
+    has_legacy_format <- all(c("participant", "trialNum", "heelStrikes.time") %in% colnames(df))
+    
+    if (has_new_format || has_legacy_format) {
         # Convert trialNum to numeric if it's not already
         df$trialNum <- as.numeric(df$trialNum)
+        
+        # Standardize to use 'time' column
+        if (has_legacy_format && !has_new_format) {
+          df$time <- df$heelStrikes.time
+          df$heelStrikes.time <- NULL
+        }
+        
         # Update the selected_outliers reactive value
         selected_outliers(df)
         showNotification("Outliers imported successfully", type = "message")
         refresh_trigger(refresh_trigger() + 1)
       } else {
-        showNotification("Invalid CSV format. Please ensure the file has 'participant', 'trialNum', and 'heelStrikes.time' columns.", type = "error")
+        showNotification("Invalid CSV format. Please ensure the file has 'participant', 'trialNum', and either 'time' or 'heelStrikes.time' columns.", type = "error")
       }
     },
     error = function(e) {
@@ -114,7 +125,7 @@ observeEvent(input$importOutliers, {
 selected_outliers <- reactiveVal(data.frame(
   participant = character(),
   trialNum = numeric(),
-  heelStrikes.time = numeric(),
+  time = numeric(),
   stringsAsFactors = FALSE
 ))
 
@@ -188,7 +199,7 @@ observeEvent(event_data("plotly_click"), {
     params <- filteredParams()
     closest_step <- params[params$participant == current_participant &
                                params$trialNum == current_trial, ] %>%
-      mutate(time_diff = abs(heelStrikes.time - clicked_time)) %>%
+      mutate(time_diff = abs(time - clicked_time)) %>%
       arrange(time_diff) %>%
       slice(1)
     
@@ -199,14 +210,14 @@ observeEvent(event_data("plotly_click"), {
       existing_outlier <- current_outliers %>%
         dplyr::filter(participant == closest_step$participant,
                trialNum == closest_step$trialNum,
-               abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold)
+               abs(time - closest_step$time) <= input$outlier_threshold)
       
       if (nrow(existing_outlier) > 0) {
         # Remove the outlier
         updated_outliers <- current_outliers %>%
           dplyr::filter(!(participant == closest_step$participant &
                    trialNum == closest_step$trialNum &
-                   abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold))
+                   abs(time - closest_step$time) <= input$outlier_threshold))
         selected_outliers(updated_outliers)
         showNotification("Outlier removed", type = "message")
       } else {
@@ -214,7 +225,7 @@ observeEvent(event_data("plotly_click"), {
         new_outlier <- data.frame(
           participant = closest_step$participant,
           trialNum = closest_step$trialNum,
-          heelStrikes.time = closest_step$heelStrikes.time,
+          time = closest_step$time,
           stringsAsFactors = FALSE
         )
         updated_outliers <- rbind(current_outliers, new_outlier)
@@ -299,7 +310,7 @@ output$manualOutlierPlot <- renderPlotly({
   # Optimize outlier matching with vectorized approach
   if (nrow(current_outliers_data) > 0 && nrow(current_data) > 0) {
     # Create a distance matrix and find matches efficiently
-    time_diffs <- outer(current_data$heelStrikes.time, current_outliers_data$heelStrikes.time, 
+    time_diffs <- outer(current_data$time, current_outliers_data$time, 
                         function(x, y) abs(x - y))
     is_outlier <- apply(time_diffs <= input$outlier_threshold, 1, any)
     current_data$is_outlier <- is_outlier
@@ -313,12 +324,12 @@ output$manualOutlierPlot <- renderPlotly({
   # Add outlier highlighting to the plot
   p <- base_plot + 
     geom_point(data = current_data %>% dplyr::filter(suspect),
-               aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
-                   y = .data[[paste0("heelStrikes.", current_yaxis)]]),
+               aes(x = .data[[current_xaxis]],
+                   y = .data[[current_yaxis]]),
                color = "orange", size = 4, shape = 21, fill = "orange", alpha = 0.6) +
     geom_point(data = current_data %>% dplyr::filter(is_outlier), 
-               aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
-                   y = .data[[paste0("heelStrikes.", current_yaxis)]]),
+               aes(x = .data[[current_xaxis]],
+                   y = .data[[current_yaxis]]),
                color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
   
   # Capture current limits once to avoid reactivity
@@ -433,7 +444,7 @@ observeEvent(input$overwrite_outliers, {
   outliers_data <- selected_outliers()
   
   # Reset all outlier steps to FALSE
-  allGaitParams$heelStrikes.outlierSteps <<- FALSE
+  allGaitParams$outlierSteps <<- FALSE
   
   if (nrow(outliers_data) > 0) {
     # Optimized outlier matching: use data.table keyed join instead of quadratic loop
@@ -446,14 +457,14 @@ observeEvent(input$overwrite_outliers, {
     gait_dt <- data.table(
       participant = allGaitParams$participant,
       trialNum = allGaitParams$trialNum,
-      time_rounded = round(allGaitParams$heelStrikes.time / time_precision) * time_precision,
+      time_rounded = round(allGaitParams$time / time_precision) * time_precision,
       row_index = seq_len(nrow(allGaitParams))
     )
     
     outliers_dt <- data.table(
       participant = outliers_data$participant,
       trialNum = outliers_data$trialNum,
-      time_rounded = round(outliers_data$heelStrikes.time / time_precision) * time_precision
+      time_rounded = round(outliers_data$time / time_precision) * time_precision
     )
     
     # Set keys for efficient joining
@@ -479,7 +490,7 @@ observeEvent(input$overwrite_outliers, {
     # Remove duplicates and mark outliers
     matched_rows <- unique(matched_rows)
     if (length(matched_rows) > 0) {
-      allGaitParams$heelStrikes.outlierSteps[matched_rows] <<- TRUE
+      allGaitParams$outlierSteps[matched_rows] <<- TRUE
     }
   }
   
@@ -514,7 +525,7 @@ observeEvent(input$confirm_selection, {
       
       closest_step <- tryCatch({
         trial_data %>%
-          mutate(time_diff = abs(heelStrikes.time - clicked_time)) %>%
+          mutate(time_diff = abs(time - clicked_time)) %>%
           arrange(time_diff) %>%
           slice(1)
       }, error = function(e) {
@@ -526,7 +537,7 @@ observeEvent(input$confirm_selection, {
         data.frame(
           participant = closest_step$participant,
           trialNum = closest_step$trialNum,
-          heelStrikes.time = closest_step$heelStrikes.time,
+          time = closest_step$time,
           stringsAsFactors = FALSE
         )
       } else {
