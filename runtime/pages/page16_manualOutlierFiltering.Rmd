@@ -121,7 +121,7 @@ selected_outliers <- reactiveVal(data.frame(
 # Add this new reactive to store the current outliers
 current_outliers <- reactive({
   selected_outliers() %>%
-    filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+    dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
 })
 
 # Reactive values to store current axis limits
@@ -197,14 +197,14 @@ observeEvent(event_data("plotly_click"), {
       
       # Check if the clicked outlier already exists in the list
       existing_outlier <- current_outliers %>%
-        filter(participant == closest_step$participant,
+        dplyr::filter(participant == closest_step$participant,
                trialNum == closest_step$trialNum,
                abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold)
       
       if (nrow(existing_outlier) > 0) {
         # Remove the outlier
         updated_outliers <- current_outliers %>%
-          filter(!(participant == closest_step$participant &
+          dplyr::filter(!(participant == closest_step$participant &
                    trialNum == closest_step$trialNum &
                    abs(heelStrikes.time - closest_step$heelStrikes.time) <= input$outlier_threshold))
         selected_outliers(updated_outliers)
@@ -291,7 +291,7 @@ output$manualOutlierPlot <- renderPlotly({
   
   # Get the current data for this participant and trial
   current_data <- filteredParams() %>%
-    filter(participant == current_participant & trialNum == current_trial)
+    dplyr::filter(participant == current_participant & trialNum == current_trial)
   
   # Get current outliers - optimize with vectorized operations
   current_outliers_data <- current_outliers()
@@ -309,12 +309,16 @@ output$manualOutlierPlot <- renderPlotly({
   
   # Add outlier highlighting to the plot
   p <- base_plot + 
-    geom_point(data = current_data %>% filter(is_outlier), 
+    geom_point(data = current_data %>% dplyr::filter(is_outlier), 
                aes(x = .data[[paste0("heelStrikes.", current_xaxis)]],
                    y = .data[[paste0("heelStrikes.", current_yaxis)]]),
                color = "purple", size = 5, shape = 21, fill = "purple", alpha = 0.5)
   
-  # Convert to plotly
+  # Capture current limits once to avoid reactivity
+  x_range_init <- isolate(axis_limits$x)
+  y_range_init <- isolate(axis_limits$y)
+  
+  # Convert to plotly (no reactive dependency on axis_limits)
   p <- ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
     style(
       hoverinfo = "none",
@@ -323,12 +327,12 @@ output$manualOutlierPlot <- renderPlotly({
     layout(
       dragmode = "pan",
       xaxis = list(
-        range = axis_limits$x,
+        range = x_range_init,
         tickmode = "linear",
         dtick = 1,
         tick0 = 0
       ),
-      yaxis = list(range = axis_limits$y)
+      yaxis = list(range = y_range_init)
     ) %>%
     event_register("plotly_click") %>% event_register("plotly_selected")
   
