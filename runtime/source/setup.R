@@ -1,69 +1,62 @@
-# setup.R
+# setup.R - Centralized package loading with optimization packages for improved performance
 knitr::opts_chunk$set(echo = FALSE)
-library(data.table)
-library(RColorBrewer)
-library(ggplot2)
-library(ggpubr)
-library(readxl)
-library(rstatix)
-library(plotrix)
-library(car)
-library(Rmisc)
 
-# data manipulation
-library(plyr)
-library(dplyr)
-library(purrr)
+# Core data manipulation and performance optimization
+library(data.table) # Fast CSV reading (fread) and efficient joins for outlier matching
+library(dplyr) # Data manipulation verbs
+library(plyr) # Data manipulation functions
+library(purrr) # Functional programming tools
+library(tidyr) # Data reshaping and tidying
 
-# plotting
-library(tidyr)
-library(devtools)
-library(ggpattern) # To differentiate when printing in black and white
+# Statistical analysis and modeling
+library(lme4) # Linear mixed-effects models
+library(lmerTest) # P-values for mixed-effects models
+library(emmeans) # Estimated marginal means
+library(MuMIn) # Model selection and averaging
+library(rstatix) # Statistical tests
+library(car) # Companion to Applied Regression
+library(pwr) # Power analysis
 
-# LMER stuff
-library(lme4)
-library(DT) # for visual tables and stuff
-library(lmerTest) # to get p-values from lmer
-library(emmeans)
-library(MuMIn)
+# Data visualization
+library(ggplot2) # Grammar of graphics plotting
+library(ggpubr) # Publication-ready plots
+library(RColorBrewer) # Color palettes
+library(ggpattern) # Pattern fills for black/white printing
+library(plotrix) # Additional plotting functions
+library(viridis) # Perceptually uniform color scales
+library(ggstatsplot) # Statistical plots with annotations
+library(ggside) # Side panels for ggplot
+library(ggExtra) # Marginal plots and distributions
+library(plotly) # Interactive web-based plots
 
-# saving figures
-library(svglite)
+# Signal processing and filtering (optimization: vectorized operations)
+library(signal) # Butterworth filtering and signal processing
+library(pracma) # Hampel filter for outlier detection (more efficient than custom loops)
+library(zoo) # Rolling statistics and time series
 
-# File importing / reading
-library(jsonlite) # for json files
+# File I/O and data import
+library(readxl) # Excel file reading
+library(jsonlite) # JSON file parsing
+library(svglite) # SVG graphics device
 
-# Reshaping data for questionnaires
-library(reshape2)
+# Parallel processing (optimization: efficient multi-core computation)
+library(foreach) # Parallel for loops
+library(doParallel) # Parallel backend for foreach
 
-library(pwr)
+# Interactive tables and UI components
+library(DT) # Interactive data tables
+library(shinyBS) # Bootstrap components for Shiny
 
-# Filtering of foot signal for event detection
-library(signal) # butterworth filter
-library(zoo) # For rolling statistics
+# Data reshaping and manipulation
+library(reshape2) # Data melting and casting
+library(Rmisc) # Miscellaneous functions
 
-# For correlation plots
-library(ggstatsplot)
-library(ggside)
-# scatterplot with distribution on the sides
-library(ggExtra)
+# Statistical testing and model diagnostics
+library(lmtest) # Linear model testing
 
-# For checking parametric assumptions
-library(lmtest)
+# Outlier detection
+library(dbscan) # Density-based clustering for outlier detection
 
-# Parallel processing
-# Load necessary packages
-library(foreach)
-library(doParallel)
-
-# To identify local outliers
-# library(Rlof) # for lof filtering
-library(dbscan) # also for lof filtering ?
-library(DT)
-library(plotly)
-
-library(shinyBS) # For tooltips
-
-library(viridis) # extra colors
-
-library(markdown) # to render data dictionary.
+# Development and utilities
+library(devtools) # Development tools
+library(markdown) # Markdown rendering for data dictionary

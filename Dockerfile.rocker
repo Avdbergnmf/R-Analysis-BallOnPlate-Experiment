@@ -6,9 +6,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN install2.r --skipinstalled \
     shiny rmarkdown flexdashboard plyr dplyr purrr data.table RColorBrewer \
     ggplot2 ggpubr readxl rstatix plotrix car Rmisc tidyr devtools ggpattern \
-    lme4 emmeans sjstats lmerTest MuMIn svglite jsonlite pwr lme4 DT \
-    signal ggstatsplot ggside zoo gridExtra ggExtra dbscan plotly lmtest foreach \
-    viridis doParallel markdown shinyBS \ 
+    lme4 emmeans lmerTest MuMIn svglite jsonlite pwr lme4 DT \
+    signal pracma ggstatsplot ggside zoo ggExtra dbscan plotly lmtest foreach \
+    viridis doParallel markdown shinyBS reshape2 \ 
     && rm -rf /tmp/downloaded_packages \
     && strip /usr/local/lib/R/site-library/*/libs/*.so
 
