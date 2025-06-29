@@ -1,12 +1,12 @@
 ################ Data Manipulation ################
 
 # Helper function to check if hip data is stationary
-is_hip_stationary <- function(hipData, threshold_cm = 0.01) {
-  first_5_seconds <- hipData$time <= (hipData$time[1] + 5)
-  hip_range_x <- max(hipData$pos_x[first_5_seconds]) - min(hipData$pos_x[first_5_seconds])
-  hip_range_y <- max(hipData$pos_y[first_5_seconds]) - min(hipData$pos_y[first_5_seconds])
-  hip_range_z <- max(hipData$pos_z[first_5_seconds]) - min(hipData$pos_z[first_5_seconds])
-
+is_hip_stationary <- function(hipData, threshold_cm = 0.01, time_window = 30) {
+  first_seconds <- hipData$time <= (hipData$time[1] + time_window)
+  hip_range_x <- max(hipData$pos_x[first_seconds]) - min(hipData$pos_x[first_seconds])
+  hip_range_y <- max(hipData$pos_y[first_seconds]) - min(hipData$pos_y[first_seconds])
+  hip_range_z <- max(hipData$pos_z[first_seconds]) - min(hipData$pos_z[first_seconds])
+  # print(paste("Hip range x:", hip_range_x, "cm, y:", hip_range_y, "cm, z:", hip_range_z, "cm"))
   return(hip_range_x < threshold_cm && hip_range_y < threshold_cm && hip_range_z < threshold_cm)
 }
 
@@ -132,13 +132,13 @@ create_output_dataframes <- function(footData, local_maxima, local_minima) {
 
 detect_foot_events_coordinates <- function(footData, hipData) {
   # Check if hip data is stationary
-  useHip <- is_hip_stationary(hipData)
+  useHip <- !is_hip_stationary(hipData)
   checkAlternation <- TRUE
 
   if (useHip) {
     relFootPos <- footData$pos_z - hipData$pos_z
   } else {
-    print("Hip data appears stationary (moves less than 1cm). Using absolute foot position instead of relative position.")
+    print("Hip data appears stationary (moves less than the threshold). Using absolute foot position instead of relative position.")
     relFootPos <- footData$pos_z
   }
 
