@@ -16,7 +16,7 @@ get_rotations_data <- function() {
   rotations_file <- "./data_extra/rotations_kinematic_data.csv" # manually created file with participant, trial, and rotation (in degrees)
   rotations <- c()
   if (file.exists(rotations_file)) {
-    rotations <- read.csv(rotations_file)
+    rotations <- as.data.frame(data.table::fread(rotations_file))
   }
   return(rotations)
 }
@@ -159,7 +159,8 @@ detect_outliers <- function(data, ignoreSteps, IQR_mlp = 1.5) {
 }
 
 apply_padding_and_filter <- function(column, poly_order, fs, cutoff_freq = 5) {
-  column <- hampel_filter(column, k = 7, t0 = 3) # this is kinda slow but makes step detection more consistent.
+  # Use vectorized pracma::hampel instead of custom for-loop for much better performance
+  column <- pracma::hampel(column, k = 7, t0 = 3)$y
 
   # Calculate the number of points to pad (half the frame size generally works well)
   pad_width <- 20
@@ -181,21 +182,6 @@ apply_padding_and_filter <- function(column, poly_order, fs, cutoff_freq = 5) {
   return(filtered_column)
 }
 
-# Hampel filter function
-hampel_filter <- function(x, k, t0 = 3) {
-  n <- length(x)
-  y <- x
-  L <- 1.4826 # Scale factor for Gaussian distribution
-  for (i in (k + 1):(n - k)) {
-    window <- x[(i - k):(i + k)]
-    median_window <- median(window)
-    sigma_window <- L * median(abs(window - median_window))
-    if (abs(x[i] - median_window) > t0 * sigma_window) {
-      y[i] <- median_window
-    }
-  }
-  return(y)
-}
 
 calculate_step_statistics <- function(data, group_vars = c("participant")) {
   # Group by specified variables and calculate the number of included and removed steps
