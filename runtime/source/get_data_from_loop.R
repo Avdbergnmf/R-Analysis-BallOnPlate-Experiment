@@ -8,35 +8,50 @@ getTypes <- function(dt) {
 #' Load cached results or calculate them if not available
 #'
 #' This function checks if a file exists and loads it. If not, it runs the
-#' calculation function and saves the result. This is useful for expensive
-#' calculations that you want to cache.
+#' calculation function with the appropriate loop function and saves the result.
+#' This is useful for expensive calculations that you want to cache.
+#'
+#' The parallel processing decision is made here and the appropriate loop function
+#' (get_data_from_loop or get_data_from_loop_parallel) is passed to the calculation
+#' function, providing clean separation of concerns.
 #'
 #' @param filePath Path to the cached file (usually .rds)
-#' @param calculate_function Function to call if cache doesn't exist
-#' @param parallel Whether to use parallel processing (default: TRUE)
+#' @param calculate_function Function to call if cache doesn't exist (must accept loop_function as first parameter)
+#' @param parallel Whether to use parallel processing (default: USE_PARALLEL global setting)
 #' @param ... Additional arguments passed to calculate_function
 #' @return The loaded or calculated data
 #'
 #' @examples
 #' # Basic usage with parallel processing controlled by global setting
-#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = USE_PARALLEL)
+#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params)
 #'
-#' # Examples with different functions
-#' allQResults <- load_or_calculate("results/quest.rds", get_all_questionnaire_results, parallel = USE_PARALLEL)
-#' allTaskMetrics <- load_or_calculate("results/task.rds", get_all_task_metrics, parallel = USE_PARALLEL)
+#' # Examples with different functions (loop function is chosen automatically)
+#' allQResults <- load_or_calculate("results/quest.rds", get_all_questionnaire_results)
+#' allTaskMetrics <- load_or_calculate("results/task.rds", get_all_task_metrics)
 #'
-load_or_calculate <- function(filePath, calculate_function, parallel = TRUE) {
+#' # You can still override the global setting if needed
+#' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
+#'
+load_or_calculate <- function(filePath, calculate_function, parallel = USE_PARALLEL) {
     if (file.exists(filePath)) {
         data <- readRDS(filePath)
     } else {
-        # Check if the calculate_function accepts a parallel parameter
-        func_args <- names(formals(calculate_function))
-        if ("parallel" %in% func_args) {
-            data <- calculate_function(parallel = parallel)
+        # Choose the appropriate loop function based on parallel setting
+        if (parallel) {
+            # Extract the main function name for meaningful log file names
+            main_func_name <- deparse(substitute(calculate_function))
+            log_file_name <- sprintf("parallel_log_%s.txt", main_func_name)
+
+            loop_function <- function(calc_func, ...) {
+                get_data_from_loop_parallel(calc_func, ..., log_to_file = ENABLE_FILE_LOGGING, log_file = log_file_name)
+            }
         } else {
-            # Function doesn't support parallel parameter, call as-is
-            data <- calculate_function()
+            loop_function <- get_data_from_loop
         }
+
+        # Pass the loop function to the calculation function
+        data <- calculate_function(loop_function)
+
         saveRDS(data, filePath)
     }
     return(data)

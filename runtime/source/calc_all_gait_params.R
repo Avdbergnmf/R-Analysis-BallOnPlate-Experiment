@@ -108,14 +108,9 @@ calculate_gait_parameters <- function(participant, trialNum) {
 }
 
 #' Calculate gait parameters for all participants and trials
-#' @param parallel Whether to use parallel processing (default TRUE)
+#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
 #' @return Tibble with gait parameters for all combinations
-calc_all_gait_params <- function(parallel = TRUE) {
+calc_all_gait_params <- function(loop_function) {
   # Ensure heavy data is initialized in main session
-  ensure_global_data_initialized()
-  if (parallel) {
-    return(get_data_from_loop_parallel(calculate_gait_parameters, log_to_file = ENABLE_FILE_LOGGING))
-  } else {
-    return(get_data_from_loop(calculate_gait_parameters))
-  }
+  return(loop_function(calculate_gait_parameters))
 }

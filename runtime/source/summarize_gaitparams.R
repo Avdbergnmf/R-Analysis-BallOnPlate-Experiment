@@ -154,14 +154,22 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
 #' @param debug Logical, whether to print informative messages (default FALSE)
 #' @return Filtered dataset
 filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data", debug = FALSE) {
+  # Handle empty or NULL input data
+  if (is.null(data_to_filter) || nrow(data_to_filter) == 0) {
+    if (debug) {
+      message(sprintf("No %s data to filter", data_type_name))
+    }
+    return(data_to_filter)
+  }
+
   # Get unique participant/trial combinations from gait data
   gait_combinations <- mu_gait %>%
-    select(participant, trialNum) %>%
-    distinct()
+    dplyr::select(participant, trialNum) %>%
+    dplyr::distinct()
 
   # Filter the dataset to only keep matching combinations
   filtered_data <- data_to_filter %>%
-    semi_join(gait_combinations, by = c("participant", "trialNum"))
+    dplyr::semi_join(gait_combinations, by = c("participant", "trialNum"))
 
   # Provide informative feedback only if debug is enabled
   if (debug) {
@@ -196,8 +204,8 @@ merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
   if ("answer_type" %in% colnames(q_results_copy)) {
     # Create trial mapping for questionnaire results
     q_results_mapped <- q_results_copy %>%
-      mutate(
-        trialNum = case_when(
+      dplyr::mutate(
+        trialNum = dplyr::case_when(
           answer_type == "baseline_task" ~ 5,
           answer_type == "retention" ~ 10,
           answer_type == "training2" ~ 8,
@@ -205,7 +213,7 @@ merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
           TRUE ~ NA_real_
         )
       ) %>%
-      filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
+      dplyr::filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
 
     # Convert trialNum to numeric in both datasets to ensure compatibility
     mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
@@ -228,11 +236,11 @@ merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
       } else {
         # If no trialNum, filter by participant only
         gait_participants <- mu_gait_copy %>%
-          select(participant) %>%
-          distinct()
+          dplyr::select(participant) %>%
+          dplyr::distinct()
 
         q_results_filtered <- q_results_copy %>%
-          semi_join(gait_participants, by = "participant")
+          dplyr::semi_join(gait_participants, by = "participant")
 
         if (debug) {
           message(sprintf(
@@ -286,7 +294,7 @@ summarize_across_conditions <- function(data) {
 
       # Add condition column based on trial numbers
       data <- data %>%
-        mutate(trial_condition = case_when(
+        dplyr::mutate(trial_condition = dplyr::case_when(
           trialNum %in% c(2, 3) ~ "condition_1",
           trialNum %in% c(5, 6) ~ "condition_2"
         ))

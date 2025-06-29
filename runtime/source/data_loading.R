@@ -140,15 +140,18 @@ calculate_participant_details <- function(participants) {
 
 # does the trial have VFD
 has_perturbations <- function(participant, trial) {
-  return(get_p_results(participant, "perturbations", trial) == "True")
+  result <- get_p_results(participant, "perturbations", trial)
+  return(result == "True" || result == TRUE || result == "true")
 }
 
 has_visualizations <- function(participant, trial) {
-  return(get_p_results(participant, "visualizations", trial) == "True")
+  result <- get_p_results(participant, "visualizations", trial)
+  return(result == "True" || result == TRUE || result == "true")
 }
 
 has_task <- function(participant, trial) {
-  return(get_p_results(participant, "task", trial) == "True")
+  result <- get_p_results(participant, "task", trial)
+  return(result == "True" || result == TRUE || result == "true")
 }
 
 condition_number <- function(participant) {

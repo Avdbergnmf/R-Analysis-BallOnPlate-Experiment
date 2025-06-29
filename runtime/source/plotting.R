@@ -1,4 +1,25 @@
 ### Layout helpers
+
+#' Convert condition names to prettier labels for plotting
+#' @param conditions Vector of condition names
+#' @return Vector of pretty condition labels
+get_pretty_condition_labels <- function(conditions) {
+  # Create a mapping from long names to short labels
+  condition_map <- c(
+    "baseline" = "B",
+    "perturbation" = "P",
+    "perturbation_visualization" = "PV"
+  )
+
+  # Apply the mapping, keeping original names if not found in map
+  pretty_labels <- ifelse(conditions %in% names(condition_map),
+    condition_map[conditions],
+    conditions
+  )
+
+  return(pretty_labels)
+}
+
 get_sized_theme <- function(baseSize) {
   return(theme(
     axis.title = element_text(size = baseSize * 2),
@@ -242,6 +263,9 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
   }
   data <- data[, c("participant", "answer_type", "condition", cols_to_include), drop = FALSE]
 
+  # Convert condition names to pretty labels
+  data$condition <- get_pretty_condition_labels(data$condition)
+
   # Reshape the data to long format for ggplot
   data_long <- reshape2::melt(data, id.vars = c("participant", "answer_type", "condition"))
 
@@ -309,6 +333,8 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
       values_to = "value"
     )
 
+  data_long$condition <- get_pretty_condition_labels(data_long$condition)
+
   # Create a combined x-axis variable
   data_long$xaxis_combined <- apply(data_long[, xaxis], 1, paste, collapse = "_")
 
@@ -353,6 +379,8 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
       names_to = "variable",
       values_to = "value"
     )
+
+  data_long$condition <- get_pretty_condition_labels(data_long$condition)
 
   if (is.null(color_var) || color_var == "None") { #
     aesString <- aes_string()

@@ -12,6 +12,10 @@ runtime: shinyrmd
 # to reset:
 # Kill ALL R processes (including your current session - use with caution!)
 # system("pkill -f '^R$|Rterm|rsession'")
+# Kill all background R processes
+#system("pkill -f 'R --slave'", wait = FALSE)
+#system("pkill -f 'Rscript'", wait = FALSE)
+#system("pkill -f 'parallel'", wait = FALSE)
 
 rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
 

@@ -15,6 +15,11 @@ filteredParams <- reactive({
   # Force dependency on `refresh_trigger()`
   refresh_trigger()
 
+  # Check if allGaitParams exists and has data
+  if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
+    return(data.frame()) # Return empty dataframe if no data available
+  }
+
   # Initialize data.table version if needed
   init_gait_data_table()
 
@@ -32,17 +37,29 @@ filteredParams <- reactive({
 })
 
 get_mu_dyn_long <- reactive({
+  # Check if required global data objects are available
+  if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
+    return(NULL)
+  }
+
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
   if (input$do_slicing) {
-    mu_gait <- get_full_mu_sliced(filteredParams(), allQResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+    # Ensure allQResults exists for sliced version
+    qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
+    mu_gait <- get_full_mu_sliced(filteredParams(), qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
   } else {
     mu_gait <- get_full_mu(filteredParams(), categories, input$avg_feet, input$add_diff)
   }
 
-  # These are all automaticallyfiltered based on gait data availability
-  mu <- merge_mu_with_questionnaire(mu_gait, allQResults)
-  mu <- merge_mu_with_task(mu, allTaskMetrics)
-  mu <- merge_mu_with_complexity(mu, allComplexityMetrics)
+  # These are all automatically filtered based on gait data availability
+  # Use safe versions that handle NULL/missing data
+  qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
+  taskResults <- if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) allTaskMetrics else data.frame()
+  complexityResults <- if (exists("allComplexityMetrics") && !is.null(allComplexityMetrics)) allComplexityMetrics else data.frame()
+
+  mu <- merge_mu_with_questionnaire(mu_gait, qResults)
+  mu <- merge_mu_with_task(mu, taskResults)
+  mu <- merge_mu_with_complexity(mu, complexityResults)
 
   return(mu)
 })

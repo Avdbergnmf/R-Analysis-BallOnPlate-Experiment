@@ -16,7 +16,10 @@ compute_scores <- function(pnum, qType) {
 
   # Mirror the scores if needed
   for (column in qAnswers) {
-    combined[[column]] <- ifelse(combined$mirror,
+    # Ensure mirror column is properly converted to logical
+    mirror_logical <- combined$mirror == "true" | combined$mirror == TRUE | combined$mirror == "True"
+
+    combined[[column]] <- ifelse(mirror_logical,
       max_score + min_score - combined[[column]],
       combined[[column]]
     )
@@ -93,7 +96,9 @@ calculate_all_scores <- function(qType) {
   return(allScores)
 }
 
-get_all_questionnaire_results <- function(parallel = TRUE) {
+get_all_questionnaire_results <- function(loop_function) {
+  # Note: This function doesn't use loop_function as it processes questionnaire data directly
+  # The parameter is kept for consistency with other calculation functions
   all_questionnaires <- c("IMI", "UserExperience")
 
   # Calculate scores for all questionnaires
