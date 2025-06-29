@@ -40,16 +40,10 @@ calculate_gait_parameters <- function(participant, trialNum) {
   heelStrikesData <- gaitData$heelStrikes # should already be sorted based on time
   toeOffsData <- gaitData$toeOffs
 
-  relHeelStrikesData <- gaitData$heelStrikes
-  # Apply diff and padding to each numeric column
-  relHeelStrikesData[] <- lapply(relHeelStrikesData, function(column) {
-    if (is.numeric(column)) {
-      # Calculate differences and pad with a leading zero
-      c(0, diff(column))
-    } else {
-      column # Return non-numeric columns unchanged
-    }
-  })
+  relHeelStrikesData <- gaitData$heelStrikes %>%
+    dplyr::group_by(foot) %>%
+    dplyr::mutate(across(where(is.numeric), ~ c(0, diff(.x)))) %>%
+    dplyr::ungroup()
 
   diffData <- add_diff_per_foot(relHeelStrikesData)
 
