@@ -31,6 +31,19 @@ initialize_global_parameters <- function() {
     # trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
 
     # =============================================================================
+    # PERFORMANCE CONFIGURATION
+    # =============================================================================
+    # Parallel processing control
+    USE_PARALLEL <<- TRUE # Enable/disable parallel processing for expensive operations
+    ENABLE_FILE_LOGGING <<- TRUE # Enable/disable parallel process logging to files
+
+    # Cache control
+    FORCE_RECALC <<- FALSE # Set to TRUE to ignore cached RDS files and recompute datasets
+
+    # Signal filtering control
+    USE_CONTINUOUS_FILTERING <<- TRUE # Enable/disable 4Hz low-pass filter on continuous data before complexity calculation
+
+    # =============================================================================
     # DATA ANALYSIS CONFIGURATION
     # =============================================================================
     # Column options for data analysis
