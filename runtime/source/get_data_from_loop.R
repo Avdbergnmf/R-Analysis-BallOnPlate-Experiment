@@ -32,8 +32,8 @@ getTypes <- function(dt) {
 #' # You can still override the global setting if needed
 #' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
 #'
-load_or_calculate <- function(filePath, calculate_function, parallel = USE_PARALLEL) {
-    if (file.exists(filePath)) {
+load_or_calculate <- function(filePath, calculate_function, parallel = USE_PARALLEL, force_recalc = FORCE_RECALC) {
+    if (!force_recalc && file.exists(filePath)) {
         data <- readRDS(filePath)
     } else {
         # Choose the appropriate loop function based on parallel setting

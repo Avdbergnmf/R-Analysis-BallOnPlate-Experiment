@@ -34,6 +34,16 @@ USE_PARALLEL <- TRUE
 ENABLE_FILE_LOGGING <- TRUE
 # =============================================================================
 
+# =============================================================================
+# FORCE RECALCULATION CONTROL
+# =============================================================================
+# Set to TRUE to ignore existing cached RDS files and recompute datasets
+# each time the pipeline runs. Useful after code changes or when you suspect
+# the caches are stale. Set to FALSE to use cached results when available
+# for faster startup.
+FORCE_RECALC <- FALSE
+# =============================================================================
+
 source('source/setup.R')
 source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
@@ -65,7 +75,7 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Load or calculate the data using the global parallel setting
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
-allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params)
+allGaitParams <- load_or_calculate(agpFile, calc_all_gait_params, force_recalc = TRUE)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
