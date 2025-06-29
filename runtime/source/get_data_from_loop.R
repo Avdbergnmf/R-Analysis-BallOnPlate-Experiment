@@ -107,17 +107,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
-    # Source all scripts once before parallel execution for efficiency
-    source("source/setup.R", local = FALSE)
-    source("source/data_loading.R", local = FALSE)
-    source("source/pre_processing.R", local = FALSE)
-    source("source/find_foot_events.R", local = FALSE)
-    source("source/calc_all_gait_params.R", local = FALSE)
-    source("source/profile_shapes.R", local = FALSE)
-    source("source/simulation_core.R", local = FALSE)
-    source("source/get_simulation_data.R", local = FALSE)
-    source("source/summarize_simulation.R", local = FALSE)
-    source("source/summarize_gaitparams.R", local = FALSE)
+    # Load packages once on each worker
+    clusterEvalQ(cl, {
+        source("source/setup.R", local = FALSE)
+    })
 
     # Export necessary variables and functions to the cluster - improved exports for efficiency
     clusterExport(cl, c(
@@ -126,9 +119,8 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         "trackers", "filenameDict", "categories"
     ), envir = environment())
 
-    # Export all sourced functions to cluster
+    # Source only essential functions on each worker (in dependency order)
     clusterEvalQ(cl, {
-        source("source/setup.R", local = FALSE)
         source("source/data_loading.R", local = FALSE)
         source("source/pre_processing.R", local = FALSE)
         source("source/find_foot_events.R", local = FALSE)
@@ -143,20 +135,58 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Use list building instead of .combine = rbind for much better performance
     data_list <- foreach(
         i = 1:nrow(valid_combinations),
-        .packages = c("data.table")
+        .packages = c("data.table", "dplyr", "pracma", "signal", "zoo")
     ) %dopar% {
-        # Extract participant and trial for this iteration
-        participant <- valid_combinations$participant[i]
-        trial <- valid_combinations$trial[i]
+        tryCatch(
+            {
+                # Extract participant and trial for this iteration
+                participant <- valid_combinations$participant[i]
+                trial <- valid_combinations$trial[i]
 
-        # Calculate gait data and parameters with optional arguments
-        newData <- get_data_function(participant, trial, ...)
-        newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
-        newData # Return the new data frame
+                # Calculate gait data and parameters with optional arguments
+                newData <- get_data_function(participant, trial, ...)
+                newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
+                newData # Return the new data frame
+            },
+            error = function(e) {
+                # Return detailed error information
+                list(
+                    error = TRUE,
+                    message = e$message,
+                    participant = if (exists("participant")) participant else "unknown",
+                    trial = if (exists("trial")) trial else "unknown",
+                    call = as.character(e$call)
+                )
+            }
+        )
     }
 
     # Stop the cluster
     stopCluster(cl)
+
+    # Check for errors in the results
+    error_results <- sapply(data_list, function(x) is.list(x) && !is.null(x$error) && x$error)
+    if (any(error_results)) {
+        error_indices <- which(error_results)
+        cat("Errors occurred in parallel processing:\n")
+        for (idx in error_indices) {
+            error_info <- data_list[[idx]]
+            cat(sprintf(
+                "  Task %d (Participant: %s, Trial: %s): %s\n",
+                idx, error_info$participant, error_info$trial, error_info$message
+            ))
+            if (!is.null(error_info$call)) {
+                cat(sprintf("    Call: %s\n", error_info$call))
+            }
+        }
+        # Remove error results from data_list
+        data_list <- data_list[!error_results]
+    }
+
+    if (length(data_list) == 0) {
+        warning("No data was successfully processed from the valid combinations.")
+        return(data.frame())
+    }
 
     # Combine the list of data frames efficiently using rbindlist instead of rbind
     data <- data.table::rbindlist(data_list, fill = TRUE)
