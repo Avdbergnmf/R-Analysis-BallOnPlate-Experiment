@@ -344,7 +344,7 @@ get_trial_duration <- function(trialNum) {
     "4" = 120, # familiarisation_stand - 2 minutes
     "5" = 300, # baseline_task - 5 minutes
     "6" = 120, # familiarisation_training - 2 minutes
-    "7" = 300, # training1 - 5 minutes
+    "7" = 600, # training1 - 5 minutes
     "8" = 600, # training2 - 10 minutes
     "9" = 300, # washout - 5 minutes
     "10" = 300, # retention - 5 minutes
