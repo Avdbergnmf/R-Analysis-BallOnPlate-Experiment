@@ -196,3 +196,98 @@ Simulation Data {data-icon="fa-gamepad"}
 =====================================
 ```{r, child='pages/page17_simulationData.Rmd'}
 ```
+
+```{js}
+// Last visited page persistence for flexdashboard
+$(function() {
+  // Check if localStorage is available
+  function isLocalStorageAvailable() {
+    try {
+      const test = '__localStorage_test__';
+      localStorage.setItem(test, test);
+      localStorage.removeItem(test);
+      return true;
+    } catch(e) {
+      return false;
+    }
+  }
+  
+  if (!isLocalStorageAvailable()) {
+    console.log('localStorage not available - page persistence disabled');
+    return;
+  }
+  
+  // Function to restore last visited page
+  function restoreLastPage() {
+    try {
+      const savedHash = localStorage.getItem('lastVisitedPage');
+      console.log('Attempting to restore page:', savedHash);
+      
+      if (savedHash && savedHash !== '#') {
+        // Find the tab link for the saved hash
+        const targetLink = document.querySelector('a[href="' + savedHash + '"]');
+        
+        if (targetLink) {
+          console.log('Found target link, clicking to navigate to:', savedHash);
+          // Trigger a click on the tab to properly activate flexdashboard navigation
+          targetLink.click();
+        } else {
+          console.log('Saved page not found, clearing:', savedHash);
+          localStorage.removeItem('lastVisitedPage');
+        }
+      } else {
+        console.log('No saved page found or empty hash');
+      }
+    } catch(e) {
+      console.error('Error restoring last page:', e);
+    }
+  }
+  
+  // Function to save current page
+  function saveCurrentPage() {
+    try {
+      const currentHash = window.location.hash;
+      if (currentHash && currentHash !== '#') {
+        localStorage.setItem('lastVisitedPage', currentHash);
+        console.log('Saved current page:', currentHash);
+      }
+    } catch(e) {
+      console.error('Error saving current page:', e);
+    }
+  }
+  
+  // Function to wait for flexdashboard to be fully loaded
+  function waitForFlexdashboard(callback, maxAttempts = 10, attempt = 1) {
+    // Check if flexdashboard navigation is ready
+    const navLinks = document.querySelectorAll('.navbar-nav a[href^="#"]');
+    
+    if (navLinks.length > 0) {
+      console.log('Flexdashboard navigation ready, found', navLinks.length, 'nav links');
+      callback();
+    } else if (attempt < maxAttempts) {
+      console.log('Flexdashboard not ready, attempt', attempt, 'of', maxAttempts);
+      setTimeout(() => waitForFlexdashboard(callback, maxAttempts, attempt + 1), 200);
+    } else {
+      console.log('Flexdashboard navigation not found after', maxAttempts, 'attempts');
+      // Try anyway as fallback
+      callback();
+    }
+  }
+  
+  // Wait for flexdashboard to be fully loaded, then restore page
+  waitForFlexdashboard(restoreLastPage);
+  
+  // Track hash changes to save current page
+  $(window).on('hashchange', function() {
+    saveCurrentPage();
+  });
+  
+  // Also track clicks on navigation links
+  $(document).on('click', '.navbar-nav a[href^="#"]', function() {
+    setTimeout(saveCurrentPage, 100); // Small delay to ensure hash is updated
+  });
+  
+  // Save initial page after everything is loaded
+  setTimeout(saveCurrentPage, 2000);
+});
+```
