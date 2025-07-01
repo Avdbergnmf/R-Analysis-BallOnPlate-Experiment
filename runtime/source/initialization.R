@@ -140,47 +140,48 @@ initialize_global_data <- function() {
             rm(filenameDict_raw)
             gc()
 
-            # Load outlier data
+            # Load outlier data (separate step and heel-strike files)
             cat(sprintf("[%s] Loading outlier data...\n", format(Sys.time(), "%H:%M:%S")))
             tryCatch(
                 {
-                    outlier_file_path <- file.path(dataExtraFolder, "outliers.csv")
-                    if (file.exists(outlier_file_path)) {
-                        outliers_data <<- data.table::fread(outlier_file_path,
-                            stringsAsFactors = FALSE,
-                            verbose = FALSE
+                    step_file <- file.path(dataExtraFolder, "outliers_steps.csv")
+                    heel_file <- file.path(dataExtraFolder, "outliers_heelstrikes.csv")
+
+                    if (file.exists(step_file)) {
+                        outliers_steps_data <<- data.table::fread(step_file,
+                            stringsAsFactors = FALSE, verbose = FALSE
                         )
-
-                        # Handle backward compatibility: add action column if missing
-                        if (!"action" %in% colnames(outliers_data)) {
-                            outliers_data$action <<- "KILL" # Default to KILL for existing outliers
-                            cat(sprintf(
-                                "[%s] Added default action 'KILL' to %d existing outlier entries\n",
-                                format(Sys.time(), "%H:%M:%S"), nrow(outliers_data)
-                            ))
-                        }
-
-                        # Convert to data.table for efficient lookups
-                        data.table::setkey(outliers_data, participant, trialNum, time)
-                        cat(sprintf(
-                            "[%s] Loaded %d outlier entries\n",
-                            format(Sys.time(), "%H:%M:%S"), nrow(outliers_data)
-                        ))
                     } else {
-                        warning("Outliers file not found: ", outlier_file_path)
-                        outliers_data <<- data.frame(
-                            participant = character(0),
-                            trialNum = numeric(0),
-                            time = numeric(0)
+                        outliers_steps_data <<- data.frame(
+                            participant = character(0), trialNum = numeric(0), time = numeric(0)
                         )
                     }
+
+                    if (file.exists(heel_file)) {
+                        outliers_heel_data <<- data.table::fread(heel_file,
+                            stringsAsFactors = FALSE, verbose = FALSE
+                        )
+                    } else {
+                        outliers_heel_data <<- data.frame(
+                            participant = character(0), trialNum = numeric(0), time = numeric(0)
+                        )
+                    }
+
+                    data.table::setkey(outliers_steps_data, participant, trialNum, time)
+                    data.table::setkey(outliers_heel_data, participant, trialNum, time)
+
+                    cat(sprintf(
+                        "[%s] Loaded %d step outliers and %d heel-strike outliers\n",
+                        format(Sys.time(), "%H:%M:%S"), nrow(outliers_steps_data), nrow(outliers_heel_data)
+                    ))
                 },
                 error = function(e) {
                     warning("Could not load outlier data: ", e$message)
-                    outliers_data <<- data.frame(
-                        participant = character(0),
-                        trialNum = numeric(0),
-                        time = numeric(0)
+                    outliers_steps_data <<- data.frame(
+                        participant = character(0), trialNum = numeric(0), time = numeric(0)
+                    )
+                    outliers_heel_data <<- data.frame(
+                        participant = character(0), trialNum = numeric(0), time = numeric(0)
                     )
                 }
             )
@@ -263,7 +264,8 @@ ensure_global_data_initialized <- function() {
     if (!exists("participants", envir = .GlobalEnv) ||
         !exists("filenameDict", envir = .GlobalEnv) ||
         !exists("rotations_data", envir = .GlobalEnv) ||
-        !exists("outliers_data", envir = .GlobalEnv) ||
+        !exists("outliers_steps_data", envir = .GlobalEnv) ||
+        !exists("outliers_heel_data", envir = .GlobalEnv) ||
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
