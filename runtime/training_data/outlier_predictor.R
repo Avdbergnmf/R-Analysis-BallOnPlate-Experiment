@@ -6,7 +6,8 @@
 train_files <- c(
   "allGaitParams-2024-11-28.rds",
   "allGaitParams-2025-06-29_P125.rds",
-  "allGaitParams-2025-06-29_P101.rds"
+  "allGaitParams-2025-06-29_P101.rds",
+  "allGaitParams-2025-07-01_P124.rds"
 )
 new_files <- c("allGaitParams.rds") # add more if you like
 ## -------------------------------------------------------------------------- ##
