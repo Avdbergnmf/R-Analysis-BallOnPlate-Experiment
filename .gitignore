@@ -11,3 +11,5 @@ runtime/results/
 
 runtime/.Rhistory
 runtime/Rplots.pdf
+runtime/training_data/heelstrike_outlier_model.rds
+runtime/training_data/step_outlier_model.rds
