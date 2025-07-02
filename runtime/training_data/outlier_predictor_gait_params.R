@@ -12,11 +12,19 @@
 # FORCE RETRAIN - Set to TRUE to force training even if model exists
 FORCE_RETRAIN <- TRUE # Suggested: FALSE for faster execution, TRUE for fresh models
 
+# EXECUTION CONTROL - Enable/disable specific detection tasks
+DO_HEELSTRIKES <- TRUE # Set to FALSE to skip false heel strike detection
+DO_OUTLIERS <- TRUE # Set to FALSE to skip outlier detection
+
 # NEIGHBOR FEATURES - Number of neighboring heel strikes to include as features
 NEIGHBOR_K <- 3 # Suggested: 2-3 (higher = more context but slower training)
 
 # PREDICTION THRESHOLD - Probability threshold for classifying outliers
 PRED_THRESHOLD <- 0.5 # Suggested: 0.5 (lower = more sensitive, higher = more conservative)
+
+# SEPARATE THRESHOLDS for different models due to class imbalance differences
+HEELSTRIKE_THRESHOLD <- 0.5 # False heel strikes: 2.7% minority class
+STEP_THRESHOLD <- 0.1 # Step outliers: 0.5% minority class - much more sensitive threshold needed
 
 # TRAINING SPLIT - Proportion of data used for training (rest for testing)
 TRAIN_SPLIT <- 1.0 # Reduced from 0.75 to have more test data
@@ -315,8 +323,8 @@ train_models_parallel <- function(train_files, outliers_data, updated_heelstrike
     message("[INFO] Starting parallel model training...")
 
     # Create configurations
-    heelstrike_config <- create_model_config("heelstrike")
-    step_config <- create_model_config("step")
+    heelstrike_config <- create_model_config("false_heelstrike")
+    step_config <- create_model_config("outlier")
 
     if (ENABLE_PARALLEL) {
         message("[INFO] Training models in parallel using ", PARALLEL_CORES, " cores")
@@ -341,12 +349,12 @@ train_models_parallel <- function(train_files, outliers_data, updated_heelstrike
         })
 
         # Train models in parallel
-        results <- parallel::parLapply(cl, list("heelstrike", "step"), function(model_type) {
+        results <- parallel::parLapply(cl, list("false_heelstrike", "outlier"), function(model_type) {
             # Create config inside worker
             config <- create_model_config(model_type)
 
             # Set context based on model type
-            if (model_type == "heelstrike") {
+            if (model_type == "false_heelstrike") {
                 context <- NULL
             } else {
                 # Use updated_heelstrikes if it exists, otherwise NULL
@@ -377,7 +385,7 @@ train_models_parallel <- function(train_files, outliers_data, updated_heelstrike
         heelstrike_train_df <- create_training_data_generic(train_files, outliers_data, heelstrike_config)
         heelstrike_model <- train_or_load_model(heelstrike_config, heelstrike_train_df)
         heelstrike_result <- list(
-            model_type = "heelstrike",
+            model_type = "false_heelstrike",
             config = heelstrike_config,
             model_result = heelstrike_model,
             train_df = heelstrike_train_df
@@ -387,7 +395,7 @@ train_models_parallel <- function(train_files, outliers_data, updated_heelstrike
         step_train_df <- create_training_data_generic(train_files, outliers_data, step_config, updated_heelstrikes)
         step_model <- train_or_load_model(step_config, step_train_df)
         step_result <- list(
-            model_type = "step",
+            model_type = "outlier",
             config = step_config,
             model_result = step_model,
             train_df = step_train_df
@@ -409,8 +417,11 @@ cat("FALSE HEEL STRIKE AND OUTLIER PREDICTOR\n")
 cat("========================================\n")
 cat("Configuration Settings:\n")
 cat("- Force Retrain:", FORCE_RETRAIN, "\n")
+cat("- Do Heel Strikes:", DO_HEELSTRIKES, "\n")
+cat("- Do Outliers:", DO_OUTLIERS, "\n")
 cat("- Neighbor K:", NEIGHBOR_K, "\n")
-cat("- Prediction Threshold:", PRED_THRESHOLD, "\n")
+cat("- Heel Strike Threshold:", HEELSTRIKE_THRESHOLD, "\n")
+cat("- Step Outlier Threshold:", STEP_THRESHOLD, "(lower due to severe class imbalance)\n")
 cat("- Training Split:", TRAIN_SPLIT, "\n")
 cat("- Max Features:", MAX_FEATURES, "\n")
 cat("- Feature Selection:", USE_FEATURE_SELECTION, "\n")
@@ -524,9 +535,9 @@ get_relevant_trials <- function(outliers_data) {
         stringsAsFactors = FALSE
     )
 
-    if (!is.null(outliers_data$heelstrikes) && nrow(outliers_data$heelstrikes) > 0) {
-        message("[DEBUG] Processing heel strike trials...")
-        hs_trials <- outliers_data$heelstrikes %>%
+    if (!is.null(outliers_data$false_heelstrikes) && nrow(outliers_data$false_heelstrikes) > 0) {
+        message("[DEBUG] Processing false heel strike trials...")
+        hs_trials <- outliers_data$false_heelstrikes %>%
             select(participant, trialNum) %>%
             distinct() %>%
             mutate(
@@ -535,15 +546,15 @@ get_relevant_trials <- function(outliers_data) {
                 has_heelstrike_outliers = TRUE,
                 has_step_outliers = FALSE
             )
-        message("[DEBUG] Heel strike trials: ", nrow(hs_trials), " unique trials")
+        message("[DEBUG] False heel strike trials: ", nrow(hs_trials), " unique trials")
         message("[DEBUG] HS trials columns: ", paste(names(hs_trials), collapse = ", "))
         relevant_trials <- bind_rows(relevant_trials, hs_trials)
         message("[DEBUG] Relevant trials after HS: ", nrow(relevant_trials), " rows")
     }
 
-    if (!is.null(outliers_data$steps) && nrow(outliers_data$steps) > 0) {
+    if (!is.null(outliers_data$outliers) && nrow(outliers_data$outliers) > 0) {
         message("[DEBUG] Processing step trials...")
-        step_trials <- outliers_data$steps %>%
+        step_trials <- outliers_data$outliers %>%
             select(participant, trialNum) %>%
             distinct() %>%
             mutate(
@@ -1169,8 +1180,8 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
         output_dir <- data_extra_dir
     }
 
-    # Create updated heel strike outliers file
-    updated_heelstrikes <- existing_outliers$heelstrikes
+    # Create updated heel strike outliers file - FIX: Use correct field name
+    updated_heelstrikes <- existing_outliers$false_heelstrikes
 
     if (nrow(new_heelstrike_predictions) > 0) {
         new_heelstrike_outliers <- new_heelstrike_predictions %>%
@@ -1187,8 +1198,8 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
             arrange(participant, trialNum, time)
     }
 
-    # Create updated step outliers file
-    updated_steps <- existing_outliers$steps
+    # Create updated step outliers file - FIX: Use correct field name
+    updated_steps <- existing_outliers$outliers
 
     if (!is.null(new_step_predictions) && nrow(new_step_predictions) > 0) {
         new_step_outliers <- new_step_predictions %>%
@@ -1215,17 +1226,15 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
         dir.create(output_dir, recursive = TRUE)
     }
 
-    # Save updated files with timestamp
-    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-
-    heelstrike_file <- file.path(output_dir, paste0("outliers_heelstrikes_updated_", timestamp, ".csv"))
+    # Save updated files with consistent names (overwrite previous results)
+    heelstrike_file <- file.path(output_dir, "false_heelstrikes_param.csv")
     message("[DEBUG] Creating heel strike file: ", normalizePath(heelstrike_file, mustWork = FALSE))
     message("[DEBUG] Heel strike data has ", nrow(updated_heelstrikes), " rows")
     write.csv(updated_heelstrikes, heelstrike_file, row.names = FALSE)
     message("[INFO] ✓ Updated heel strike outliers saved to: ", normalizePath(heelstrike_file))
 
     # Save step outliers file
-    steps_file <- file.path(output_dir, paste0("outliers_steps_updated_", timestamp, ".csv"))
+    steps_file <- file.path(output_dir, "outliers_param.csv")
     if (!is.null(updated_steps)) {
         message("[DEBUG] Creating steps file: ", normalizePath(steps_file, mustWork = FALSE))
         message("[DEBUG] Steps data has ", nrow(updated_steps), " rows")
@@ -1247,9 +1256,9 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
     cat("Timestamp: ", format(Sys.time()), "\n", file = summary_file, append = TRUE)
     cat("NOTE: Additional step outliers from heel strike patterns will be added at the end\n", file = summary_file, append = TRUE)
     cat("\nHEEL STRIKE OUTLIERS:\n", file = summary_file, append = TRUE)
-    cat("Original heel strike outliers: ", nrow(existing_outliers$heelstrikes), "\n", file = summary_file, append = TRUE)
-    cat("New predicted heel strike outliers: ", nrow(new_heelstrike_predictions), "\n", file = summary_file, append = TRUE)
-    cat("Total heel strike outliers: ", nrow(updated_heelstrikes), "\n", file = summary_file, append = TRUE)
+    cat("Original false heel strikes: ", nrow(existing_outliers$false_heelstrikes), "\n", file = summary_file, append = TRUE)
+    cat("New predicted false heel strikes: ", nrow(new_heelstrike_predictions), "\n", file = summary_file, append = TRUE)
+    cat("Total false heel strikes: ", nrow(updated_heelstrikes), "\n", file = summary_file, append = TRUE)
 
     cat("\nSTEP OUTLIERS (before final enhancement):\n", file = summary_file, append = TRUE)
     original_steps <- if (is.null(existing_outliers$steps)) 0 else nrow(existing_outliers$steps)
@@ -1260,7 +1269,7 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
     cat("Total step outliers (before enhancement): ", total_steps, "\n", file = summary_file, append = TRUE)
 
     if (nrow(new_heelstrike_predictions) > 0) {
-        cat("\nPredicted heel strike outliers by trial:\n", file = summary_file, append = TRUE)
+        cat("\nPredicted false heel strikes by trial:\n", file = summary_file, append = TRUE)
         hs_trial_summary <- new_heelstrike_predictions %>%
             group_by(participant, trialNum) %>%
             summarise(count = n(), .groups = "drop") %>%
@@ -1317,10 +1326,10 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
     if (nrow(heelstrike_outliers) > 0) {
         heelstrike_file <- file.path(data_extra_dir, paste0("outliers_heelstrikes_initial_", timestamp, ".csv"))
         write.csv(heelstrike_outliers, heelstrike_file, row.names = FALSE)
-        message("[INFO] ✓ Initial heel strike outliers saved to: ", normalizePath(heelstrike_file))
-        message("[INFO] Found ", nrow(heelstrike_outliers), " heel strike outliers in training data")
+        message("[INFO] ✓ Initial false heel strikes saved to: ", normalizePath(heelstrike_file))
+        message("[INFO] Found ", nrow(heelstrike_outliers), " false heel strikes in training data")
     } else {
-        message("[WARN] No heel strike outliers found in training data")
+        message("[WARN] No false heel strikes found in training data")
     }
 
     # Create empty steps file for now
@@ -1334,7 +1343,7 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
     cat("Initial Outlier Extraction Summary\n", file = summary_file)
     cat("==================================\n", file = summary_file, append = TRUE)
     cat("Timestamp: ", format(Sys.time()), "\n", file = summary_file, append = TRUE)
-    cat("Heel strike outliers extracted: ", nrow(heelstrike_outliers), "\n", file = summary_file, append = TRUE)
+    cat("False heel strikes extracted: ", nrow(heelstrike_outliers), "\n", file = summary_file, append = TRUE)
     cat("Source: Training data outlier columns\n", file = summary_file, append = TRUE)
     message("[INFO] ✓ Summary saved to: ", normalizePath(summary_file))
 
@@ -1938,6 +1947,33 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
         complete_data$pred_outlier_prob <- predictions[, "TRUE"]
         complete_data$pred_outlier <- complete_data$pred_outlier_prob > threshold
 
+        # DEBUG: Show probability distribution
+        prob_summary <- summary(complete_data$pred_outlier_prob)
+        message(
+            "[DEBUG] ", model_name, " prediction probabilities - Min: ", round(prob_summary[1], 4),
+            ", Median: ", round(prob_summary[3], 4), ", Mean: ", round(mean(complete_data$pred_outlier_prob), 4),
+            ", Max: ", round(prob_summary[6], 4)
+        )
+        message(
+            "[DEBUG] ", model_name, " predictions above threshold (", threshold, "): ",
+            sum(complete_data$pred_outlier_prob > threshold)
+        )
+
+        # Show top predictions for debugging
+        if (nrow(complete_data) > 0) {
+            top_probs <- complete_data %>%
+                arrange(desc(pred_outlier_prob)) %>%
+                head(10) %>%
+                select(participant, trialNum, pred_outlier_prob)
+            message("[DEBUG] Top 10 ", model_name, " prediction probabilities:")
+            for (i in 1:min(nrow(top_probs), 10)) {
+                message(
+                    "[DEBUG] ", i, ". P", top_probs$participant[i], " T", top_probs$trialNum[i],
+                    " prob=", round(top_probs$pred_outlier_prob[i], 4)
+                )
+            }
+        }
+
         # Keep only predicted outliers
         predicted_outliers <- complete_data %>%
             dplyr::filter(pred_outlier == TRUE) %>%
@@ -2209,27 +2245,36 @@ main <- function() {
     outlier_load_time <- Sys.time()
     message("[TIMING] Outlier data loaded in: ", round(difftime(outlier_load_time, outlier_load_start, units = "secs"), 2), " seconds")
 
-    if (is.null(outliers_data$heelstrikes)) {
-        stop("No heel strike outliers found. Please ensure outliers_heelstrikes.csv exists.")
+    if (is.null(outliers_data$false_heelstrikes)) {
+        stop("No false heel strikes found. Please ensure false_heelstrikes.csv exists.")
     }
 
-    message("[INFO] Loaded ", nrow(outliers_data$heelstrikes), " heel strike outliers")
-    if (!is.null(outliers_data$steps)) {
-        message("[INFO] Loaded ", nrow(outliers_data$steps), " existing step outliers")
+    message("[INFO] Loaded ", nrow(outliers_data$false_heelstrikes), " false heel strikes")
+    if (!is.null(outliers_data$outliers)) {
+        message("[INFO] Loaded ", nrow(outliers_data$outliers), " existing step outliers")
     }
 
-    # STEP 1: Train heel strike model only
-    heelstrike_training_start <- Sys.time()
-    message("[INFO] STEP 1: Training heel strike removal model...")
-    heelstrike_config <- create_model_config("heelstrike")
-    heelstrike_train_df <- create_training_data_generic(train_files, outliers_data, heelstrike_config)
-    heelstrike_model_result <- train_or_load_model(heelstrike_config, heelstrike_train_df)
-    heelstrike_training_time <- Sys.time()
-    message("[TIMING] Heel strike model training completed in: ", round(difftime(heelstrike_training_time, heelstrike_training_start, units = "secs"), 2), " seconds")
+    # Initialize variables
+    heelstrike_model_result <- NULL
+    step_model_result <- NULL
+    new_heelstrike_predictions <- data.frame()
+    updated_heelstrikes <- outliers_data$false_heelstrikes
+
+    # STEP 1: Train heel strike model only (if enabled)
+    if (DO_HEELSTRIKES) {
+        heelstrike_training_start <- Sys.time()
+        message("[INFO] STEP 1: Training false heel strike removal model...")
+        heelstrike_config <- create_model_config("false_heelstrike")
+        heelstrike_train_df <- create_training_data_generic(train_files, outliers_data, heelstrike_config)
+        heelstrike_model_result <- train_or_load_model(heelstrike_config, heelstrike_train_df)
+        heelstrike_training_time <- Sys.time()
+        message("[TIMING] Heel strike model training completed in: ", round(difftime(heelstrike_training_time, heelstrike_training_start, units = "secs"), 2), " seconds")
+    } else {
+        message("[INFO] STEP 1: Skipping false heel strike detection (DO_HEELSTRIKES = FALSE)")
+    }
 
     # Initialize step config for later use
-    step_config <- create_model_config("step")
-    step_model_result <- NULL
+    step_config <- create_model_config("outlier")
 
     # Check if we have training data
     if (is.null(heelstrike_model_result)) {
@@ -2248,87 +2293,96 @@ main <- function() {
         return(invisible(NULL))
     }
 
-    # STEP 2: Predict heel strike removals on rest of data
-    prediction_start <- Sys.time()
-    message("\n[INFO] STEP 2: Predicting heel strike removals on rest of data...")
-    new_heelstrike_predictions <- predict_outliers_for_model(
-        heelstrike_model_result, heelstrike_config, train_files, outliers_data
-    )
-    prediction_time <- Sys.time()
-    message("[TIMING] Heel strike prediction completed in: ", round(difftime(prediction_time, prediction_start, units = "secs"), 2), " seconds")
+    # STEP 2: Predict heel strike removals on rest of data (if enabled)
+    if (DO_HEELSTRIKES && !is.null(heelstrike_model_result)) {
+        prediction_start <- Sys.time()
+        message("\n[INFO] STEP 2: Predicting heel strike removals on rest of data...")
+        new_heelstrike_predictions <- predict_outliers_for_model(
+            heelstrike_model_result, heelstrike_config, train_files, outliers_data,
+            context_data = NULL, threshold = HEELSTRIKE_THRESHOLD
+        )
+        prediction_time <- Sys.time()
+        message("[TIMING] Heel strike prediction completed in: ", round(difftime(prediction_time, prediction_start, units = "secs"), 2), " seconds")
 
-    # Create updated heel strike outliers (including new predictions) for context
-    heelstrike_update_start <- Sys.time()
-    updated_heelstrikes <- outliers_data$heelstrikes
-    if (nrow(new_heelstrike_predictions) > 0) {
-        new_heelstrike_outliers <- new_heelstrike_predictions %>%
-            select(participant, trialNum, time) %>%
-            mutate(
-                participant = as.character(participant),
-                trialNum = as.numeric(trialNum),
-                time = as.numeric(time)
-            )
-        updated_heelstrikes <- bind_rows(updated_heelstrikes, new_heelstrike_outliers) %>%
-            distinct() %>%
-            arrange(participant, trialNum, time)
+        # Create updated heel strike outliers (including new predictions) for context
+        heelstrike_update_start <- Sys.time()
+        if (nrow(new_heelstrike_predictions) > 0) {
+            new_heelstrike_outliers <- new_heelstrike_predictions %>%
+                select(participant, trialNum, time) %>%
+                mutate(
+                    participant = as.character(participant),
+                    trialNum = as.numeric(trialNum),
+                    time = as.numeric(time)
+                )
+            updated_heelstrikes <- bind_rows(updated_heelstrikes, new_heelstrike_outliers) %>%
+                distinct() %>%
+                arrange(participant, trialNum, time)
 
-        message("[INFO] ✓ Updated heel strike outliers prepared for context (", nrow(updated_heelstrikes), " total)")
-    }
-    heelstrike_update_time <- Sys.time()
-    message("[TIMING] Heel strike outliers updated in: ", round(difftime(heelstrike_update_time, heelstrike_update_start, units = "secs"), 2), " seconds")
-
-    # STEP 3: Train step outlier model with heel strike context
-    step_training_start <- Sys.time()
-    message("\n[INFO] STEP 3: Training step outlier model with heel strike removal context...")
-
-    message("[DEBUG] Step config data_type: ", step_config$data_type)
-    message("[DEBUG] Step outliers available: ", if (is.null(outliers_data$outliers)) "NULL" else nrow(outliers_data$outliers))
-    message("[DEBUG] Updated heelstrikes available: ", if (is.null(updated_heelstrikes)) "NULL" else nrow(updated_heelstrikes))
-
-    # Create step training data with updated heel strike information
-    step_train_df <- create_training_data_generic(train_files, outliers_data, step_config, updated_heelstrikes)
-
-    if (!is.null(step_train_df) && nrow(step_train_df) > 0) {
-        message("[DEBUG] Step training data successfully created: ", nrow(step_train_df), " rows")
-        step_model_result <- train_or_load_model(step_config, step_train_df)
-        message("[INFO] ✓ Step model training completed with heel strike context")
+            message("[INFO] ✓ Updated heel strike outliers prepared for context (", nrow(updated_heelstrikes), " total)")
+        }
+        heelstrike_update_time <- Sys.time()
+        message("[TIMING] Heel strike outliers updated in: ", round(difftime(heelstrike_update_time, heelstrike_update_start, units = "secs"), 2), " seconds")
     } else {
-        message("[WARN] No step training data available - step model training skipped")
-        message("[DEBUG] Reasons step training might have failed:")
-        message("[DEBUG] - step_train_df is NULL: ", is.null(step_train_df))
-        message("[DEBUG] - step_train_df has 0 rows: ", if (!is.null(step_train_df)) nrow(step_train_df) == 0 else "N/A")
-        message("[DEBUG] - outliers_data$outliers is NULL: ", is.null(outliers_data$outliers))
-        message("[DEBUG] - outliers_data$outliers has 0 rows: ", if (!is.null(outliers_data$outliers)) nrow(outliers_data$outliers) == 0 else "N/A")
+        message("\n[INFO] STEP 2: Skipping heel strike prediction (DO_HEELSTRIKES = FALSE or no model)")
     }
 
-    step_training_time <- Sys.time()
-    message("[TIMING] Step model training completed in: ", round(difftime(step_training_time, step_training_start, units = "secs"), 2), " seconds")
-
+    # STEP 3: Train step outlier model with heel strike context (if enabled)
     new_step_predictions <- data.frame()
 
-    # STEP 4: Predict step outliers
-    step_prediction_start <- Sys.time()
-    message("\n[INFO] STEP 4: Predicting step outliers...")
+    if (DO_OUTLIERS) {
+        step_training_start <- Sys.time()
+        message("\n[INFO] STEP 3: Training step outlier model with heel strike removal context...")
 
-    if (!is.null(step_model_result)) {
-        message("[DEBUG] Step model is available, starting prediction...")
-        new_step_predictions <- predict_outliers_for_model(
-            step_model_result, step_config, train_files, outliers_data, updated_heelstrikes
-        )
-        message("[DEBUG] Step prediction returned: ", nrow(new_step_predictions), " predictions")
-        message("[INFO] ✓ Step outlier prediction completed")
+        message("[DEBUG] Step config data_type: ", step_config$data_type)
+        message("[DEBUG] Step outliers available: ", if (is.null(outliers_data$outliers)) "NULL" else nrow(outliers_data$outliers))
+        message("[DEBUG] Updated heelstrikes available: ", if (is.null(updated_heelstrikes)) "NULL" else nrow(updated_heelstrikes))
+
+        # Create step training data with updated heel strike information
+        step_train_df <- create_training_data_generic(train_files, outliers_data, step_config, updated_heelstrikes)
+
+        if (!is.null(step_train_df) && nrow(step_train_df) > 0) {
+            message("[DEBUG] Step training data successfully created: ", nrow(step_train_df), " rows")
+            step_model_result <- train_or_load_model(step_config, step_train_df)
+            message("[INFO] ✓ Step model training completed with heel strike context")
+        } else {
+            message("[WARN] No step training data available - step model training skipped")
+            message("[DEBUG] Reasons step training might have failed:")
+            message("[DEBUG] - step_train_df is NULL: ", is.null(step_train_df))
+            message("[DEBUG] - step_train_df has 0 rows: ", if (!is.null(step_train_df)) nrow(step_train_df) == 0 else "N/A")
+            message("[DEBUG] - outliers_data$outliers is NULL: ", is.null(outliers_data$outliers))
+            message("[DEBUG] - outliers_data$outliers has 0 rows: ", if (!is.null(outliers_data$outliers)) nrow(outliers_data$outliers) == 0 else "N/A")
+        }
+
+        step_training_time <- Sys.time()
+        message("[TIMING] Step model training completed in: ", round(difftime(step_training_time, step_training_start, units = "secs"), 2), " seconds")
+
+        # STEP 4: Predict step outliers
+        step_prediction_start <- Sys.time()
+        message("\n[INFO] STEP 4: Predicting step outliers...")
+
+        if (!is.null(step_model_result)) {
+            message("[DEBUG] Step model is available, starting prediction...")
+            new_step_predictions <- predict_outliers_for_model(
+                step_model_result, step_config, train_files, outliers_data,
+                context_data = updated_heelstrikes, threshold = STEP_THRESHOLD
+            )
+            message("[DEBUG] Step prediction returned: ", nrow(new_step_predictions), " predictions")
+            message("[INFO] ✓ Step outlier prediction completed")
+        } else {
+            message("[WARN] No step model available - skipping step prediction")
+            message("[DEBUG] Reasons step prediction might have failed:")
+            message("[DEBUG] - Step outliers file empty: ", is.null(outliers_data$outliers) || nrow(outliers_data$outliers) == 0)
+            message("[DEBUG] - No matching trials in training data")
+            message("[DEBUG] - Data standardization filtered out all rows")
+            message("[DEBUG] - Missing required columns in training data")
+            message("[DEBUG] - Model training failed")
+        }
+
+        step_prediction_time <- Sys.time()
+        message("[TIMING] Step prediction completed in: ", round(difftime(step_prediction_time, step_prediction_start, units = "secs"), 2), " seconds")
     } else {
-        message("[WARN] No step model available - skipping step prediction")
-        message("[DEBUG] Reasons step prediction might have failed:")
-        message("[DEBUG] - Step outliers file empty: ", is.null(outliers_data$outliers) || nrow(outliers_data$outliers) == 0)
-        message("[DEBUG] - No matching trials in training data")
-        message("[DEBUG] - Data standardization filtered out all rows")
-        message("[DEBUG] - Missing required columns in training data")
-        message("[DEBUG] - Model training failed")
+        message("\n[INFO] STEP 3 & 4: Skipping step outlier detection (DO_OUTLIERS = FALSE)")
     }
-
-    step_prediction_time <- Sys.time()
-    message("[TIMING] Step prediction completed in: ", round(difftime(step_prediction_time, step_prediction_start, units = "secs"), 2), " seconds")
 
     # Create updated outlier files with both heel strike and step predictions
     file_creation_start <- Sys.time()
@@ -2356,7 +2410,7 @@ main <- function() {
 
     # Get the current total step outliers (existing + predicted)
     current_step_outliers <- bind_rows(
-        if (!is.null(outliers_data$steps)) outliers_data$steps else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)),
+        if (!is.null(outliers_data$outliers)) outliers_data$outliers else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)),
         if (nrow(new_step_predictions) > 0) new_step_predictions %>% select(participant, trialNum, time) else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
     ) %>%
         distinct() %>%
@@ -2367,7 +2421,7 @@ main <- function() {
 
     # Generate step outliers from heel strike patterns using ALL heel strikes (original + predicted)
     all_heelstrike_outliers <- bind_rows(
-        outliers_data$heelstrikes,
+        outliers_data$false_heelstrikes,
         if (nrow(new_heelstrike_predictions) > 0) new_heelstrike_predictions %>% select(participant, trialNum, time) else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
     ) %>%
         distinct() %>%
