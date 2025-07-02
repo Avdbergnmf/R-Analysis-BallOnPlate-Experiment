@@ -439,24 +439,24 @@ cat("- Reduced training split:", TRAIN_SPLIT, "\n")
 cat("========================================\n\n")
 
 # Detect the correct paths based on directory structure
-# Check if current directory contains data_extra and training_data (workspace/runtime)
-if (file.exists("data_extra") && file.exists("training_data")) {
+# Check if current directory contains data_extra and outlier_prediction (workspace/runtime)
+if (file.exists("data_extra") && file.exists("outlier_prediction")) {
     # We're in the workspace/runtime directory
     runtime_dir <- "."
     data_extra_dir <- "data_extra"
-    training_data_dir <- "training_data"
+    outlier_prediction_dir <- "outlier_prediction"
 } else if (file.exists("runtime") && file.exists(file.path("runtime", "data_extra"))) {
     # We're in parent directory, runtime is a subdirectory
     runtime_dir <- "runtime"
     data_extra_dir <- file.path("runtime", "data_extra")
-    training_data_dir <- file.path("runtime", "training_data")
-} else if (file.exists(file.path("..", "data_extra")) && file.exists(file.path("..", "training_data"))) {
+    outlier_prediction_dir <- file.path("runtime", "outlier_prediction")
+} else if (file.exists(file.path("..", "data_extra")) && file.exists(file.path("..", "outlier_prediction"))) {
     # We're in a subdirectory of runtime
     runtime_dir <- ".."
     data_extra_dir <- file.path("..", "data_extra")
-    training_data_dir <- file.path("..", "training_data")
+    outlier_prediction_dir <- file.path("..", "outlier_prediction")
 } else {
-    stop("Could not find data_extra and training_data directories. Please ensure you're running from the correct location.")
+    stop("Could not find data_extra and outlier_prediction directories. Please ensure you're running from the correct location.")
 }
 
 # Set up file paths now that directories are defined
@@ -464,7 +464,7 @@ false_heelstrikes_path <- file.path(data_extra_dir, "false_heelstrikes.csv")
 outliers_path <- file.path(data_extra_dir, "outliers.csv")
 
 # Create models directory if it doesn't exist
-models_dir <- file.path(training_data_dir, "models")
+models_dir <- file.path(outlier_prediction_dir, "models")
 if (!dir.exists(models_dir)) {
     dir.create(models_dir, recursive = TRUE)
     message("[INFO] Created models directory: ", models_dir)
@@ -1261,7 +1261,7 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
     cat("Total false heel strikes: ", nrow(updated_heelstrikes), "\n", file = summary_file, append = TRUE)
 
     cat("\nSTEP OUTLIERS (before final enhancement):\n", file = summary_file, append = TRUE)
-    original_steps <- if (is.null(existing_outliers$steps)) 0 else nrow(existing_outliers$steps)
+    original_steps <- if (is.null(existing_outliers$outliers)) 0 else nrow(existing_outliers$outliers)
     new_steps <- if (is.null(new_step_predictions)) 0 else nrow(new_step_predictions)
     total_steps <- if (is.null(updated_steps)) 0 else nrow(updated_steps)
     cat("Original step outliers: ", original_steps, "\n", file = summary_file, append = TRUE)
@@ -1292,7 +1292,7 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
         heelstrike_file = heelstrike_file,
         steps_file = steps_file,
         summary_file = summary_file,
-        original_heelstrike_count = nrow(existing_outliers$heelstrikes),
+        original_heelstrike_count = nrow(existing_outliers$false_heelstrikes),
         predicted_heelstrike_count = nrow(new_heelstrike_predictions),
         total_heelstrike_count = nrow(updated_heelstrikes),
         original_step_count = original_steps,
@@ -1320,11 +1320,9 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
             mutate(participant = as.character(participant))
     }
 
-    # Create timestamped files
-    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-
+    # Save files with consistent names (overwrite previous results)
     if (nrow(heelstrike_outliers) > 0) {
-        heelstrike_file <- file.path(data_extra_dir, paste0("outliers_heelstrikes_initial_", timestamp, ".csv"))
+        heelstrike_file <- file.path(data_extra_dir, "false_heelstrikes_param.csv")
         write.csv(heelstrike_outliers, heelstrike_file, row.names = FALSE)
         message("[INFO] ✓ Initial false heel strikes saved to: ", normalizePath(heelstrike_file))
         message("[INFO] Found ", nrow(heelstrike_outliers), " false heel strikes in training data")
@@ -1333,7 +1331,7 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
     }
 
     # Create empty steps file for now
-    steps_file <- file.path(data_extra_dir, paste0("outliers_steps_initial_", timestamp, ".csv"))
+    steps_file <- file.path(data_extra_dir, "outliers_param.csv")
     empty_steps <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
     write.csv(empty_steps, steps_file, row.names = FALSE)
     message("[INFO] ✓ Empty step outliers file created: ", normalizePath(steps_file))
@@ -2445,10 +2443,9 @@ main <- function() {
     message("[INFO] Additional step outliers generated: ", additional_count)
     message("[INFO] Final total step outliers: ", final_count)
 
-    # Save the final enhanced step outliers
+    # Save the final enhanced step outliers with consistent name (overwrite previous results)
     if (additional_count > 0) {
-        timestamp_final <- format(Sys.time(), "%Y%m%d_%H%M%S")
-        final_steps_file <- file.path(data_extra_dir, paste0("outliers_steps_final_enhanced_", timestamp_final, ".csv"))
+        final_steps_file <- file.path(data_extra_dir, "outliers_param_enhanced.csv")
         write.csv(final_step_outliers, final_steps_file, row.names = FALSE)
         message("[INFO] ✓ Final enhanced step outliers saved to: ", normalizePath(final_steps_file))
 
