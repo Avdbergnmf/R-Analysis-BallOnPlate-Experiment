@@ -12,8 +12,8 @@
 # ============================================================================ #
 
 # EXECUTION CONTROL
-FORCE_RETRAIN <- TRUE # Suggested: FALSE for faster execution, TRUE for fresh models
-DO_HEELSTRIKES <- TRUE # Set to FALSE to skip false heel strike detection
+FORCE_RETRAIN <- FALSE # Suggested: FALSE for faster execution, TRUE for fresh models
+DO_HEELSTRIKES <- FALSE # Set to FALSE to skip false heel strike detection
 DO_OUTLIERS <- TRUE # Set to FALSE to skip outlier detection
 
 # TRAJECTORY PARAMETERS
@@ -24,6 +24,10 @@ PCA_COMPONENTS <- 10 # Number of PCA components to keep (if USE_PCA = TRUE)
 # PREDICTION THRESHOLD - Probability threshold for classifying outliers
 PRED_THRESHOLD <- 0.5 # Suggested: 0.5 (lower = more sensitive, higher = more conservative)
 
+# SEPARATE THRESHOLDS for different models due to class imbalance differences
+HEELSTRIKE_THRESHOLD <- 0.5 # False heel strikes: 2.6% minority class
+STEP_THRESHOLD <- 0.5 # Step outliers: 0.6% minority class - very low threshold needed
+
 # TRAINING SPLIT - Proportion of data used for training (rest for testing)
 TRAIN_SPLIT <- 1.0 # Use all data for training
 
@@ -32,6 +36,13 @@ RF_NTREE <- 300
 RF_NODESIZE <- 10
 RF_MAXNODES <- 50
 RF_MTRY_FRACTION <- 0.33
+
+# ONE-CLASS SVM PARAMETERS (for step outlier pattern matching)
+# These parameters are only used for the step outlier model which is now trained
+# as a novelty detector on the *outlier* trajectories themselves.
+SVM_NU <- 0.05 # Expected fraction of outliers in scan set (0.05 = 5%)
+SVM_KERNEL <- "rbfdot"
+SVM_SIGMA <- 0.1 # RBF kernel width (will be tuned automatically if NULL)
 
 # PARALLEL PROCESSING
 ENABLE_PARALLEL <- TRUE
@@ -245,10 +256,18 @@ extract_comprehensive_trajectory_features <- function(time, pos_x, pos_z) {
 
             features <- c(features, statistical_features)
 
-            # Convert to data frame
-            result <- as.data.frame(t(features), stringsAsFactors = FALSE)
-            message("[DEBUG] extract_comprehensive_trajectory_features: extracted ", ncol(result), " features")
-            return(result)
+            # Convert to data frame - ensure numeric columns
+            if (length(features) > 0) {
+                # Create a single-row data frame with proper column names
+                result <- data.frame(as.list(features), stringsAsFactors = FALSE)
+                # Ensure all columns are numeric
+                result[] <- lapply(result, function(x) as.numeric(as.character(x)))
+                message("[DEBUG] extract_comprehensive_trajectory_features: extracted ", ncol(result), " features")
+                return(result)
+            } else {
+                message("[DEBUG] extract_comprehensive_trajectory_features: no features extracted")
+                return(data.frame())
+            }
         },
         error = function(e) {
             message("[ERROR] extract_comprehensive_trajectory_features failed: ", e$message)
@@ -618,7 +637,8 @@ cat("- Trajectory Features:", paste(TRAJECTORY_FEATURES, collapse = ", "), "\n")
 cat("- Feature Types: Kinematic, Frequency, Shape, Statistical\n")
 cat("- Use PCA:", USE_PCA, "\n")
 if (USE_PCA) cat("- PCA Components:", PCA_COMPONENTS, "\n")
-cat("- Prediction Threshold:", PRED_THRESHOLD, "\n")
+cat("- Heel Strike Threshold:", HEELSTRIKE_THRESHOLD, "\n")
+cat("- Step Outlier Threshold:", STEP_THRESHOLD, "(lower due to severe class imbalance)\n")
 cat("- Training Split:", TRAIN_SPLIT, "\n")
 cat("- RF Trees:", RF_NTREE, "\n")
 cat("- RF Node Size:", RF_NODESIZE, "\n")
@@ -629,23 +649,23 @@ cat("========================================\n\n")
 
 # Detect the correct paths based on directory structure
 setup_start <- Sys.time()
-if (file.exists("data_extra") && file.exists("training_data")) {
+if (file.exists("data_extra") && file.exists("outlier_prediction")) {
     # We're in the workspace/runtime directory
     runtime_dir <- "."
     data_extra_dir <- "data_extra"
-    training_data_dir <- "training_data"
+    outlier_prediction_dir <- "outlier_prediction"
 } else if (file.exists("runtime") && file.exists(file.path("runtime", "data_extra"))) {
     # We're in parent directory, runtime is a subdirectory
     runtime_dir <- "runtime"
     data_extra_dir <- file.path("runtime", "data_extra")
-    training_data_dir <- file.path("runtime", "training_data")
-} else if (file.exists(file.path("..", "data_extra")) && file.exists(file.path("..", "training_data"))) {
+    outlier_prediction_dir <- file.path("runtime", "outlier_prediction")
+} else if (file.exists(file.path("..", "data_extra")) && file.exists(file.path("..", "outlier_prediction"))) {
     # We're in a subdirectory of runtime
     runtime_dir <- ".."
     data_extra_dir <- file.path("..", "data_extra")
-    training_data_dir <- file.path("..", "training_data")
+    outlier_prediction_dir <- file.path("..", "outlier_prediction")
 } else {
-    stop("Could not find data_extra and training_data directories. Please ensure you're running from the correct location.")
+    stop("Could not find data_extra and outlier_prediction directories. Please ensure you're running from the correct location.")
 }
 
 # Set up file paths
@@ -653,7 +673,7 @@ false_heelstrikes_path <- file.path(data_extra_dir, "false_heelstrikes.csv")
 outliers_path <- file.path(data_extra_dir, "outliers.csv")
 
 # Create models directory if it doesn't exist
-models_dir <- file.path(training_data_dir, "models")
+models_dir <- file.path(outlier_prediction_dir, "models")
 if (!dir.exists(models_dir)) {
     dir.create(models_dir, recursive = TRUE)
     message("[INFO] Created models directory: ", models_dir)
@@ -676,7 +696,7 @@ file_size <- file.size(train_files[1]) / (1024^2) # Convert to MB
 message("[INFO] ✓ File size: ", round(file_size, 2), " MB")
 
 # Source project code
-SCRIPT_DIR <- dirname(normalizePath(sys.frame(1)$ofile %||% "runtime/training_data"))
+SCRIPT_DIR <- dirname(normalizePath(sys.frame(1)$ofile %||% "runtime/outlier_prediction"))
 RUNTIME_DIR <- normalizePath(file.path(SCRIPT_DIR, ".."), winslash = "/", mustWork = FALSE)
 
 message("[DEBUG] RUNTIME_DIR: ", RUNTIME_DIR)
@@ -763,7 +783,7 @@ if (exists("load_or_calculate")) {
 }
 
 # Required packages
-required <- c("dplyr", "tidyr", "randomForest", "data.table", "parallel", "signal", "pracma")
+required <- c("dplyr", "tidyr", "randomForest", "data.table", "parallel", "signal", "pracma", "kernlab")
 new_pkgs <- required[!required %in% installed.packages()[, "Package"]]
 if (length(new_pkgs)) {
     message("[DEBUG] Installing missing packages: ", paste(new_pkgs, collapse = ", "))
@@ -866,7 +886,7 @@ create_trajectory_training_data <- function(data, config, context_data = NULL) {
         message("[DEBUG] Loading packages on parallel workers...")
         parallel::clusterEvalQ(cl, {
             # Load all required packages
-            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma")
+            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma", "kernlab")
             for (pkg in required_packages) {
                 tryCatch(
                     {
@@ -1026,8 +1046,64 @@ create_trajectory_training_data <- function(data, config, context_data = NULL) {
 
 # ========================== MODEL TRAINING ================================== #
 
+# ======================== HELPER: ONE-CLASS SVM TRAINING =================== #
+train_oneclass_svm_model <- function(train_df, config) {
+    model_training_start <- Sys.time()
+    message("[DEBUG] Starting one-class SVM training for ", config$model_name, " ...")
+
+    if (is.null(train_df) || nrow(train_df) == 0) {
+        message("[ERROR] Empty training data for one-class SVM")
+        return(NULL)
+    }
+
+    # Keep only the positive (is_outlier == TRUE) trajectories
+    pos_df <- train_df %>% dplyr::filter(is_outlier == TRUE)
+    if (nrow(pos_df) < 10) {
+        message("[ERROR] Too few positive outlier trajectories (", nrow(pos_df), ") for one-class SVM")
+        return(NULL)
+    }
+
+    # Feature columns – numeric only, excluding meta columns
+    feature_cols <- setdiff(names(pos_df), config$exclude_cols)
+    numeric_features <- feature_cols[sapply(pos_df[feature_cols], is.numeric)]
+    if (length(numeric_features) == 0) {
+        message("[ERROR] No numeric features for one-class SVM training")
+        return(NULL)
+    }
+
+    x_mat <- as.matrix(pos_df[, numeric_features, drop = FALSE])
+
+    # Train one-class SVM (kernlab)
+    svm_kernel <- if (SVM_KERNEL == "rbfdot") {
+        if (is.null(SVM_SIGMA)) kernlab::rbfdot() else kernlab::rbfdot(sigma = SVM_SIGMA)
+    } else {
+        SVM_KERNEL
+    }
+
+    svm_model <- kernlab::ksvm(x = x_mat, type = "one-svc", kernel = svm_kernel, nu = SVM_NU)
+
+    model_training_time <- Sys.time()
+    message("[INFO] ✓ one-class SVM model trained (", nrow(pos_df), " outlier trajectories)")
+    message("[TIMING] One-class SVM training completed in: ", round(difftime(model_training_time, model_training_start, units = "secs"), 2), " seconds")
+
+    list(
+        model = svm_model,
+        feature_cols = numeric_features,
+        raw_trajectory_cols = numeric_features,
+        use_oneclass = TRUE,
+        config = config,
+        training_size = nrow(pos_df)
+    )
+}
+
 # Train trajectory-based outlier model
 train_trajectory_model <- function(train_df, config) {
+    # If config$data_type == "outliers" we now use one-class SVM
+    if (config$data_type == "outliers") {
+        return(train_oneclass_svm_model(train_df, config))
+    }
+
+    # ------------------------------------ existing RF training path for heelstrike
     model_training_start <- Sys.time()
     message("[DEBUG] Starting ", config$model_name, " model training...")
 
@@ -1070,11 +1146,32 @@ train_trajectory_model <- function(train_df, config) {
     # Get feature columns - all numeric columns except those in exclude list
     feature_cols <- setdiff(names(train_df), config$exclude_cols)
 
+    message("[DEBUG] Total columns in training data: ", length(names(train_df)))
+    message("[DEBUG] Excluded columns: ", paste(config$exclude_cols, collapse = ", "))
+    message("[DEBUG] Potential feature columns: ", length(feature_cols))
+    message("[DEBUG] First 10 potential features: ", paste(head(feature_cols, 10), collapse = ", "))
+
     # Filter to only numeric features
     numeric_features <- feature_cols[sapply(train_df[feature_cols], is.numeric)]
 
+    message("[DEBUG] Numeric features found: ", length(numeric_features))
+    if (length(numeric_features) > 0) {
+        message("[DEBUG] First 10 numeric features: ", paste(head(numeric_features, 10), collapse = ", "))
+        message("[DEBUG] Column types sample: ")
+        for (i in 1:min(5, length(feature_cols))) {
+            col_name <- feature_cols[i]
+            col_type <- class(train_df[[col_name]])[1]
+            col_sample <- if (is.numeric(train_df[[col_name]])) round(mean(train_df[[col_name]], na.rm = TRUE), 3) else train_df[[col_name]][1]
+            message("[DEBUG]   ", col_name, ": ", col_type, " (sample: ", col_sample, ")")
+        }
+    }
+
     if (length(numeric_features) == 0) {
         message("[ERROR] No numeric features found for ", config$model_name, " training")
+        message("[ERROR] Available column types:")
+        for (col in feature_cols[1:min(10, length(feature_cols))]) {
+            message("[ERROR]   ", col, ": ", class(train_df[[col]])[1])
+        }
         return(NULL)
     }
 
@@ -1146,7 +1243,29 @@ train_trajectory_model <- function(train_df, config) {
     rf_training_time <- Sys.time()
     message("[TIMING] Random Forest training completed in: ", round(difftime(rf_training_time, rf_training_start, units = "secs"), 2), " seconds")
 
-    # Create model result
+    # ----------------- NEW: Determine optimal probability threshold ---------
+    threshold_start <- Sys.time()
+    optimal_threshold <- PRED_THRESHOLD # fallback
+    tryCatch(
+        {
+            oob_probs <- if (!is.null(rf$votes)) rf$votes[, "TRUE"] else NULL
+            if (!is.null(oob_probs)) {
+                truth <- train_df$is_outlier
+                roc_obj <- pROC::roc(truth, oob_probs, quiet = TRUE)
+                coords_res <- pROC::coords(roc_obj, "best", best.method = "youden")
+                # coords returns a vector; first element is threshold
+                optimal_threshold <- as.numeric(coords_res["threshold"] %||% coords_res[1])
+                message("[INFO] Optimal threshold (Youden J): ", round(optimal_threshold, 3))
+            }
+        },
+        error = function(e) {
+            message("[WARN] Could not compute optimal threshold: ", e$message)
+        }
+    )
+    threshold_time <- Sys.time()
+    message("[TIMING] Threshold optimisation completed in: ", round(difftime(threshold_time, threshold_start, units = "secs"), 2), " seconds")
+    # -----------------------------------------------------------------------
+
     model_result <- list(
         model = rf,
         feature_cols = final_features,
@@ -1155,7 +1274,8 @@ train_trajectory_model <- function(train_df, config) {
         use_pca = USE_PCA,
         config = config,
         training_size = nrow(train_df),
-        class_distribution = table(train_df$is_outlier)
+        class_distribution = table(train_df$is_outlier),
+        optimal_threshold = optimal_threshold
     )
 
     model_training_time <- Sys.time()
@@ -1217,12 +1337,24 @@ train_or_load_trajectory_model <- function(config, train_df = NULL) {
 # ========================== PREDICTION FUNCTIONS =========================== #
 
 # Predict using trajectory model
-predict_trajectories <- function(model_result, config, data, context_data = NULL, threshold = PRED_THRESHOLD) {
+predict_trajectories <- function(model_result, config, data, context_data = NULL, threshold = NULL) {
     prediction_start_time <- Sys.time()
 
     if (is.null(model_result)) {
         message("[WARN] No ", config$model_name, " model available for prediction")
         return(data.frame())
+    }
+
+    # Use model's optimal threshold if none supplied
+    if (is.null(threshold)) {
+        if (!is.null(model_result$optimal_threshold)) {
+            threshold <- model_result$optimal_threshold
+        } else if (config$data_type == "outliers") {
+            threshold <- STEP_THRESHOLD
+        } else {
+            threshold <- HEELSTRIKE_THRESHOLD
+        }
+        message("[DEBUG] Using threshold: ", round(threshold, 3))
     }
 
     message("[INFO] Predicting ", config$model_name, "...")
@@ -1265,7 +1397,7 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
         message("[DEBUG] Loading packages on parallel workers...")
         parallel::clusterEvalQ(cl, {
             # Load all required packages
-            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma")
+            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma", "kernlab")
             for (pkg in required_packages) {
                 tryCatch(
                     {
@@ -1434,7 +1566,7 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
     prediction_data <- predict_df[, available_raw_features, drop = FALSE]
 
     # Apply PCA transformation if model used PCA
-    if (model_result$use_pca && !is.null(model_result$pca_model)) {
+    if (!is.null(model_result$use_pca) && model_result$use_pca && !is.null(model_result$pca_model)) {
         message("[DEBUG] Applying PCA transformation to prediction data...")
 
         # Ensure we have complete cases for PCA
@@ -1479,11 +1611,33 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
     message("[DEBUG] Using ", ncol(prediction_data), " features for ", config$model_name, " prediction")
 
     # Make predictions
-    predictions <- predict(model_result$model, prediction_data, type = "prob")
+    if (!is.null(model_result$use_oneclass) && model_result$use_oneclass) {
+        # One-class SVM produces +1 (in class) / -1 (out)
+        svm_pred <- predict(model_result$model, as.matrix(prediction_data), type = "response")
+        predict_df$pred_outlier <- (svm_pred == 1) # TRUE if similar to known outliers (in class)
+        predict_df$pred_outlier_prob <- NA_real_ # not available for one-class SVM
 
-    # Add predictions to data
-    predict_df$pred_outlier_prob <- predictions[, "TRUE"]
-    predict_df$pred_outlier <- predict_df$pred_outlier_prob > threshold
+        # DEBUG: Show SVM predictions distribution
+        message(
+            "[DEBUG] ", config$model_name, " SVM predictions - In class (+1): ", sum(svm_pred == 1),
+            ", Out of class (-1): ", sum(svm_pred == -1)
+        )
+        message("[DEBUG] ", config$model_name, " outlier predictions: ", sum(predict_df$pred_outlier))
+    } else {
+        predictions <- predict(model_result$model, prediction_data, type = "prob")
+        predict_df$pred_outlier_prob <- predictions[, "TRUE"]
+        predict_df$pred_outlier <- predict_df$pred_outlier_prob > threshold
+
+        # DEBUG: Show probability distribution
+        prob_summary <- summary(predict_df$pred_outlier_prob)
+        message(
+            "[DEBUG] ", config$model_name, " prediction probabilities - Min: ", round(prob_summary["Min."], 4),
+            ", Median: ", round(prob_summary["Median"], 4),
+            ", Mean: ", round(mean(predict_df$pred_outlier_prob), 4),
+            ", Max: ", round(prob_summary["Max."], 4)
+        )
+        message("[DEBUG] ", config$model_name, " predictions above threshold (", threshold, "): ", sum(predict_df$pred_outlier))
+    }
 
     # Return predicted outliers
     predicted_outliers <- predict_df %>%
@@ -1708,6 +1862,14 @@ execute_detection <- function(data, model_type, context_data = NULL) {
     prediction_start <- Sys.time()
     message("[INFO] Predicting ", config$model_name, "...")
 
+    # Use appropriate threshold based on model type
+    prediction_threshold <- switch(model_type,
+        "false_heelstrike" = HEELSTRIKE_THRESHOLD,
+        "outlier" = STEP_THRESHOLD,
+        PRED_THRESHOLD
+    )
+
+    # message("[DEBUG] Using prediction threshold: ", prediction_threshold, " for ", config$model_name)
     new_predictions <- predict_trajectories(model_result, config, data, context_data)
 
     prediction_time <- Sys.time()
