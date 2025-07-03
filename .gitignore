@@ -13,3 +13,5 @@ runtime/.Rhistory
 runtime/Rplots.pdf
 
 runtime/outlier_prediction/models/
+runtime/data_extra/prediction_summary.txt
+runtime/data_extra/trajectory_prediction_summary.txt
