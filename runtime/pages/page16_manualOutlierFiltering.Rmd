@@ -64,7 +64,7 @@ downloadButton("export_step_outliers", "📤 Export Steps", class = "btn-seconda
 ```{r}
 HTML('<div class="section-header">✅ Apply Changes</div>')
 
-actionButton("overwrite_outliers", "⚡ Apply Outliers to Dataset", 
+actionButton("overwrite_outliers", "⚡ Overwrite All Outliers in Dataset", 
   class = "btn-success", style = "font-weight: bold;")
 
 HTML('<div class="section-header">💾 Data Management</div>')
@@ -1315,7 +1315,9 @@ observe({
   })
 })
 
-# Observer to overwrite outliers in allGaitParams
+# Observer to apply outliers to allGaitParams
+# This will PERMANENTLY remove heel strikes and mark step outliers
+# ALL previous outlier/suspect markings will be completely overwritten
 observeEvent(input$overwrite_outliers, {
   tryCatch({
     # Get current outliers for both types
@@ -1373,7 +1375,7 @@ observeEvent(input$overwrite_outliers, {
         
         if (nrow(hs_summary) > 0) {
           hs_details <- paste(hs_summary$participant_trial, "(", hs_summary$count, ")", collapse = ", ")
-          hs_impact_details <- paste0("❌ HEEL STRIKES TO REMOVE: ", total_hs_affected, " total\n   Per trial: ", hs_details, "\n\n")
+          hs_impact_details <- paste0("❌ HEEL STRIKES TO PERMANENTLY REMOVE: ", total_hs_affected, " total\n   Per trial: ", hs_details, "\n   ⚠️ These will be deleted from the dataset!\n\n")
         }
       }
     }
@@ -1431,8 +1433,13 @@ observeEvent(input$overwrite_outliers, {
       "OUTLIER APPLICATION CONFIRMATION\n\n",
       hs_impact_details,
       step_impact_details,
-      "⚠️  This will modify your dataset. Are you sure you want to proceed?\n\n",
-      "Click OK to apply these changes or Cancel to abort."
+      "⚠️  PERMANENT CHANGES TO DATASET:\n",
+      "• Heel strikes will be PERMANENTLY DELETED from allGaitParams\n",
+      "• Step outliers will be marked for exclusion in analysis\n",
+      "• ALL existing outlier/suspect markings will be OVERWRITTEN\n",
+      "• This replaces any previous automatic outlier detection\n\n",
+      "Are you sure you want to proceed?\n\n",
+      "Click 'Apply Changes' to confirm or 'Cancel' to abort."
     )
     
     # Show confirmation dialog
@@ -1469,15 +1476,9 @@ observeEvent(input$confirm_apply_outliers, {
     showNotification(paste("Applying", total_outliers, "outliers..."), 
                      type = "message", duration = 2)
     
-    # Step 1: Remove heel strikes marked for removal
-    # Initialize heelStrikeBad column if it doesn't exist
-    if (!"heelStrikeBad" %in% colnames(allGaitParams)) {
-      allGaitParams$heelStrikeBad <<- FALSE
-    } else {
-      allGaitParams$heelStrikeBad <<- FALSE
-    }
+    # Step 1: Actually remove heel strikes marked for removal
+    rows_to_remove <- c()
     
-    # Mark heel strikes for removal
     if (nrow(current_hs_outliers) > 0) {
       # Filter out invalid participants
       valid_participants <- unique(allGaitParams$participant)
@@ -1496,17 +1497,46 @@ observeEvent(input$confirm_apply_outliers, {
         )
         
         if (length(matches) > 0) {
-          allGaitParams$heelStrikeBad[matches] <<- TRUE
+          rows_to_remove <- c(rows_to_remove, matches)
         }
       }
       
-      n_heel_bad <- sum(allGaitParams$heelStrikeBad, na.rm = TRUE)
-      showNotification(paste("Marked", n_heel_bad, "heel strikes for removal"), 
-                       type = "message", duration = 1)
+      # Remove duplicates
+      rows_to_remove <- unique(rows_to_remove)
+      
+      if (length(rows_to_remove) > 0) {
+        # Store removed rows count before removal
+        n_heel_removed <- length(rows_to_remove)
+        
+        # Safety check - warn if removing a large percentage of data
+        removal_percentage <- (n_heel_removed / nrow(allGaitParams)) * 100
+        if (removal_percentage > 10) {
+          showNotification(paste("WARNING: Removing", round(removal_percentage, 1), "% of all heel strikes!"), 
+                           type = "warning", duration = 3)
+        }
+        
+        # Actually remove the rows from allGaitParams
+        allGaitParams <<- allGaitParams[-rows_to_remove, ]
+        
+        # Reset row names to maintain proper indexing
+        rownames(allGaitParams) <<- NULL
+        
+        showNotification(paste("Permanently removed", n_heel_removed, "heel strikes from dataset"), 
+                         type = "message", duration = 2)
+      }
     }
     
-    # Step 2: Reset outlier steps and then mark step outliers
+    # Step 2: Reset ALL outlier-related columns and then mark step outliers
+    # This completely overwrites any previous outlier detection (automatic or manual)
     allGaitParams$outlierSteps <<- FALSE
+    
+    # Remove outlier-related columns if they exist (clean slate approach)
+    if ("heelStrikeBad" %in% colnames(allGaitParams)) {
+      allGaitParams$heelStrikeBad <<- NULL
+    }
+    if ("suspect" %in% colnames(allGaitParams)) {
+      allGaitParams$suspect <<- NULL
+    }
     
     if (nrow(current_step_outliers_data) > 0) {
       # Filter out invalid participants
@@ -1545,10 +1575,11 @@ observeEvent(input$confirm_apply_outliers, {
     
     # Show final summary
     n_outlier_steps <- sum(allGaitParams$outlierSteps, na.rm = TRUE)
-    n_heel_bad <- sum(allGaitParams$heelStrikeBad, na.rm = TRUE)
+    n_rows_removed <- length(rows_to_remove)
     
-    showNotification(paste("Outliers applied successfully:", n_outlier_steps, "steps marked,", 
-                         n_heel_bad, "heel strikes marked for removal"), 
+    showNotification(paste("Outliers applied successfully:", n_outlier_steps, "steps marked as outliers,", 
+                         n_rows_removed, "heel strikes removed from dataset.", 
+                         "All previous outlier/suspect markings have been overwritten."), 
                    type = "message", duration = 5)
                    
     # Note: Step calculation will happen automatically during analysis
