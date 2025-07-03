@@ -446,12 +446,9 @@ observeEvent(event_data("plotly_click"), {
     
     if (input$outlier_mode == "step") {
       # Step mode: find closest heel strike to mark as step outlier
-      closest_step <- trial_data %>%
-        mutate(time_diff = abs(time - clicked_time)) %>%
-        arrange(time_diff) %>%
-        slice(1)
+      closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
       
-      if (nrow(closest_step) > 0 && closest_step$time_diff <= 0.25) {
+      if (!is.null(closest_step)) {
         current_step_outliers <- step_outliers()
         current_hs_outliers <- heelstrike_outliers()
         
@@ -511,12 +508,9 @@ observeEvent(event_data("plotly_click"), {
       }
     } else {
       # Heel strike mode: find closest heel strike
-      closest_step <- trial_data %>%
-        mutate(time_diff = abs(time - clicked_time)) %>%
-        arrange(time_diff) %>%
-        slice(1)
+      closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
       
-      if (nrow(closest_step) > 0 && closest_step$time_diff <= 0.25) {
+      if (!is.null(closest_step)) {
         current_hs_outliers <- heelstrike_outliers()
         current_step_outliers <- step_outliers()
         
@@ -1461,6 +1455,38 @@ observeEvent(input$overwrite_outliers, {
   })
 })
 
+# Helper function to find closest heel strike for a given outlier
+# This replicates the logic used in plot clicking
+# Uses the user-defined tolerance (input$outlier_threshold) or defaults to 0.01 seconds
+find_closest_heel_strike <- function(outlier_time, participant, trial_num, data_source = NULL, max_distance = 0.01) {
+  # Use provided data source or default to allGaitParams
+  if (is.null(data_source)) {
+    data_source <- allGaitParams
+  }
+  
+  # Get trial data for this participant/trial
+  trial_data <- data_source %>%
+    dplyr::filter(participant == !!participant & trialNum == !!trial_num) %>%
+    dplyr::arrange(time)
+  
+  if (nrow(trial_data) == 0) {
+    return(NULL)
+  }
+  
+  # Find closest heel strike
+  closest_step <- trial_data %>%
+    dplyr::mutate(time_diff = abs(time - !!outlier_time)) %>%
+    dplyr::arrange(time_diff) %>%
+    dplyr::slice(1)
+  
+  # Only return if within acceptable distance
+  if (nrow(closest_step) > 0 && closest_step$time_diff <= max_distance) {
+    return(closest_step)
+  } else {
+    return(NULL)
+  }
+}
+
 # Handle confirmed outlier application
 observeEvent(input$confirm_apply_outliers, {
   tryCatch({
@@ -1480,29 +1506,63 @@ observeEvent(input$confirm_apply_outliers, {
     rows_to_remove <- c()
     
     if (nrow(current_hs_outliers) > 0) {
+      # Debug: Show what we're about to process
+      showNotification(paste("Processing", nrow(current_hs_outliers), "heel strike outliers with threshold", input$outlier_threshold, "seconds"), 
+                       type = "message", duration = 3)
+      
       # Filter out invalid participants
       valid_participants <- unique(allGaitParams$participant)
       current_hs_outliers <- current_hs_outliers[
         as.character(current_hs_outliers$participant) %in% as.character(valid_participants), 
       ]
       
+      # Debug: Track matches per outlier
+      total_matches <- 0
+      
       for (i in seq_len(nrow(current_hs_outliers))) {
         hs_outlier <- current_hs_outliers[i, ]
         
-        # Find matching heel strikes
-        matches <- which(
-          abs(allGaitParams$time - hs_outlier$time) <= input$outlier_threshold &
-          as.character(allGaitParams$participant) == as.character(hs_outlier$participant) &
-          as.numeric(allGaitParams$trialNum) == as.numeric(hs_outlier$trialNum)
+        # Find the closest heel strike (same logic as plot clicking)
+        closest_heel_strike <- find_closest_heel_strike(
+          hs_outlier$time, 
+          hs_outlier$participant, 
+          as.numeric(hs_outlier$trialNum),
+          data_source = NULL,
+          max_distance = input$outlier_threshold
         )
         
-        if (length(matches) > 0) {
-          rows_to_remove <- c(rows_to_remove, matches)
+        if (!is.null(closest_heel_strike)) {
+          # Find the exact row to remove using precise matching
+          exact_match <- which(
+            allGaitParams$time == closest_heel_strike$time &
+            allGaitParams$participant == closest_heel_strike$participant &
+            allGaitParams$trialNum == closest_heel_strike$trialNum
+          )
+          
+          if (length(exact_match) > 0) {
+            # Should only be one exact match
+            total_matches <- total_matches + length(exact_match)
+            rows_to_remove <- c(rows_to_remove, exact_match)
+            
+            # Debug: Show what we matched
+            showNotification(paste("Outlier at", round(hs_outlier$time, 3), 
+                                 "→ closest heel strike at", round(closest_heel_strike$time, 3), 
+                                 "(diff:", round(closest_heel_strike$time_diff, 4), "s)"), 
+                           type = "message", duration = 2)
+          }
+        } else {
+          # No close heel strike found for this outlier
+          showNotification(paste("No heel strike found near outlier at time", round(hs_outlier$time, 3)), 
+                           type = "warning", duration = 3)
         }
       }
       
       # Remove duplicates
       rows_to_remove <- unique(rows_to_remove)
+      
+      # Debug: Show final removal stats
+      showNotification(paste("Found", total_matches, "total matches,", length(rows_to_remove), "unique rows to remove"), 
+                       type = "message", duration = 3)
       
       if (length(rows_to_remove) > 0) {
         # Store removed rows count before removal
@@ -1512,7 +1572,14 @@ observeEvent(input$confirm_apply_outliers, {
         removal_percentage <- (n_heel_removed / nrow(allGaitParams)) * 100
         if (removal_percentage > 10) {
           showNotification(paste("WARNING: Removing", round(removal_percentage, 1), "% of all heel strikes!"), 
-                           type = "warning", duration = 3)
+                           type = "warning", duration = 5)
+        }
+        
+        # Safety check - abort if removing more than 50% of data
+        if (removal_percentage > 50) {
+          showNotification(paste("ABORTED: Would remove", round(removal_percentage, 1), "% of data! Check your outlier threshold and selections."), 
+                           type = "error", duration = 10)
+          return()
         }
         
         # Actually remove the rows from allGaitParams
@@ -1548,15 +1615,26 @@ observeEvent(input$confirm_apply_outliers, {
       for (i in seq_len(nrow(current_step_outliers_data))) {
         step_outlier <- current_step_outliers_data[i, ]
         
-        # Find matching heel strikes for step outliers
-        step_matches <- which(
-          abs(allGaitParams$time - step_outlier$time) <= input$outlier_threshold &
-          as.character(allGaitParams$participant) == as.character(step_outlier$participant) &
-          as.numeric(allGaitParams$trialNum) == as.numeric(step_outlier$trialNum)
+        # Find the closest heel strike (same logic as plot clicking)
+        closest_heel_strike <- find_closest_heel_strike(
+          step_outlier$time, 
+          step_outlier$participant, 
+          as.numeric(step_outlier$trialNum),
+          data_source = NULL,
+          max_distance = input$outlier_threshold
         )
         
-        if (length(step_matches) > 0) {
-          allGaitParams$outlierSteps[step_matches] <<- TRUE
+        if (!is.null(closest_heel_strike)) {
+          # Find the exact row to mark as step outlier
+          exact_match <- which(
+            allGaitParams$time == closest_heel_strike$time &
+            allGaitParams$participant == closest_heel_strike$participant &
+            allGaitParams$trialNum == closest_heel_strike$trialNum
+          )
+          
+          if (length(exact_match) > 0) {
+            allGaitParams$outlierSteps[exact_match] <<- TRUE
+          }
         }
       }
       
@@ -1613,12 +1691,9 @@ observeEvent(input$confirm_selection, {
       new_hs_outliers <- lapply(seq_len(nrow(selected_data)), function(i) {
         clicked_time <- selected_data$x[i]
         
-        closest_step <- trial_data %>%
-          mutate(time_diff = abs(time - clicked_time)) %>%
-          arrange(time_diff) %>%
-          slice(1)
+        closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
         
-        if (nrow(closest_step) > 0 && closest_step$time_diff <= 0.25) {
+        if (!is.null(closest_step)) {
           data.frame(
             participant = closest_step$participant,
             trialNum = closest_step$trialNum,

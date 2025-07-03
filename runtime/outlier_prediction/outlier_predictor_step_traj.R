@@ -12,8 +12,8 @@
 # ============================================================================ #
 
 # EXECUTION CONTROL
-FORCE_RETRAIN <- FALSE # Suggested: FALSE for faster execution, TRUE for fresh models
-DO_HEELSTRIKES <- FALSE # Set to FALSE to skip false heel strike detection
+FORCE_RETRAIN <- TRUE # Suggested: FALSE for faster execution, TRUE for fresh models
+DO_HEELSTRIKES <- TRUE # Set to FALSE to skip false heel strike detection
 DO_OUTLIERS <- TRUE # Set to FALSE to skip outlier detection
 
 # TRAJECTORY PARAMETERS
@@ -40,9 +40,13 @@ RF_MTRY_FRACTION <- 0.33
 # ONE-CLASS SVM PARAMETERS (for step outlier pattern matching)
 # These parameters are only used for the step outlier model which is now trained
 # as a novelty detector on the *outlier* trajectories themselves.
-SVM_NU <- 0.05 # Expected fraction of outliers in scan set (0.05 = 5%)
+SVM_NU <- 0.001 # Very restrictive: expect 0.1% outliers in scan set (much more conservative)
 SVM_KERNEL <- "rbfdot"
-SVM_SIGMA <- 0.1 # RBF kernel width (will be tuned automatically if NULL)
+SVM_SIGMA <- 0.01 # Tighter RBF kernel for more precise matching
+
+# OUTLIER DETECTION TUNING - Target similar ratio to original data
+# Original: 154 outliers, want at most 50% increase = ~230 total, so ~76 new max
+TARGET_OUTLIER_RATIO <- 0.01 # Target 0.6% of scanned trajectories as outliers (back to original)
 
 # PARALLEL PROCESSING
 ENABLE_PARALLEL <- TRUE
@@ -53,7 +57,43 @@ EXCLUDE_TRIALS <- c(1, 4, 6) # ignore warm-up / familiarisation trials
 
 # ========================== ADVANCED TRAJECTORY ANALYSIS ==================== #
 
-# Calculate kinematic features (velocity, acceleration, jerk)
+# NOISE FILTERING: Simple smoothing function for noisy trajectory data
+apply_trajectory_smoothing <- function(data, window_size = 3) {
+    # Apply simple moving average smoothing
+    if (length(data) < window_size) {
+        return(data)
+    }
+
+    smoothed <- data
+    half_window <- floor(window_size / 2)
+
+    for (i in (half_window + 1):(length(data) - half_window)) {
+        start_idx <- i - half_window
+        end_idx <- i + half_window
+        smoothed[i] <- mean(data[start_idx:end_idx], na.rm = TRUE)
+    }
+
+    return(smoothed)
+}
+
+# ALTERNATIVE: Exponential smoothing for trajectory data
+apply_exponential_smoothing <- function(data, alpha = 0.3) {
+    # Simple exponential smoothing to reduce noise
+    if (length(data) < 2) {
+        return(data)
+    }
+
+    smoothed <- numeric(length(data))
+    smoothed[1] <- data[1]
+
+    for (i in 2:length(data)) {
+        smoothed[i] <- alpha * data[i] + (1 - alpha) * smoothed[i - 1]
+    }
+
+    return(smoothed)
+}
+
+# OPTIMIZED: Calculate kinematic features with noise filtering
 calculate_kinematic_features <- function(time, position, feature_prefix = "") {
     if (length(time) < 3 || length(unique(position)) == 1) {
         return(setNames(rep(NA_real_, 8), paste0(feature_prefix, c(
@@ -63,11 +103,18 @@ calculate_kinematic_features <- function(time, position, feature_prefix = "") {
         ))))
     }
 
-    # Calculate derivatives
-    dt <- diff(time)
-    velocity <- diff(position) / dt
+    # NOISE FILTERING: Apply smoothing to position data before differentiation
+    # Use trajectory smoothing to reduce noise before calculating derivatives
+    position_smooth <- apply_trajectory_smoothing(position, window_size = 3)
 
-    if (length(velocity) < 2) {
+    # VECTORIZED: Calculate derivatives from smoothed data
+    dt <- diff(time)
+    velocity <- diff(position_smooth) / dt
+
+    # ADDITIONAL FILTERING: Apply smoothing to velocity (first derivative amplifies noise)
+    velocity_smooth <- apply_trajectory_smoothing(velocity, window_size = 3)
+
+    if (length(velocity_smooth) < 2) {
         return(setNames(rep(NA_real_, 8), paste0(feature_prefix, c(
             "max_velocity", "mean_velocity", "velocity_peaks",
             "max_acceleration", "acceleration_range", "mean_jerk",
@@ -75,42 +122,57 @@ calculate_kinematic_features <- function(time, position, feature_prefix = "") {
         ))))
     }
 
-    acceleration <- diff(velocity) / dt[-1]
+    # Calculate acceleration from smoothed velocity
+    acceleration <- diff(velocity_smooth) / dt[-1]
 
-    if (length(acceleration) < 2) {
+    # CRITICAL FILTERING: Apply stronger smoothing to acceleration (double differentiation = very noisy)
+    acceleration_smooth <- apply_trajectory_smoothing(acceleration, window_size = 5)
+
+    if (length(acceleration_smooth) < 2) {
         jerk <- NA_real_
         trajectory_smoothness <- NA_real_
     } else {
-        jerk <- diff(acceleration) / dt[-c(1, 2)]
-        # Trajectory smoothness (negative sum of squared jerk)
-        trajectory_smoothness <- if (length(jerk) > 0) -sum(jerk^2, na.rm = TRUE) * mean(dt, na.rm = TRUE)^5 else NA_real_
+        # Calculate jerk from smoothed acceleration
+        jerk <- diff(acceleration_smooth) / dt[-c(1, 2)]
+
+        # MAXIMUM FILTERING: Apply strongest smoothing to jerk (triple differentiation = extremely noisy)
+        jerk_smooth <- apply_trajectory_smoothing(jerk, window_size = 5)
+
+        # VECTORIZED: Trajectory smoothness calculation
+        mean_dt <- mean(dt, na.rm = TRUE)
+        trajectory_smoothness <- if (length(jerk_smooth) > 0) -sum(jerk_smooth^2, na.rm = TRUE) * mean_dt^5 else NA_real_
     }
 
-    # Count peaks (simple local maxima detection)
+    # OPTIMIZED: Vectorized peak counting function (with smoothed data)
     count_peaks <- function(x) {
         if (length(x) < 3) {
             return(0)
         }
         x_abs <- abs(x)
-        peaks <- which(diff(sign(diff(x_abs))) == -2) + 1
-        length(peaks)
+        # Vectorized peak detection: find local maxima
+        diff_signs <- diff(sign(diff(x_abs)))
+        sum(diff_signs == -2, na.rm = TRUE)
     }
 
+    # VECTORIZED: Feature calculations using smoothed derivatives
+    abs_velocity <- abs(velocity_smooth)
+    abs_acceleration <- abs(acceleration_smooth)
+
     features <- c(
-        max_velocity = max(abs(velocity), na.rm = TRUE),
-        mean_velocity = mean(abs(velocity), na.rm = TRUE),
+        max_velocity = max(abs_velocity, na.rm = TRUE),
+        mean_velocity = mean(abs_velocity, na.rm = TRUE),
         velocity_peaks = count_peaks(velocity),
-        max_acceleration = max(abs(acceleration), na.rm = TRUE),
+        max_acceleration = max(abs_acceleration, na.rm = TRUE),
         acceleration_range = diff(range(acceleration, na.rm = TRUE)),
-        mean_jerk = if (length(jerk) > 0) mean(abs(jerk), na.rm = TRUE) else NA_real_,
-        jerk_peaks = if (length(jerk) > 0) count_peaks(jerk) else 0,
+        mean_jerk = if (length(jerk_smooth) > 0) mean(abs(jerk_smooth), na.rm = TRUE) else NA_real_,
+        jerk_peaks = if (length(jerk_smooth) > 0) count_peaks(jerk_smooth) else 0,
         trajectory_smoothness = trajectory_smoothness
     )
 
     setNames(features, paste0(feature_prefix, names(features)))
 }
 
-# Calculate frequency domain features
+# OPTIMIZED: Calculate frequency domain features (vectorized)
 calculate_frequency_features <- function(time, position, feature_prefix = "") {
     if (length(time) < 8 || length(unique(position)) == 1) {
         return(setNames(rep(NA_real_, 5), paste0(feature_prefix, c(
@@ -119,20 +181,27 @@ calculate_frequency_features <- function(time, position, feature_prefix = "") {
         ))))
     }
 
-    # Interpolate to regular grid for FFT
+    # OPTIMIZED: More efficient power-of-2 calculation
     n_points <- min(256, 2^floor(log2(length(time))))
     if (n_points < 8) n_points <- 8
 
-    time_regular <- seq(min(time), max(time), length.out = n_points)
+    # VECTORIZED: Direct interpolation
+    time_range <- range(time)
+    time_regular <- seq(time_range[1], time_range[2], length.out = n_points)
     position_regular <- approx(time, position, xout = time_regular, rule = 2)$y
 
-    # Apply FFT
-    fft_result <- fft(position_regular)
+    # NOISE FILTERING: Apply light smoothing to interpolated data for better FFT
+    position_smooth <- apply_trajectory_smoothing(position_regular, window_size = 3)
+
+    # Apply FFT (centered data for better frequency analysis)
+    position_centered <- position_smooth - mean(position_smooth)
+    fft_result <- fft(position_centered)
     n_freq <- length(fft_result)
 
-    # Power spectrum (single-sided)
-    power_spectrum <- Mod(fft_result[1:(n_freq %/% 2)])^2
-    freq_bins <- seq(0, 0.5, length.out = length(power_spectrum))
+    # VECTORIZED: Power spectrum calculation (single-sided)
+    half_n <- n_freq %/% 2
+    power_spectrum <- Mod(fft_result[1:half_n])^2
+    freq_bins <- seq(0, 0.5, length.out = half_n)
 
     if (length(power_spectrum) < 2) {
         return(setNames(rep(NA_real_, 5), paste0(feature_prefix, c(
@@ -141,24 +210,27 @@ calculate_frequency_features <- function(time, position, feature_prefix = "") {
         ))))
     }
 
-    # Dominant frequency (excluding DC component)
-    dominant_idx <- which.max(power_spectrum[-1]) + 1
+    # VECTORIZED: Dominant frequency (excluding DC component)
+    power_no_dc <- power_spectrum[-1]
+    dominant_idx <- which.max(power_no_dc) + 1
     dominant_frequency <- freq_bins[dominant_idx]
 
-    # Spectral centroid
+    # VECTORIZED: Spectral centroid
     total_power <- sum(power_spectrum)
     spectral_centroid <- if (total_power > 0) sum(freq_bins * power_spectrum) / total_power else 0
 
-    # Spectral rolloff (95% of energy)
+    # VECTORIZED: Spectral rolloff (95% of energy)
     cumulative_power <- cumsum(power_spectrum)
     rolloff_threshold <- 0.95 * total_power
     rolloff_idx <- which(cumulative_power >= rolloff_threshold)[1]
-    spectral_rolloff <- if (!is.na(rolloff_idx)) freq_bins[rolloff_idx] else max(freq_bins)
+    spectral_rolloff <- if (!is.na(rolloff_idx)) freq_bins[rolloff_idx] else freq_bins[length(freq_bins)]
 
-    # Power in frequency bands
+    # VECTORIZED: Power in frequency bands
     mid_freq <- 0.25
-    low_freq_power <- sum(power_spectrum[freq_bins <= mid_freq])
-    high_freq_power <- sum(power_spectrum[freq_bins > mid_freq])
+    low_freq_mask <- freq_bins <= mid_freq
+    high_freq_mask <- freq_bins > mid_freq
+    low_freq_power <- sum(power_spectrum[low_freq_mask])
+    high_freq_power <- sum(power_spectrum[high_freq_mask])
 
     features <- c(
         dominant_frequency = dominant_frequency,
@@ -171,7 +243,7 @@ calculate_frequency_features <- function(time, position, feature_prefix = "") {
     setNames(features, paste0(feature_prefix, names(features)))
 }
 
-# Calculate shape and geometric features
+# OPTIMIZED: Calculate shape and geometric features (vectorized)
 calculate_shape_features <- function(time, pos_x, pos_z) {
     if (length(time) < 3 || length(unique(pos_x)) == 1 || length(unique(pos_z)) == 1) {
         return(setNames(rep(NA_real_, 6), c(
@@ -180,31 +252,36 @@ calculate_shape_features <- function(time, pos_x, pos_z) {
         )))
     }
 
-    # Path length
+    # VECTORIZED: Path length calculation
     dx <- diff(pos_x)
     dz <- diff(pos_z)
     segment_lengths <- sqrt(dx^2 + dz^2)
     path_length <- sum(segment_lengths, na.rm = TRUE)
 
-    # Displacement (straight-line distance)
-    displacement <- sqrt((pos_x[length(pos_x)] - pos_x[1])^2 + (pos_z[length(pos_z)] - pos_z[1])^2)
+    # VECTORIZED: Displacement (straight-line distance)
+    n <- length(pos_x)
+    displacement <- sqrt((pos_x[n] - pos_x[1])^2 + (pos_z[n] - pos_z[1])^2)
 
     # Tortuosity (path length / displacement)
     tortuosity <- if (displacement > 0) path_length / displacement else NA_real_
 
-    # Aspect ratio
-    x_range <- diff(range(pos_x, na.rm = TRUE))
-    z_range <- diff(range(pos_z, na.rm = TRUE))
+    # VECTORIZED: Range calculations
+    pos_x_range <- range(pos_x, na.rm = TRUE)
+    pos_z_range <- range(pos_z, na.rm = TRUE)
+    x_range <- diff(pos_x_range)
+    z_range <- diff(pos_z_range)
     aspect_ratio <- if (z_range > 0) x_range / z_range else NA_real_
 
-    # Trajectory area (approximate using trapezoidal rule)
-    trajectory_area <- if (length(pos_x) > 2) {
-        abs(sum(diff(pos_x) * (pos_z[-1] + pos_z[-length(pos_z)])) / 2)
+    # VECTORIZED: Trajectory area (trapezoidal rule)
+    trajectory_area <- if (n > 2) {
+        # More efficient vectorized trapezoidal calculation
+        pos_z_sum <- pos_z[-n] + pos_z[-1] # pos_z[i] + pos_z[i+1]
+        abs(sum(dx * pos_z_sum) / 2)
     } else {
         NA_real_
     }
 
-    # Convex hull area approximation (bounding box for simplicity)
+    # Convex hull area approximation (bounding box)
     convex_hull_area <- x_range * z_range
 
     c(
@@ -364,7 +441,9 @@ extract_step_trajectory <- function(participant, trial, foot, start_idx, heel_da
     return(result)
 }
 
-# Build heel strike trajectory segments for a trial
+# ========================== PERFORMANCE OPTIMIZATIONS ===================== #
+
+# Pre-allocate and vectorize trajectory extraction
 build_trial_hs_trajectories <- function(participant, trial, removed_hs_times = NULL) {
     message("[DEBUG] build_trial_hs_trajectories called for participant: ", participant, ", trial: ", trial)
     message("[DEBUG] removed_hs_times provided: ", if (is.null(removed_hs_times)) "NULL" else paste(nrow(removed_hs_times), "false heel strikes"))
@@ -380,21 +459,21 @@ build_trial_hs_trajectories <- function(participant, trial, removed_hs_times = N
     original_hs_count <- nrow(hs)
     message("[DEBUG] Original heel strikes found: ", original_hs_count)
 
-    # Filter out removed heel strikes if provided
+    # Filter out removed heel strikes if provided - VECTORIZED
     if (!is.null(removed_hs_times) && nrow(removed_hs_times) > 0) {
         message("[DEBUG] Filtering out false heel strikes...")
         removal_key <- removed_hs_times %>%
-            dplyr::filter(participant == !!participant, trialNum == !!trial) %>%
-            mutate(time_round = round(as.numeric(time), 2))
+            dplyr::filter(participant == !!participant, trialNum == !!trial)
 
         message("[DEBUG] False heel strikes to remove for this trial: ", nrow(removal_key))
 
         if (nrow(removal_key) > 0) {
             hs_before_filter <- nrow(hs)
-            hs <- hs %>%
-                mutate(time_round = round(as.numeric(time), 2)) %>%
-                anti_join(removal_key, by = "time_round") %>%
-                select(-time_round)
+            # Vectorized time matching using %in% instead of join
+            hs_times_round <- round(as.numeric(hs$time), 2)
+            removal_times_round <- round(as.numeric(removal_key$time), 2)
+            keep_mask <- !hs_times_round %in% removal_times_round
+            hs <- hs[keep_mask, ]
             hs_after_filter <- nrow(hs)
             message("[DEBUG] Heel strikes after filtering: ", hs_before_filter, " -> ", hs_after_filter, " (removed: ", hs_before_filter - hs_after_filter, ")")
         }
@@ -406,7 +485,10 @@ build_trial_hs_trajectories <- function(participant, trial, removed_hs_times = N
         return(data.frame())
     }
 
-    out <- list()
+    # Pre-allocate results list with known size
+    out <- vector("list", 2)
+    names(out) <- c("Left", "Right")
+
     for (ft in c("Left", "Right")) {
         ft_rows <- hs[hs$foot == ft, ]
         if (nrow(ft_rows) < 3) next # Need at least 3 heel strikes for trajectory
@@ -414,14 +496,22 @@ build_trial_hs_trajectories <- function(participant, trial, removed_hs_times = N
         ftDataName <- if (ft == "Left") "leftfoot" else "rightfoot"
         ftData <- pre[[ftDataName]]
 
-        # Extract trajectory for each heel strike (excluding first and last)
-        trajectories <- list()
-        for (i in 2:(nrow(ft_rows) - 1)) {
-            traj <- extract_hs_trajectory(participant, trial, ft, i, ft_rows, ftData)
+        # Pre-allocate trajectories list
+        valid_indices <- 2:(nrow(ft_rows) - 1)
+        n_trajectories <- length(valid_indices)
+        trajectories <- vector("list", n_trajectories)
+
+        # Vectorized trajectory extraction
+        for (i in seq_along(valid_indices)) {
+            idx <- valid_indices[i]
+            traj <- extract_hs_trajectory(participant, trial, ft, idx, ft_rows, ftData)
             if (!is.null(traj)) {
-                trajectories[[length(trajectories) + 1]] <- traj
+                trajectories[[i]] <- traj
             }
         }
+
+        # Remove NULL entries efficiently
+        trajectories <- trajectories[!vapply(trajectories, is.null, logical(1))]
 
         if (length(trajectories) > 0) {
             out[[ft]] <- dplyr::bind_rows(trajectories)
@@ -431,7 +521,7 @@ build_trial_hs_trajectories <- function(participant, trial, removed_hs_times = N
     dplyr::bind_rows(out)
 }
 
-# Build step trajectory segments for a trial
+# Build step trajectory segments for a trial - OPTIMIZED
 build_trial_step_trajectories <- function(participant, trial, removed_hs_times = NULL) {
     message("[DEBUG] build_trial_step_trajectories called for participant: ", participant, ", trial: ", trial)
     message("[DEBUG] removed_hs_times provided: ", if (is.null(removed_hs_times)) "NULL" else paste(nrow(removed_hs_times), "false heel strikes"))
@@ -447,21 +537,21 @@ build_trial_step_trajectories <- function(participant, trial, removed_hs_times =
     original_hs_count <- nrow(hs)
     message("[DEBUG] Original heel strikes found: ", original_hs_count)
 
-    # Filter out removed heel strikes if provided
+    # Filter out removed heel strikes if provided - VECTORIZED
     if (!is.null(removed_hs_times) && nrow(removed_hs_times) > 0) {
         message("[DEBUG] Filtering out false heel strikes...")
         removal_key <- removed_hs_times %>%
-            dplyr::filter(participant == !!participant, trialNum == !!trial) %>%
-            mutate(time_round = round(as.numeric(time), 2))
+            dplyr::filter(participant == !!participant, trialNum == !!trial)
 
         message("[DEBUG] False heel strikes to remove for this trial: ", nrow(removal_key))
 
         if (nrow(removal_key) > 0) {
             hs_before_filter <- nrow(hs)
-            hs <- hs %>%
-                mutate(time_round = round(as.numeric(time), 2)) %>%
-                anti_join(removal_key, by = "time_round") %>%
-                select(-time_round)
+            # Vectorized time matching using %in% instead of join
+            hs_times_round <- round(as.numeric(hs$time), 2)
+            removal_times_round <- round(as.numeric(removal_key$time), 2)
+            keep_mask <- !hs_times_round %in% removal_times_round
+            hs <- hs[keep_mask, ]
             hs_after_filter <- nrow(hs)
             message("[DEBUG] Heel strikes after filtering: ", hs_before_filter, " -> ", hs_after_filter, " (removed: ", hs_before_filter - hs_after_filter, ")")
         }
@@ -473,7 +563,10 @@ build_trial_step_trajectories <- function(participant, trial, removed_hs_times =
         return(data.frame())
     }
 
-    out <- list()
+    # Pre-allocate results list
+    out <- vector("list", 2)
+    names(out) <- c("Left", "Right")
+
     for (ft in c("Left", "Right")) {
         ft_rows <- hs[hs$foot == ft, ]
         if (nrow(ft_rows) < 2) next # Need at least 2 heel strikes for step
@@ -481,14 +574,20 @@ build_trial_step_trajectories <- function(participant, trial, removed_hs_times =
         ftDataName <- if (ft == "Left") "leftfoot" else "rightfoot"
         ftData <- pre[[ftDataName]]
 
-        # Extract trajectory for each step (between consecutive heel strikes)
-        trajectories <- list()
-        for (i in 1:(nrow(ft_rows) - 1)) {
+        # Pre-allocate trajectories list
+        n_steps <- nrow(ft_rows) - 1
+        trajectories <- vector("list", n_steps)
+
+        # Vectorized step trajectory extraction
+        for (i in seq_len(n_steps)) {
             traj <- extract_step_trajectory(participant, trial, ft, i, ft_rows, ftData)
             if (!is.null(traj)) {
-                trajectories[[length(trajectories) + 1]] <- traj
+                trajectories[[i]] <- traj
             }
         }
+
+        # Remove NULL entries efficiently
+        trajectories <- trajectories[!vapply(trajectories, is.null, logical(1))]
 
         if (length(trajectories) > 0) {
             out[[ft]] <- dplyr::bind_rows(trajectories)
@@ -836,144 +935,157 @@ load_outliers <- function() {
 
 
 
+# ========================== PARALLEL PROCESSING HELPERS ==================== #
+
+# Helper function to setup parallel workers (eliminates code duplication)
+setup_parallel_workers <- function(cl) {
+    # Export the entire global environment to ensure all objects are available
+    message("[DEBUG] Exporting entire global environment to parallel workers...")
+    global_vars <- ls(envir = .GlobalEnv)
+    message("[DEBUG] Exporting ", length(global_vars), " global variables")
+    parallel::clusterExport(cl, global_vars, envir = .GlobalEnv)
+
+    # Load required packages on cluster workers
+    message("[DEBUG] Loading packages on parallel workers...")
+    parallel::clusterEvalQ(cl, {
+        # Load all required packages
+        required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma", "kernlab")
+        for (pkg in required_packages) {
+            tryCatch(
+                {
+                    library(pkg, character.only = TRUE)
+                },
+                error = function(e) {
+                    message("[WARN] Worker failed to load package ", pkg, ": ", e$message)
+                }
+            )
+        }
+    })
+
+    # Source required files on each worker
+    message("[DEBUG] Sourcing files on parallel workers...")
+    parallel::clusterEvalQ(cl, {
+        # Source all required files on each worker
+        source_files <- c(
+            "initialization.R",
+            "data_loading.R",
+            "pre_processing.R",
+            "find_foot_events.R",
+            "get_data_from_loop.R"
+        )
+
+        for (source_file in source_files) {
+            source_path <- file.path(RUNTIME_DIR, "source", source_file)
+            if (file.exists(source_path)) {
+                tryCatch(
+                    {
+                        source(source_path)
+                    },
+                    error = function(e) {
+                        message("[WARN] Worker failed to source ", source_file, ": ", e$message)
+                    }
+                )
+            }
+        }
+
+        # Initialize global data environment on each worker
+        tryCatch(
+            {
+                if (exists("ensure_global_data_initialized")) {
+                    ensure_global_data_initialized()
+                }
+            },
+            error = function(e) {
+                message("[WARN] Worker failed to initialize global data: ", e$message)
+            }
+        )
+    })
+}
+
+# Helper function to create extraction wrapper (eliminates code duplication)
+create_extraction_wrapper <- function(config, context_data, operation_type = "training") {
+    function(trial_row) {
+        participant <- trial_row$participant
+        trial <- trial_row$trialNum
+
+        message(
+            "[DEBUG] ", if (operation_type == "training") "Processing" else "Predicting",
+            " trial ", participant, " trial ", trial, " (parallel)"
+        )
+        message("[DEBUG] config$requires_context: ", config$requires_context)
+        message("[DEBUG] context_data available: ", if (is.null(context_data)) "NULL" else paste(nrow(context_data), "entries"))
+
+        tryCatch(
+            {
+                if (config$requires_context) {
+                    result <- config$extract_func(participant, trial, context_data)
+                } else {
+                    result <- config$extract_func(participant, trial)
+                }
+
+                if (!is.null(result) && nrow(result) > 0) {
+                    return(result)
+                } else {
+                    return(NULL)
+                }
+            },
+            error = function(e) {
+                message(
+                    "[WARN] Error ", if (operation_type == "training") "processing" else "extracting prediction data for",
+                    " ", participant, " trial ", trial, ": ", e$message
+                )
+                return(NULL)
+            }
+        )
+    }
+}
+
 # ========================== TRAINING DATA CREATION ========================= #
 
 # Create trajectory training data
-create_trajectory_training_data <- function(data, config, context_data = NULL) {
+create_trajectory_training_data <- function(config, data, context_data = NULL) {
     training_data_start <- Sys.time()
-    message("[DEBUG] Starting ", config$model_name, " trajectory training data creation...")
+    message("[DEBUG] Creating ", config$model_name, " training data...")
 
     # Get trials with data
     relevant_trials <- get_trials_with_data(data, config$data_type)
 
     if (nrow(relevant_trials) == 0) {
-        message("[WARN] No ", config$model_name, " data found for training")
+        message("[WARN] No trials found with ", config$data_type, " data")
         return(NULL)
     }
 
-    message("[DEBUG] ", config$model_name, " training trials: ", nrow(relevant_trials))
+    message("[INFO] Found ", nrow(relevant_trials), " trials with ", config$data_type, " data")
 
-    # Extract trajectories using parallel processing
+    # Create extraction wrapper
+    extract_wrapper <- create_extraction_wrapper(config, context_data, "training")
+
+    # Start trajectory extraction timing
     trajectory_extraction_start <- Sys.time()
-    message("[INFO] Extracting ", config$model_name, " trajectories...")
 
-    # Create wrapper function for parallel execution
-    extract_wrapper <- function(row) {
-        participant <- row$participant
-        trial <- row$trialNum
-
-        if (config$requires_context) {
-            return(config$extract_func(participant, trial, context_data))
-        } else {
-            return(config$extract_func(participant, trial))
-        }
-    }
-
-    # Process trials in parallel if enabled
     if (ENABLE_PARALLEL && nrow(relevant_trials) > 1) {
         message("[INFO] Processing ", nrow(relevant_trials), " trials in parallel using ", PARALLEL_CORES, " cores")
 
+        # Create cluster
         cl <- parallel::makeCluster(PARALLEL_CORES)
-        on.exit(parallel::stopCluster(cl))
 
-        # Export the entire global environment to ensure all objects are available
-        message("[DEBUG] Exporting entire global environment to parallel workers...")
-        global_vars <- ls(envir = .GlobalEnv)
-        message("[DEBUG] Exporting ", length(global_vars), " global variables")
-        parallel::clusterExport(cl, global_vars, envir = .GlobalEnv)
+        # Setup parallel workers
+        setup_parallel_workers(cl)
 
-        # Load required packages on cluster workers
-        message("[DEBUG] Loading packages on parallel workers...")
-        parallel::clusterEvalQ(cl, {
-            # Load all required packages
-            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma", "kernlab")
-            for (pkg in required_packages) {
-                tryCatch(
-                    {
-                        library(pkg, character.only = TRUE)
-                    },
-                    error = function(e) {
-                        message("[WARN] Worker failed to load package ", pkg, ": ", e$message)
-                    }
-                )
-            }
-        })
-
-        # Source required files on each worker
-        message("[DEBUG] Sourcing files on parallel workers...")
-        parallel::clusterEvalQ(cl, {
-            # Source all required files on each worker
-            source_files <- c(
-                "initialization.R",
-                "data_loading.R",
-                "pre_processing.R",
-                "find_foot_events.R",
-                "get_data_from_loop.R"
-            )
-
-            for (source_file in source_files) {
-                source_path <- file.path(RUNTIME_DIR, "source", source_file)
-                if (file.exists(source_path)) {
-                    tryCatch(
-                        {
-                            source(source_path)
-                        },
-                        error = function(e) {
-                            message("[WARN] Worker failed to source ", source_file, ": ", e$message)
-                        }
-                    )
-                }
-            }
-
-            # Initialize global data environment on each worker
-            tryCatch(
-                {
-                    if (exists("ensure_global_data_initialized")) {
-                        ensure_global_data_initialized()
-                    }
-                },
-                error = function(e) {
-                    message("[WARN] Worker failed to initialize global data: ", e$message)
-                }
-            )
-        })
-
-        # Create wrapper function for parallel execution
-        extract_wrapper <- function(trial_row) {
-            participant <- trial_row$participant
-            trial <- trial_row$trialNum
-
-            message("[DEBUG] Processing trial ", participant, " trial ", trial, " (parallel)")
-            message("[DEBUG] config$requires_context: ", config$requires_context)
-            message("[DEBUG] context_data available: ", if (is.null(context_data)) "NULL" else paste(nrow(context_data), "entries"))
-
-            tryCatch(
-                {
-                    if (config$requires_context) {
-                        result <- config$extract_func(participant, trial, context_data)
-                    } else {
-                        result <- config$extract_func(participant, trial)
-                    }
-
-                    if (!is.null(result) && nrow(result) > 0) {
-                        return(result)
-                    } else {
-                        return(NULL)
-                    }
-                },
-                error = function(e) {
-                    message("[WARN] Error processing ", participant, " trial ", trial, ": ", e$message)
-                    return(NULL)
-                }
-            )
-        }
+        # Create trial list for parallel processing
+        trial_list <- split(relevant_trials, seq_len(nrow(relevant_trials)))
 
         # Apply extraction function to each trial in parallel
-        message("[DEBUG] Running parallel trajectory extraction...")
-        trial_list <- split(relevant_trials, seq(nrow(relevant_trials)))
+        message("[DEBUG] Starting parallel trajectory extraction...")
         trajectory_dfs <- parallel::parLapply(cl, trial_list, extract_wrapper)
 
-        # Combine results
+        # Stop cluster
+        parallel::stopCluster(cl)
+
+        # OPTIMIZED: Pre-allocate and filter NULL results
+        valid_results <- !vapply(trajectory_dfs, is.null, logical(1))
+        trajectory_dfs <- trajectory_dfs[valid_results]
+
         train_df <- dplyr::bind_rows(trajectory_dfs)
 
         message("[INFO] ✓ Parallel processing completed")
@@ -981,13 +1093,19 @@ create_trajectory_training_data <- function(data, config, context_data = NULL) {
         # Sequential processing fallback
         message("[INFO] Processing ", nrow(relevant_trials), " trials sequentially")
 
-        trajectory_dfs <- list()
-        for (i in seq_len(nrow(relevant_trials))) {
-            trial_row <- relevant_trials[i, ]
-            participant <- trial_row$participant
-            trial <- trial_row$trialNum
+        # Pre-allocate trajectory list
+        n_trials <- nrow(relevant_trials)
+        trajectory_dfs <- vector("list", n_trials)
 
-            message("[DEBUG] Processing trial ", i, "/", nrow(relevant_trials), ": ", participant, " trial ", trial)
+        # OPTIMIZED: Vectorized trial processing setup
+        participants <- relevant_trials$participant
+        trial_nums <- relevant_trials$trialNum
+
+        for (i in seq_len(n_trials)) {
+            participant <- participants[i]
+            trial <- trial_nums[i]
+
+            message("[DEBUG] Processing trial ", i, "/", n_trials, ": ", participant, " trial ", trial)
             message("[DEBUG] config$requires_context: ", config$requires_context)
             message("[DEBUG] context_data available: ", if (is.null(context_data)) "NULL" else paste(nrow(context_data), "entries"))
 
@@ -1008,6 +1126,10 @@ create_trajectory_training_data <- function(data, config, context_data = NULL) {
                 }
             )
         }
+
+        # OPTIMIZED: Remove NULL entries efficiently
+        valid_results <- !vapply(trajectory_dfs, is.null, logical(1))
+        trajectory_dfs <- trajectory_dfs[valid_results]
 
         # Combine results
         train_df <- dplyr::bind_rows(trajectory_dfs)
@@ -1057,7 +1179,7 @@ train_oneclass_svm_model <- function(train_df, config) {
     }
 
     # Keep only the positive (is_outlier == TRUE) trajectories
-    pos_df <- train_df %>% dplyr::filter(is_outlier == TRUE)
+    pos_df <- train_df %>% dplyr::filter(is_outlier)
     if (nrow(pos_df) < 10) {
         message("[ERROR] Too few positive outlier trajectories (", nrow(pos_df), ") for one-class SVM")
         return(NULL)
@@ -1082,6 +1204,22 @@ train_oneclass_svm_model <- function(train_df, config) {
 
     svm_model <- kernlab::ksvm(x = x_mat, type = "one-svc", kernel = svm_kernel, nu = SVM_NU)
 
+    # Calculate decision scores on training data to establish thresholds
+    training_scores <- kernlab::predict(svm_model, x_mat, type = "decision")
+    score_quantiles <- quantile(training_scores, probs = c(0.1, 0.25, 0.5, 0.75, 0.9))
+
+    # Use a conservative threshold - only accept very high scoring trajectories
+    # Use 75th percentile of training outlier scores as minimum threshold
+    conservative_threshold <- score_quantiles[["75%"]]
+
+    message("[DEBUG] Training outlier decision score distribution:")
+    message("[DEBUG]   10%: ", round(score_quantiles[["10%"]], 4))
+    message("[DEBUG]   25%: ", round(score_quantiles[["25%"]], 4))
+    message("[DEBUG]   50%: ", round(score_quantiles[["50%"]], 4))
+    message("[DEBUG]   75%: ", round(score_quantiles[["75%"]], 4))
+    message("[DEBUG]   90%: ", round(score_quantiles[["90%"]], 4))
+    message("[DEBUG] Conservative threshold (75th percentile): ", round(conservative_threshold, 4))
+
     model_training_time <- Sys.time()
     message("[INFO] ✓ one-class SVM model trained (", nrow(pos_df), " outlier trajectories)")
     message("[TIMING] One-class SVM training completed in: ", round(difftime(model_training_time, model_training_start, units = "secs"), 2), " seconds")
@@ -1092,7 +1230,9 @@ train_oneclass_svm_model <- function(train_df, config) {
         raw_trajectory_cols = numeric_features,
         use_oneclass = TRUE,
         config = config,
-        training_size = nrow(pos_df)
+        training_size = nrow(pos_df),
+        conservative_threshold = conservative_threshold,
+        training_score_quantiles = score_quantiles
     )
 }
 
@@ -1151,26 +1291,33 @@ train_trajectory_model <- function(train_df, config) {
     message("[DEBUG] Potential feature columns: ", length(feature_cols))
     message("[DEBUG] First 10 potential features: ", paste(head(feature_cols, 10), collapse = ", "))
 
-    # Filter to only numeric features
-    numeric_features <- feature_cols[sapply(train_df[feature_cols], is.numeric)]
+    # OPTIMIZED: Vectorized numeric feature detection
+    numeric_features <- feature_cols[vapply(train_df[feature_cols], is.numeric, logical(1))]
 
     message("[DEBUG] Numeric features found: ", length(numeric_features))
     if (length(numeric_features) > 0) {
         message("[DEBUG] First 10 numeric features: ", paste(head(numeric_features, 10), collapse = ", "))
         message("[DEBUG] Column types sample: ")
-        for (i in 1:min(5, length(feature_cols))) {
-            col_name <- feature_cols[i]
-            col_type <- class(train_df[[col_name]])[1]
-            col_sample <- if (is.numeric(train_df[[col_name]])) round(mean(train_df[[col_name]], na.rm = TRUE), 3) else train_df[[col_name]][1]
-            message("[DEBUG]   ", col_name, ": ", col_type, " (sample: ", col_sample, ")")
+        # OPTIMIZED: Vectorized column type checking for sample
+        sample_cols <- head(feature_cols, 5)
+        col_types <- vapply(train_df[sample_cols], function(x) class(x)[1], character(1))
+        col_samples <- vapply(train_df[sample_cols], function(x) {
+            if (is.numeric(x)) as.character(round(mean(x, na.rm = TRUE), 3)) else as.character(x[1])
+        }, character(1))
+
+        for (i in seq_along(sample_cols)) {
+            message("[DEBUG]   ", sample_cols[i], ": ", col_types[i], " (sample: ", col_samples[i], ")")
         }
     }
 
     if (length(numeric_features) == 0) {
         message("[ERROR] No numeric features found for ", config$model_name, " training")
         message("[ERROR] Available column types:")
-        for (col in feature_cols[1:min(10, length(feature_cols))]) {
-            message("[ERROR]   ", col, ": ", class(train_df[[col]])[1])
+        # OPTIMIZED: Vectorized error reporting
+        error_cols <- head(feature_cols, 10)
+        for (col in error_cols) {
+            col_type <- class(train_df[[col]])[1]
+            message("[ERROR]   ", col, ": ", col_type)
         }
         return(NULL)
     }
@@ -1187,7 +1334,7 @@ train_trajectory_model <- function(train_df, config) {
     if (USE_PCA) {
         message("[INFO] Applying PCA transformation...")
 
-        # Remove any rows with NAs for PCA
+        # OPTIMIZED: Vectorized complete cases check
         complete_rows <- complete.cases(training_data)
         if (sum(complete_rows) < nrow(training_data)) {
             message("[DEBUG] Removing ", nrow(training_data) - sum(complete_rows), " rows with NAs for PCA")
@@ -1207,7 +1354,7 @@ train_trajectory_model <- function(train_df, config) {
             # Transform data
             pca_data <- pca_model$x[, 1:n_components, drop = FALSE]
 
-            # Calculate variance explained
+            # OPTIMIZED: Vectorized variance calculation
             var_explained <- cumsum(pca_model$sdev^2) / sum(pca_model$sdev^2)
 
             message("[INFO] PCA: ", length(numeric_features), " features → ", n_components, " components")
@@ -1387,97 +1534,11 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
         cl <- parallel::makeCluster(PARALLEL_CORES)
         on.exit(parallel::stopCluster(cl))
 
-        # Export the entire global environment to ensure all objects are available
-        message("[DEBUG] Exporting entire global environment to parallel workers...")
-        global_vars <- ls(envir = .GlobalEnv)
-        message("[DEBUG] Exporting ", length(global_vars), " global variables")
-        parallel::clusterExport(cl, global_vars, envir = .GlobalEnv)
-
-        # Load required packages on cluster workers
-        message("[DEBUG] Loading packages on parallel workers...")
-        parallel::clusterEvalQ(cl, {
-            # Load all required packages
-            required_packages <- c("dplyr", "tidyr", "randomForest", "data.table", "signal", "pracma", "kernlab")
-            for (pkg in required_packages) {
-                tryCatch(
-                    {
-                        library(pkg, character.only = TRUE)
-                    },
-                    error = function(e) {
-                        message("[WARN] Worker failed to load package ", pkg, ": ", e$message)
-                    }
-                )
-            }
-        })
-
-        # Source required files on each worker
-        message("[DEBUG] Sourcing files on parallel workers...")
-        parallel::clusterEvalQ(cl, {
-            # Source all required files on each worker
-            source_files <- c(
-                "initialization.R",
-                "data_loading.R",
-                "pre_processing.R",
-                "find_foot_events.R",
-                "get_data_from_loop.R"
-            )
-
-            for (source_file in source_files) {
-                source_path <- file.path(RUNTIME_DIR, "source", source_file)
-                if (file.exists(source_path)) {
-                    tryCatch(
-                        {
-                            source(source_path)
-                        },
-                        error = function(e) {
-                            message("[WARN] Worker failed to source ", source_file, ": ", e$message)
-                        }
-                    )
-                }
-            }
-
-            # Initialize global data environment on each worker
-            tryCatch(
-                {
-                    if (exists("ensure_global_data_initialized")) {
-                        ensure_global_data_initialized()
-                    }
-                },
-                error = function(e) {
-                    message("[WARN] Worker failed to initialize global data: ", e$message)
-                }
-            )
-        })
+        # Setup parallel workers using helper function
+        setup_parallel_workers(cl)
 
         # Create wrapper function for parallel execution
-        predict_extract_wrapper <- function(trial_row) {
-            participant <- trial_row$participant
-            trial <- trial_row$trialNum
-
-            message("[DEBUG] Predicting trial ", participant, " trial ", trial, " (parallel)")
-            message("[DEBUG] config$requires_context: ", config$requires_context)
-            message("[DEBUG] context_data available: ", if (is.null(context_data)) "NULL" else paste(nrow(context_data), "entries"))
-
-            tryCatch(
-                {
-                    if (config$requires_context) {
-                        result <- config$extract_func(participant, trial, context_data)
-                    } else {
-                        result <- config$extract_func(participant, trial)
-                    }
-
-                    if (!is.null(result) && nrow(result) > 0) {
-                        return(result)
-                    } else {
-                        return(NULL)
-                    }
-                },
-                error = function(e) {
-                    message("[WARN] Error extracting prediction data for ", participant, " trial ", trial, ": ", e$message)
-                    return(NULL)
-                }
-            )
-        }
+        predict_extract_wrapper <- create_extraction_wrapper(config, context_data, "prediction")
 
         # Apply extraction function to each trial in parallel
         message("[DEBUG] Running parallel prediction trajectory extraction...")
@@ -1612,17 +1673,116 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
 
     # Make predictions
     if (!is.null(model_result$use_oneclass) && model_result$use_oneclass) {
-        # One-class SVM produces +1 (in class) / -1 (out)
+        # One-class SVM: Use decision scores for more precise control
         svm_pred <- predict(model_result$model, as.matrix(prediction_data), type = "response")
-        predict_df$pred_outlier <- (svm_pred == 1) # TRUE if similar to known outliers (in class)
-        predict_df$pred_outlier_prob <- NA_real_ # not available for one-class SVM
+        svm_scores <- predict(model_result$model, as.matrix(prediction_data), type = "decision")
 
-        # DEBUG: Show SVM predictions distribution
-        message(
-            "[DEBUG] ", config$model_name, " SVM predictions - In class (+1): ", sum(svm_pred == 1),
-            ", Out of class (-1): ", sum(svm_pred == -1)
-        )
-        message("[DEBUG] ", config$model_name, " outlier predictions: ", sum(predict_df$pred_outlier))
+        # DEBUG: Check prediction types and values
+        message("[DEBUG] SVM prediction type: ", class(svm_pred))
+        message("[DEBUG] SVM prediction unique values: ", paste(unique(svm_pred), collapse = ", "))
+        message("[DEBUG] SVM scores type: ", class(svm_scores))
+        message("[DEBUG] SVM scores length: ", length(svm_scores))
+
+        # Apply multiple constraints for conservative outlier detection:
+        # 1. SVM must classify as in-class (+1)
+        # 2. Decision score must exceed conservative threshold (75th percentile of training outliers)
+        # 3. Apply target ratio constraint to prevent too many predictions
+
+        conservative_threshold <- model_result$conservative_threshold
+
+        # Safety check for threshold
+        if (is.null(conservative_threshold) || !is.numeric(conservative_threshold)) {
+            message("[WARN] Invalid conservative threshold: ", conservative_threshold, " - using fallback")
+            conservative_threshold <- quantile(svm_scores, 0.75, na.rm = TRUE)
+            message("[DEBUG] Fallback threshold (75th percentile): ", round(conservative_threshold, 4))
+        }
+
+        basic_outliers <- (svm_pred == 1) & (svm_scores >= conservative_threshold)
+        n_basic_outliers <- sum(basic_outliers, na.rm = TRUE)
+
+        # Calculate target number based on scan size and target ratio
+        target_max_outliers <- ceiling(nrow(prediction_data) * TARGET_OUTLIER_RATIO)
+
+        message("[DEBUG] ", config$model_name, " SVM decision analysis:")
+        message("[DEBUG]   Total trajectories scanned: ", nrow(prediction_data))
+        message("[DEBUG]   SVM in-class (+1): ", sum(svm_pred == 1, na.rm = TRUE))
+        message("[DEBUG]   SVM out-of-class (-1): ", sum(svm_pred == -1, na.rm = TRUE))
+        message("[DEBUG]   Decision score range: ", round(min(svm_scores, na.rm = TRUE), 4), " to ", round(max(svm_scores, na.rm = TRUE), 4))
+        message("[DEBUG]   Conservative threshold: ", round(conservative_threshold, 4))
+        message("[DEBUG]   Decision scores above threshold: ", sum(svm_scores >= conservative_threshold, na.rm = TRUE))
+        message("[DEBUG]   Basic outliers (in-class + high score): ", n_basic_outliers)
+        message("[DEBUG]   Target max outliers (", TARGET_OUTLIER_RATIO * 100, "%): ", target_max_outliers)
+
+        # If no outliers meet the conservative threshold, use adaptive approach
+        # For one-class SVM, we expect all predictions to be either +1 (similar) or -1 (different)
+        # But if we get unexpected values, fall back to score-based selection
+        if (n_basic_outliers == 0) {
+            message("[DEBUG]   No outliers found with conservative approach, using adaptive threshold...")
+
+            # Check if we have valid SVM predictions
+            in_class_count <- sum(svm_pred == 1, na.rm = TRUE)
+            if (in_class_count > 0) {
+                message("[DEBUG]   Using in-class (+1) predictions for adaptive threshold")
+                in_class_indices <- which(svm_pred == 1)
+                in_class_scores <- svm_scores[in_class_indices]
+            } else {
+                message("[DEBUG]   No in-class predictions, using all scores for adaptive threshold")
+                in_class_indices <- seq_len(length(svm_scores))
+                in_class_scores <- svm_scores
+            }
+
+            # Use top scoring trajectories up to target ratio
+            n_adaptive_outliers <- min(target_max_outliers, length(in_class_scores))
+            if (n_adaptive_outliers > 0) {
+                adaptive_threshold <- sort(in_class_scores, decreasing = TRUE)[n_adaptive_outliers]
+
+                # Apply adaptive threshold
+                if (in_class_count > 0) {
+                    basic_outliers <- (svm_pred == 1) & (svm_scores >= adaptive_threshold)
+                } else {
+                    basic_outliers <- svm_scores >= adaptive_threshold
+                }
+
+                n_basic_outliers <- sum(basic_outliers, na.rm = TRUE)
+                message("[DEBUG]   Adaptive threshold: ", round(adaptive_threshold, 4))
+                message("[DEBUG]   Adaptive basic outliers: ", n_basic_outliers)
+            }
+        }
+
+        if (n_basic_outliers <= target_max_outliers) {
+            # We're within target, use all basic outliers
+            if (n_basic_outliers > 0) {
+                predict_df$pred_outlier <- basic_outliers
+                message("[DEBUG]   Using all ", n_basic_outliers, " basic outliers (within target)")
+            } else {
+                predict_df$pred_outlier <- FALSE
+                message("[DEBUG]   No basic outliers found (within target)")
+            }
+        } else {
+            # Too many basic outliers, select top scoring ones
+            if (n_basic_outliers > 0) {
+                # Get scores for basic outliers and select top ones
+                basic_outlier_indices <- which(basic_outliers)
+                basic_outlier_scores <- svm_scores[basic_outlier_indices]
+
+                # Select top scoring outliers up to target limit
+                top_indices <- basic_outlier_indices[order(basic_outlier_scores, decreasing = TRUE)[1:target_max_outliers]]
+
+                predict_df$pred_outlier <- FALSE
+                predict_df$pred_outlier[top_indices] <- TRUE
+
+                message("[DEBUG]   Selected top ", target_max_outliers, " outliers from ", n_basic_outliers, " candidates")
+                message("[DEBUG]   Score range of selected: ", round(min(svm_scores[top_indices]), 4), " to ", round(max(svm_scores[top_indices]), 4))
+            } else {
+                predict_df$pred_outlier <- FALSE
+                message("[DEBUG]   No outliers selected (no basic outliers found)")
+            }
+        }
+
+        # Store decision scores for analysis
+        predict_df$pred_outlier_prob <- svm_scores # Store decision scores instead of probabilities
+
+        message("[DEBUG] ", config$model_name, " final outlier predictions: ", sum(predict_df$pred_outlier))
     } else {
         predictions <- predict(model_result$model, prediction_data, type = "prob")
         predict_df$pred_outlier_prob <- predictions[, "TRUE"]
@@ -1641,7 +1801,7 @@ predict_trajectories <- function(model_result, config, data, context_data = NULL
 
     # Return predicted outliers
     predicted_outliers <- predict_df %>%
-        dplyr::filter(pred_outlier == TRUE) %>%
+        dplyr::filter(pred_outlier) %>%
         select(participant, trialNum, time = all_of(config$time_column), pred_outlier_prob)
 
     message("[INFO] Predicted ", nrow(predicted_outliers), " ", config$model_name, " cases")
@@ -1811,7 +1971,7 @@ execute_detection <- function(data, model_type, context_data = NULL) {
         training_start <- Sys.time()
         message("[INFO] Training ", config$model_name, " model...")
 
-        train_df <- create_trajectory_training_data(data, config, context_data)
+        train_df <- create_trajectory_training_data(config, data, context_data)
         model_result <- train_trajectory_model(train_df, config)
 
         if (!is.null(model_result)) {
