@@ -19,8 +19,8 @@ initialize_global_parameters <- function() {
     # =============================================================================
     # OUTLIER FILE NAMES
     # =============================================================================
-    falseHeelStrikesFile <<- "false_heelstrikes.csv"
-    outliersFile <<- "outliers.csv"
+    falseHeelStrikesFile <<- "false_heelstrikes_manual.csv"
+    outliersFile <<- "outliers_manual.csv"
     rotationsFile <<- "rotations_kinematic_data.csv"
     filenameDictFile <<- "filenameDict.csv"
 
