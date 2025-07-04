@@ -31,7 +31,7 @@ HTML('<div class="section-header">📈 Plot Axes</div>')
 selectizeInput("xplot_16", "X-axis",
   choices = xOptions, selected = "time", multiple = FALSE)
 selectizeInput("yplot_16", "Y-axis",
-  choices = xOptions, selected = "pos_x", multiple = FALSE)
+  choices = xOptions, selected = "actual_pos_z", multiple = FALSE)
 
 actionButton("refresh_plot", "🔄 Refresh Plot", class = "btn-primary")
 ```
@@ -46,7 +46,7 @@ radioButtons("outlier_mode", "Selection Mode:",
   selected = "heel", inline = TRUE)
 
 div(style = "margin-top: 8px; padding: 6px; background-color: #f0f8ff; border-radius: 4px; border-left: 3px solid #007bff; font-size: 11px;",
-  div("💡 Click to cycle: none → selected → alternate → none")
+  div("💡 Click to toggle, press TAB to switch modes")
 )
 
 checkboxInput("show_outliers_on_plot", "Show outliers on plot", value = TRUE)
@@ -83,10 +83,7 @@ numericInput("autosave_interval", "Interval (minutes)",
 
 checkboxInput("autosave_overwrite", "Overwrite default files (instead of timestamped)", value = FALSE)
 
-div(style = "font-size: 11px; color: #666; margin-top: -5px; margin-bottom: 10px;",
-    paste0("✓ Checked: Overwrites ", falseHeelStrikesFile, " and ", outliersFile),
-    br(),
-    "✗ Unchecked: Creates timestamped backup files")
+uiOutput("overwrite_warning")
 
 actionButton("manual_backup", "💾 Manual Backup Both Tables", 
              class = "btn-warning", style = "margin-top: 10px; font-weight: bold;")
@@ -227,6 +224,7 @@ observeEvent(input$importHeelStrikeOutliers, {
       
       heelstrike_outliers(df)
       showNotification(paste("Heel strike outliers imported:", nrow(df), "outliers loaded"), type = "message")
+      last_hs_filename(basename(input$importHeelStrikeOutliers$name))
     } else {
       showNotification("Invalid CSV format. Required columns: participant, trialNum, time", type = "error")
     }
@@ -262,6 +260,7 @@ observeEvent(input$importStepOutliers, {
     
     step_outliers(df)
     showNotification(paste("Step outliers imported:", nrow(df), "outliers loaded"), type = "message")
+    last_step_filename(basename(input$importStepOutliers$name))
   }, error = function(e) {
     showNotification(paste("Error importing step outliers:", e$message), type = "error")
   })
@@ -315,6 +314,7 @@ observeEvent(input$load_default_outliers, {
           
           heelstrike_outliers(df_heel)
           heel_loaded <- nrow(df_heel)
+          last_hs_filename(basename(heel_file))
         } else {
           errors <- c(errors, "Invalid heel strike file format")
         }
@@ -351,6 +351,7 @@ observeEvent(input$load_default_outliers, {
           
           step_outliers(df_step)
           step_loaded <- nrow(df_step)
+          last_step_filename(basename(step_file))
         }
       }, error = function(e) {
         errors <- c(errors, paste("Step outlier file error:", e$message))
@@ -403,7 +404,8 @@ current_step_outliers <- reactive({
 # Reactive values to store current axis limits (for plot memory)
 axis_limits <- reactiveValues(x = NULL, y = NULL)
 
-
+# --- Reactive store for last click information (to detect double clicks) ---
+last_click_info <- reactiveVal(list(participant = NULL, trial = NULL, time = NA_real_, ts = 0))
 
 # Simple plot refresh observer
 observeEvent(input$refresh_plot, {
@@ -564,16 +566,13 @@ observeEvent(event_data("plotly_click"), {
                             current_step_outliers$participant == current_participant &
                             current_step_outliers$trialNum == current_trial)
       
-      # Determine action based on the selected mode and current state
-      mode_to_use <- input$outlier_mode  # "heel" or "step"
-      
+      # Determine action per current radio selection (TAB toggles radio quickly)
+      mode_to_use <- input$outlier_mode
       if ((mode_to_use == "heel" && is_hs_outlier) ||
           (mode_to_use == "step" && is_step_outlier)) {
-        # Heel-strike already has the selected mode → toggle OFF (remove)
         mode_to_use <- "remove"
         action_type <- "removed"
       } else {
-        # Heel-strike not yet in selected mode → toggle ON (add)
         action_type <- "added"
       }
       
@@ -1753,7 +1752,52 @@ output$save_rds <- downloadHandler(
     saveRDS(allGaitParams, file)
   }
 )
+
+# ---- Reactive values & helpers for filename-aware saving ----
+last_hs_filename  <- reactiveVal(falseHeelStrikesFile)
+last_step_filename <- reactiveVal(outliersFile)
+
+# Track last save moment to throttle autosave
+last_save_time <- reactiveVal(Sys.time())
+
+# Helper to save both outlier tables respecting overwrite flag
+save_outlier_tables <- function(overwrite_mode = FALSE){
+  # Determine base filenames
+  base_hs   <- last_hs_filename()  %||% falseHeelStrikesFile
+  base_step <- last_step_filename() %||% outliersFile
+
+  # Build final filenames
+  if(overwrite_mode){
+    fname_hs   <- base_hs
+    fname_step <- base_step
+  } else {
+    stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    fname_hs   <- paste0(tools::file_path_sans_ext(base_hs),   "_", stamp, ".csv")
+    fname_step <- paste0(tools::file_path_sans_ext(base_step), "_", stamp, ".csv")
+  }
+
+  # Write files
+  path_hs   <- file.path(dataExtraFolder, fname_hs)
+  path_step <- file.path(dataExtraFolder, fname_step)
+  write.csv(heelstrike_outliers(), path_hs, row.names = FALSE)
+  write.csv(step_outliers(),      path_step, row.names = FALSE)
+
+  # Update timer
+  last_save_time(Sys.time())
+
+  list(hs_path = path_hs, step_path = path_step)
+}
+
+# Manual backup button handler
+observeEvent(input$manual_backup, {
+  overwrite_mode <- input$autosave_overwrite
+  res_paths <- save_outlier_tables(overwrite_mode)
   
+  showNotification(
+    paste("💾 Manual backup saved to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
+    type = "message", duration = 5
+  )
+})
 
 # Modify the reactive timer to use the user-defined interval
 autoSaveTimer <- reactiveTimer(1000 * 60 * 5)  # Default to 5 minutes
@@ -1778,46 +1822,76 @@ observe({
     overwrite_mode <- input$autosave_overwrite
   })
   
-  # Determine filenames and paths based on overwrite mode
-  if (overwrite_mode) {
-    # Overwrite default files
-    hs_filename <- falseHeelStrikesFile
-    step_filename <- outliersFile
-    save_type <- "overwritten"
-  } else {
-    # Create timestamped files
-    timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
-    hs_filename <- paste0("heelstrike_outliers_autosave_", timestamp, ".csv")
-    step_filename <- paste0("step_outliers_autosave_", timestamp, ".csv")
-    save_type <- "saved"
+  # Skip if interval not yet elapsed since last save
+  elapsed <- as.numeric(difftime(Sys.time(), last_save_time(), units="secs"))
+  if (elapsed < input$autosave_interval*60) {
+    return()
   }
   
-  # Define the full paths for the files
-  hs_filepath <- file.path(dataExtraFolder, hs_filename)
-  step_filepath <- file.path(dataExtraFolder, step_filename)
+  res_paths <- save_outlier_tables(overwrite_mode)
   
-  # Write the CSV files
   tryCatch({
-    write.csv(hs_outliers_data, hs_filepath, row.names = FALSE)
-    write.csv(step_outliers_data, step_filepath, row.names = FALSE)
+    showNotification(
+      paste("✅ Backup successful to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
+      type = "message", duration = 5
+    )
     
-    # Show a notification with appropriate message
-    if (overwrite_mode) {
-      showNotification(paste("Outliers auto-saved (overwritten default files):", 
-                           nrow(hs_outliers_data), "heel strikes,", 
-                           nrow(step_outliers_data), "steps"), 
-                     type = "message", duration = 3)
-    } else {
-      showNotification(paste("Outliers auto-saved (timestamped):", 
-                           nrow(hs_outliers_data), "heel strikes,", 
-                           nrow(step_outliers_data), "steps"), 
-                     type = "message", duration = 3)
-    }
+    # Reset autosave timer by updating last_save_time (already done in save function)
   }, error = function(e) {
     showNotification(paste("Auto-save failed:", e$message), type = "error", duration = 5)
   })
-  
-  # Schedule the next autosave
-  invalidateLater(1000 * 60 * input$autosave_interval)
 })
+
+# Update last click information
+observe({
+  input$manualOutlierPlot_click
+  isolate({
+    last_click_info(list(participant = input$participant,
+                         trial = input$trialNum,
+                         time = input$manualOutlierPlot_click$x,
+                         ts = as.numeric(Sys.time())))
+  })
+})
+
+# Update filename trackers when files are imported or defaults loaded
+
+# Reactive warning message for overwrite mode
+output$overwrite_warning <- renderUI({
+  if (input$autosave_overwrite) {
+    # Show warning only when overwrite is enabled
+    current_hs_file <- last_hs_filename() %||% falseHeelStrikesFile
+    current_step_file <- last_step_filename() %||% outliersFile
+    
+    div(style = "font-size: 11px; color: #d63384; margin-top: -5px; margin-bottom: 10px; background-color: #fff3cd; padding: 5px; border-radius: 3px; border-left: 3px solid #ffc107;",
+        paste0("⚠️ WARNING: Will overwrite ", current_hs_file, " and ", current_step_file),
+        br(),
+        "✗ Unchecked: Creates timestamped backup files")
+  } else {
+    # Show normal info when overwrite is disabled
+    div(style = "font-size: 11px; color: #666; margin-top: -5px; margin-bottom: 10px;",
+        "✓ Safe mode: Creates timestamped backup files")
+  }
+})
+```
+```{r}
+tags$script(HTML("
+  // make whole page focusable so we can always catch key events
+  $(function(){ $('body').attr('tabindex', -1).focus(); });
+
+  function toggleMode() {
+    var current = $('input[name=\"outlier_mode\"]:checked').val();
+    var next    = (current === 'heel') ? 'step' : 'heel';
+    $('input[name=\"outlier_mode\"][value='+next+']')
+         .prop('checked',true)
+         .trigger('change');
+  }
+
+  // listen on keydown only; ignore auto-repeat
+  $(window).on('keydown', function(e){
+     if(e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat){
+        e.preventDefault();
+        toggleMode();
+     }
+  });
+"))
 ```

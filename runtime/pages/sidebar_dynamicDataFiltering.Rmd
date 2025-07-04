@@ -5,7 +5,7 @@ selectizeInput("filterParticipants", "Participants", choices = participants, sel
 
 #### Trial Filtering
 ```{r}
-defaultTrials <- c(5,7,8,10,11)
+defaultTrials <- allTrials# c(5,7,8,10,11)
 selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
 selectizeInput("filterCondition", "Condition", choices = c("baseline", "perturbation", "perturbation_visualization"), selected = c("baseline", "perturbation", "perturbation_visualization"), multiple = TRUE)
 ```
