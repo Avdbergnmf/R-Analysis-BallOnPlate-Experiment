@@ -1,7 +1,7 @@
 #### Some pre-processing we use later in plotting and get_foot_events
 
 get_rotations_data <- function() {
-  rotations_file <- "./data_extra/rotations_kinematic_data.csv" # manually created file with participant, trial, and rotation (in degrees)
+  rotations_file <- file.path(dataExtraFolder, rotationsFile) # manually created file with participant, trial, and rotation (in degrees)
   rotations <- c()
   if (file.exists(rotations_file)) {
     rotations <- as.data.frame(data.table::fread(rotations_file))

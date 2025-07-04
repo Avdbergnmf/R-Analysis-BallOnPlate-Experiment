@@ -17,6 +17,23 @@ initialize_global_parameters <- function() {
     resultsFolder <<- "results"
 
     # =============================================================================
+    # OUTLIER FILE NAMES
+    # =============================================================================
+    falseHeelStrikesFile <<- "false_heelstrikes.csv"
+    outliersFile <<- "outliers.csv"
+    rotationsFile <<- "rotations_kinematic_data.csv"
+    filenameDictFile <<- "filenameDict.csv"
+
+    # Additional outlier prediction files
+    falseHeelStrikesParamFile <<- "false_heelstrikes_param.csv"
+    outliersParamFile <<- "outliers_param.csv"
+    outliersParamEnhancedFile <<- "outliers_param_enhanced.csv"
+    falseHeelStrikesTrajFile <<- "false_heelstrikes_traj.csv"
+    outliersTrajFile <<- "outliers_traj.csv"
+    initialExtractionSummaryFile <<- "initial_extraction_summary.txt"
+    trajectoryPredictionSummaryFile <<- "trajectory_prediction_summary.txt"
+
+    # =============================================================================
     # QUESTIONNAIRE CONFIGURATION
     # =============================================================================
     qTypes <<- c("IMI", "UserExperience")
@@ -126,7 +143,7 @@ initialize_global_data <- function() {
 
             # Load filename dictionary with efficient approach
             cat(sprintf("[%s] Loading filename dictionary...\n", format(Sys.time(), "%H:%M:%S")))
-            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, "filenameDict.csv"),
+            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, filenameDictFile),
                 stringsAsFactors = FALSE,
                 verbose = FALSE
             ) # Suppress verbose output
@@ -144,8 +161,8 @@ initialize_global_data <- function() {
             cat(sprintf("[%s] Loading outlier data...\n", format(Sys.time(), "%H:%M:%S")))
             tryCatch(
                 {
-                    step_file <- file.path(dataExtraFolder, "outliers_steps.csv")
-                    heel_file <- file.path(dataExtraFolder, "outliers_heelstrikes.csv")
+                    step_file <- file.path(dataExtraFolder, outliersFile)
+                    heel_file <- file.path(dataExtraFolder, falseHeelStrikesFile)
 
                     if (file.exists(step_file)) {
                         outliers_steps_data <<- data.table::fread(step_file,

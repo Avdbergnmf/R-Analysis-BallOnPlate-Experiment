@@ -1,7 +1,7 @@
 ## ========================================================================== ##
 ## heelstrike_outlier_predictor.R - Predict false heel strikes and outliers  ##
 ## ========================================================================== ##
-## Based on false_heelstrikes.csv and outliers.csv files                     ##
+## Based on false heel strikes and outliers files                     ##
 ## Focuses on false heel strike detection and step outlier detection         ##
 ## -------------------------------------------------------------------------- ##
 
@@ -460,8 +460,8 @@ if (file.exists("data_extra") && file.exists("outlier_prediction")) {
 }
 
 # Set up file paths now that directories are defined
-false_heelstrikes_path <- file.path(data_extra_dir, "false_heelstrikes.csv")
-outliers_path <- file.path(data_extra_dir, "outliers.csv")
+false_heelstrikes_path <- file.path(data_extra_dir, falseHeelStrikesFile)
+outliers_path <- file.path(data_extra_dir, outliersFile)
 
 # Create models directory if it doesn't exist
 models_dir <- file.path(outlier_prediction_dir, "models")
@@ -1227,14 +1227,14 @@ create_updated_outlier_files <- function(existing_outliers, new_heelstrike_predi
     }
 
     # Save updated files with consistent names (overwrite previous results)
-    heelstrike_file <- file.path(output_dir, "false_heelstrikes_param.csv")
+    heelstrike_file <- file.path(output_dir, falseHeelStrikesParamFile)
     message("[DEBUG] Creating heel strike file: ", normalizePath(heelstrike_file, mustWork = FALSE))
     message("[DEBUG] Heel strike data has ", nrow(updated_heelstrikes), " rows")
     write.csv(updated_heelstrikes, heelstrike_file, row.names = FALSE)
     message("[INFO] ✓ Updated heel strike outliers saved to: ", normalizePath(heelstrike_file))
 
     # Save step outliers file
-    steps_file <- file.path(output_dir, "outliers_param.csv")
+    steps_file <- file.path(output_dir, outliersParamFile)
     if (!is.null(updated_steps)) {
         message("[DEBUG] Creating steps file: ", normalizePath(steps_file, mustWork = FALSE))
         message("[DEBUG] Steps data has ", nrow(updated_steps), " rows")
@@ -1322,7 +1322,7 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
 
     # Save files with consistent names (overwrite previous results)
     if (nrow(heelstrike_outliers) > 0) {
-        heelstrike_file <- file.path(data_extra_dir, "false_heelstrikes_param.csv")
+        heelstrike_file <- file.path(data_extra_dir, falseHeelStrikesParamFile)
         write.csv(heelstrike_outliers, heelstrike_file, row.names = FALSE)
         message("[INFO] ✓ Initial false heel strikes saved to: ", normalizePath(heelstrike_file))
         message("[INFO] Found ", nrow(heelstrike_outliers), " false heel strikes in training data")
@@ -1331,13 +1331,13 @@ create_initial_outlier_files_from_training_data <- function(raw_data) {
     }
 
     # Create empty steps file for now
-    steps_file <- file.path(data_extra_dir, "outliers_param.csv")
+    steps_file <- file.path(data_extra_dir, outliersParamFile)
     empty_steps <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
     write.csv(empty_steps, steps_file, row.names = FALSE)
     message("[INFO] ✓ Empty step outliers file created: ", normalizePath(steps_file))
 
     # Create summary
-    summary_file <- file.path(data_extra_dir, "initial_extraction_summary.txt")
+    summary_file <- file.path(data_extra_dir, initialExtractionSummaryFile)
     cat("Initial Outlier Extraction Summary\n", file = summary_file)
     cat("==================================\n", file = summary_file, append = TRUE)
     cat("Timestamp: ", format(Sys.time()), "\n", file = summary_file, append = TRUE)
@@ -2244,7 +2244,7 @@ main <- function() {
     message("[TIMING] Outlier data loaded in: ", round(difftime(outlier_load_time, outlier_load_start, units = "secs"), 2), " seconds")
 
     if (is.null(outliers_data$false_heelstrikes)) {
-        stop("No false heel strikes found. Please ensure false_heelstrikes.csv exists.")
+        stop(paste("No false heel strikes found. Please ensure", falseHeelStrikesFile, "exists."))
     }
 
     message("[INFO] Loaded ", nrow(outliers_data$false_heelstrikes), " false heel strikes")
@@ -2445,7 +2445,7 @@ main <- function() {
 
     # Save the final enhanced step outliers with consistent name (overwrite previous results)
     if (additional_count > 0) {
-        final_steps_file <- file.path(data_extra_dir, "outliers_param_enhanced.csv")
+        final_steps_file <- file.path(data_extra_dir, outliersParamEnhancedFile)
         write.csv(final_step_outliers, final_steps_file, row.names = FALSE)
         message("[INFO] ✓ Final enhanced step outliers saved to: ", normalizePath(final_steps_file))
 

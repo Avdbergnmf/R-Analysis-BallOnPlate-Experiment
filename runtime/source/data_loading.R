@@ -277,7 +277,7 @@ getOptions <- function(tracker, trialNum = 5) { # trial 5 is always available - 
 
 get_q_file <- function(participant, qType) { # qType = IMI / SSQ / VEQ
   ensure_global_data_initialized()
-  return(file.path(get_p_dir(participant), "Questionnaires", paste0("questionnaireID_", qType, "_ALL_answers.csv")))
+  return(file.path(get_p_dir(participant), questionnaireInfoFolder, paste0("questionnaireID_", qType, "_ALL_answers.csv")))
 }
 
 ################ Questionnaires ################

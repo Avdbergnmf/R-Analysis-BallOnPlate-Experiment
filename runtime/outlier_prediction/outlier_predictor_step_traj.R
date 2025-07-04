@@ -768,8 +768,8 @@ if (file.exists("data_extra") && file.exists("outlier_prediction")) {
 }
 
 # Set up file paths
-false_heelstrikes_path <- file.path(data_extra_dir, "false_heelstrikes.csv")
-outliers_path <- file.path(data_extra_dir, "outliers.csv")
+false_heelstrikes_path <- file.path(data_extra_dir, falseHeelStrikesFile)
+outliers_path <- file.path(data_extra_dir, outliersFile)
 
 # Create models directory if it doesn't exist
 models_dir <- file.path(outlier_prediction_dir, "models")
@@ -1856,11 +1856,11 @@ create_updated_files <- function(existing_data, new_false_heelstrike_predictions
     }
 
     # Save files with consistent names (overwrite previous results)
-    false_heelstrike_file <- file.path(data_extra_dir, "false_heelstrikes_traj.csv")
+    false_heelstrike_file <- file.path(data_extra_dir, falseHeelStrikesTrajFile)
     write.csv(updated_false_heelstrikes, false_heelstrike_file, row.names = FALSE)
     message("[INFO] ✓ Updated false heel strikes saved to: ", false_heelstrike_file)
 
-    outliers_file <- file.path(data_extra_dir, "outliers_traj.csv")
+    outliers_file <- file.path(data_extra_dir, outliersTrajFile)
     if (!is.null(updated_outliers)) {
         write.csv(updated_outliers, outliers_file, row.names = FALSE)
         message("[INFO] ✓ Updated outliers saved to: ", outliers_file)
@@ -1871,7 +1871,7 @@ create_updated_files <- function(existing_data, new_false_heelstrike_predictions
     }
 
     # Create summary
-    summary_file <- file.path(data_extra_dir, "trajectory_prediction_summary.txt")
+    summary_file <- file.path(data_extra_dir, trajectoryPredictionSummaryFile)
     cat("Trajectory-Based Prediction Summary\n", file = summary_file)
     cat("==================================\n", file = summary_file, append = TRUE)
     cat("Timestamp: ", format(Sys.time()), "\n", file = summary_file, append = TRUE)
@@ -1916,7 +1916,7 @@ load_and_validate_data <- function() {
     message("[TIMING] Data loaded in: ", round(difftime(data_load_time, data_load_start, units = "secs"), 2), " seconds")
 
     if (is.null(data$false_heelstrikes)) {
-        stop("No false heel strikes found. Please ensure false_heelstrikes.csv exists.")
+        stop(paste("No false heel strikes found. Please ensure", falseHeelStrikesFile, "exists."))
     }
 
     message("[INFO] Loaded ", nrow(data$false_heelstrikes), " false heel strikes")

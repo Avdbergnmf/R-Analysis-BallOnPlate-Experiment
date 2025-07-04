@@ -84,7 +84,7 @@ numericInput("autosave_interval", "Interval (minutes)",
 checkboxInput("autosave_overwrite", "Overwrite default files (instead of timestamped)", value = FALSE)
 
 div(style = "font-size: 11px; color: #666; margin-top: -5px; margin-bottom: 10px;",
-    "✓ Checked: Overwrites outliers_heelstrikes.csv and outliers_steps.csv",
+    paste0("✓ Checked: Overwrites ", falseHeelStrikesFile, " and ", outliersFile),
     br(),
     "✗ Unchecked: Creates timestamped backup files")
 
@@ -271,8 +271,8 @@ observeEvent(input$importStepOutliers, {
 observeEvent(input$load_default_outliers, {
   tryCatch({
     # Check if default files exist (match initialization.R pattern)
-    heel_file <- file.path(dataExtraFolder, "outliers_heelstrikes.csv")
-    step_file <- file.path(dataExtraFolder, "outliers_steps.csv")
+    heel_file <- file.path(dataExtraFolder, falseHeelStrikesFile)
+    step_file <- file.path(dataExtraFolder, outliersFile)
     
     heel_exists <- file.exists(heel_file)
     step_exists <- file.exists(step_file)
@@ -1175,9 +1175,9 @@ observeEvent(input$manual_backup, {
     "Manual Backup Confirmation\n\n",
     "This will overwrite the existing CSV files with current table data:\n\n",
     "• Heel Strike Outliers: ", num_heelstrike, " entries\n",
-    "  → Will save to: ", file.path(dataExtraFolder, "outliers_heelstrikes.csv"), "\n\n",
+    "  → Will save to: ", file.path(dataExtraFolder, falseHeelStrikesFile), "\n\n",
     "• Step Outliers: ", num_step, " entries\n",
-    "  → Will save to: ", file.path(dataExtraFolder, "outliers_steps.csv"), "\n\n",
+    "  → Will save to: ", file.path(dataExtraFolder, outliersFile), "\n\n",
     "⚠️ This will permanently overwrite existing files!\n\n",
     "Continue with backup?"
   )
@@ -1189,9 +1189,9 @@ observeEvent(input$manual_backup, {
       "<div style='font-family: monospace; white-space: pre-line; background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;'>",
       "<strong>Current Table Contents:</strong><br><br>",
       "❌ <strong>Heel Strike Outliers:</strong> ", num_heelstrike, " entries<br>",
-      "   → File: <code>", file.path(dataExtraFolder, "outliers_heelstrikes.csv"), "</code><br><br>",
+      "   → File: <code>", file.path(dataExtraFolder, falseHeelStrikesFile), "</code><br><br>",
       "◐ <strong>Step Outliers:</strong> ", num_step, " entries<br>", 
-      "   → File: <code>", file.path(dataExtraFolder, "outliers_steps.csv"), "</code><br><br>",
+      "   → File: <code>", file.path(dataExtraFolder, outliersFile), "</code><br><br>",
       "<span style='color: #d9534f;'><strong>⚠️ Warning:</strong> This will permanently overwrite existing files!</span>",
       "</div>"
     )),
@@ -1213,7 +1213,7 @@ observeEvent(input$confirm_manual_backup, {
     backup_success <- TRUE
     
     # Save heel strike outliers (match initialization.R pattern)
-    heel_save_path <- file.path(dataExtraFolder, "outliers_heelstrikes.csv")
+    heel_save_path <- file.path(dataExtraFolder, falseHeelStrikesFile)
     if (nrow(heelstrike_outliers()) > 0) {
       write.csv(heelstrike_outliers(), heel_save_path, row.names = FALSE)
     } else {
@@ -1223,7 +1223,7 @@ observeEvent(input$confirm_manual_backup, {
     }
     
     # Save step outliers (match initialization.R pattern)
-    step_save_path <- file.path(dataExtraFolder, "outliers_steps.csv")
+    step_save_path <- file.path(dataExtraFolder, outliersFile)
     if (nrow(step_outliers()) > 0) {
       write.csv(step_outliers(), step_save_path, row.names = FALSE)
     } else {
@@ -1783,8 +1783,8 @@ observe({
   # Determine filenames and paths based on overwrite mode
   if (overwrite_mode) {
     # Overwrite default files
-    hs_filename <- "outliers_heelstrikes.csv"
-    step_filename <- "outliers_steps.csv"
+    hs_filename <- falseHeelStrikesFile
+    step_filename <- outliersFile
     save_type <- "overwritten"
   } else {
     # Create timestamped files
