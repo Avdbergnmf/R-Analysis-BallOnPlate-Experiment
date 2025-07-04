@@ -2042,187 +2042,7 @@ print_feature_summary <- function(heelstrike_model = NULL, step_model = NULL) {
     cat("\n", paste(rep("=", 80), collapse = ""), "\n")
 }
 
-# --------------------------- NEW: Generate step outliers from heel strike patterns ---- #
-generate_step_outliers_from_heelstrikes <- function(raw_data, heelstrike_outliers) {
-    message("[INFO] Generating step outliers based on heel strike outlier patterns...")
 
-    if (is.null(heelstrike_outliers) || nrow(heelstrike_outliers) == 0) {
-        message("[WARN] No heel strike outliers provided for step outlier generation")
-        return(data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)))
-    }
-
-    start_time <- Sys.time()
-
-    # Extract and standardize heel strike data from raw data
-    heelstrike_data <- standardise_heelstrikes(raw_data)
-
-    if (nrow(heelstrike_data) == 0) {
-        message("[WARN] No heel strike data found in raw data")
-        return(data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)))
-    }
-
-    message("[DEBUG] Processing ", nrow(heelstrike_data), " heel strikes with ", nrow(heelstrike_outliers), " outliers")
-
-    # Convert to data.table for efficient processing - ENSURE CONSISTENT DATA TYPES
-    hs_dt <- data.table::as.data.table(heelstrike_data) %>%
-        .[, .(
-            participant = as.character(participant),
-            trialNum = as.numeric(trialNum), # Ensure numeric
-            time = as.numeric(time),
-            foot = foot,
-            pos_x = pos_x,
-            pos_z = pos_z,
-            stepLengths = stepLengths,
-            stepWidths = stepWidths
-        )]
-
-    outliers_dt <- data.table::as.data.table(heelstrike_outliers) %>%
-        .[, .(
-            participant = as.character(participant),
-            trialNum = as.numeric(trialNum), # Ensure numeric
-            time = as.numeric(time),
-            is_outlier = TRUE
-        )]
-
-    # Mark heel strikes as outliers
-    hs_dt[, is_hs_outlier := FALSE]
-    hs_dt[outliers_dt, is_hs_outlier := TRUE,
-        on = .(participant, trialNum, time = time)
-    ]
-
-    # Sort by participant, trial, and time
-    data.table::setorder(hs_dt, participant, trialNum, time)
-
-    # Calculate median step duration for the 1.75x threshold
-    # Step duration is time between consecutive heel strikes
-    hs_dt[, time_diff := c(NA, diff(time)), by = .(participant, trialNum)]
-    median_step_duration <- median(hs_dt$time_diff, na.rm = TRUE)
-    duration_threshold <- 1.75 * median_step_duration
-
-    message("[DEBUG] Median step duration: ", round(median_step_duration, 3), " seconds")
-    message("[DEBUG] Duration threshold (1.75x median): ", round(duration_threshold, 3), " seconds")
-
-    step_outliers <- data.frame()
-
-    # Process each trial separately
-    trials <- unique(hs_dt[, .(participant, trialNum)])
-
-    for (i in seq_len(nrow(trials))) {
-        trial_data <- hs_dt[participant == trials$participant[i] & trialNum == trials$trialNum[i]]
-
-        if (nrow(trial_data) < 2) next # Need at least 2 heel strikes
-
-        # Find heel strike outliers in this trial
-        outlier_indices <- which(trial_data$is_hs_outlier == TRUE)
-
-        if (length(outlier_indices) == 0) next # No outliers in this trial
-
-        for (outlier_idx in outlier_indices) {
-            outlier_hs <- trial_data[outlier_idx]
-
-            # Find previous non-outlier heel strikes
-            prev_indices <- seq_len(outlier_idx - 1)
-            if (length(prev_indices) == 0) next # No previous heel strikes
-
-            prev_non_outliers <- trial_data[prev_indices][is_hs_outlier == FALSE]
-
-            if (nrow(prev_non_outliers) == 0) next # No previous non-outlier heel strikes
-
-            # Get the closest previous non-outlier heel strike (last one chronologically)
-            closest_prev <- prev_non_outliers[nrow(prev_non_outliers)]
-
-            # Check conditions for marking as step outlier
-            mark_as_step_outlier <- FALSE
-            reason <- ""
-
-            # Condition 1: Same foot as closest previous non-outlier heel strike
-            if (!is.na(outlier_hs$foot) && !is.na(closest_prev$foot)) {
-                if (outlier_hs$foot == closest_prev$foot) {
-                    mark_as_step_outlier <- TRUE
-                    reason <- paste(reason, "same_foot", sep = " ")
-                }
-            }
-
-            # Condition 2: Time gap > 1.75x median step duration
-            time_gap <- outlier_hs$time - closest_prev$time
-            if (!is.na(time_gap) && time_gap > duration_threshold) {
-                mark_as_step_outlier <- TRUE
-                reason <- paste(reason, "long_gap", sep = " ")
-            }
-
-            # Add to step outliers if conditions met
-            if (mark_as_step_outlier) {
-                step_outlier <- data.frame(
-                    participant = as.character(outlier_hs$participant),
-                    trialNum = as.numeric(outlier_hs$trialNum),
-                    time = as.numeric(outlier_hs$time),
-                    reason = trimws(reason),
-                    time_gap = time_gap,
-                    prev_foot = closest_prev$foot,
-                    curr_foot = outlier_hs$foot
-                )
-                step_outliers <- rbind(step_outliers, step_outlier)
-            }
-        }
-    }
-
-    # Clean up and format output
-    if (nrow(step_outliers) > 0) {
-        step_outliers <- step_outliers %>%
-            select(participant, trialNum, time) %>%
-            distinct() %>%
-            arrange(participant, trialNum, time)
-
-        message("[INFO] Generated ", nrow(step_outliers), " step outliers from heel strike patterns")
-        message("[DEBUG] Step outliers by reason:")
-
-        # Show breakdown by reason (for debugging)
-        if ("reason" %in% names(step_outliers)) {
-            reason_counts <- table(step_outliers$reason)
-            for (r in names(reason_counts)) {
-                message("[DEBUG] - ", r, ": ", reason_counts[r])
-            }
-        }
-    } else {
-        message("[INFO] No step outliers generated from heel strike patterns")
-        step_outliers <- data.frame(
-            participant = character(0),
-            trialNum = numeric(0),
-            time = numeric(0)
-        )
-    }
-
-    end_time <- Sys.time()
-    message("[TIMING] Step outlier generation completed in: ", round(difftime(end_time, start_time, units = "secs"), 2), " seconds")
-
-    return(step_outliers)
-}
-
-# --------------------------- Enhanced step outlier creation ---------------- #
-create_enhanced_step_outliers <- function(raw_data, heelstrike_outliers, existing_step_outliers = NULL) {
-    message("[INFO] Creating enhanced step outliers combining heel strike patterns and existing outliers...")
-
-    # Generate step outliers from heel strike patterns
-    generated_step_outliers <- generate_step_outliers_from_heelstrikes(raw_data, heelstrike_outliers)
-
-    # Combine with existing step outliers if provided
-    if (!is.null(existing_step_outliers) && nrow(existing_step_outliers) > 0) {
-        message("[DEBUG] Combining with ", nrow(existing_step_outliers), " existing step outliers")
-
-        combined_step_outliers <- bind_rows(
-            existing_step_outliers %>% select(participant, trialNum, time),
-            generated_step_outliers %>% select(participant, trialNum, time)
-        ) %>%
-            distinct() %>%
-            arrange(participant, trialNum, time)
-    } else {
-        combined_step_outliers <- generated_step_outliers
-    }
-
-    message("[INFO] Total step outliers after enhancement: ", nrow(combined_step_outliers))
-
-    return(combined_step_outliers)
-}
 
 # --------------------------- 10. Main execution ---------------------------- #
 main <- function() {
@@ -2399,65 +2219,6 @@ main <- function() {
     message("- New predicted: ", result$predicted_step_count)
     message("- Total: ", result$total_step_count)
 
-    # FINAL ENHANCEMENT: Generate additional step outliers from heel strike patterns
-    final_enhancement_start <- Sys.time()
-    message("\n[INFO] FINAL ENHANCEMENT: Generating additional step outliers from heel strike patterns...")
-
-    # Load raw data for step outlier generation
-    raw_data <- readRDS(train_files[1])
-
-    # Get the current total step outliers (existing + predicted)
-    current_step_outliers <- bind_rows(
-        if (!is.null(outliers_data$outliers)) outliers_data$outliers else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)),
-        if (nrow(new_step_predictions) > 0) new_step_predictions %>% select(participant, trialNum, time) else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
-    ) %>%
-        distinct() %>%
-        arrange(participant, trialNum, time)
-
-    current_count <- nrow(current_step_outliers)
-    message("[DEBUG] Current step outliers before enhancement: ", current_count)
-
-    # Generate step outliers from heel strike patterns using ALL heel strikes (original + predicted)
-    all_heelstrike_outliers <- bind_rows(
-        outliers_data$false_heelstrikes,
-        if (nrow(new_heelstrike_predictions) > 0) new_heelstrike_predictions %>% select(participant, trialNum, time) else data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
-    ) %>%
-        distinct() %>%
-        arrange(participant, trialNum, time)
-
-    # Generate additional step outliers
-    generated_step_outliers <- generate_step_outliers_from_heelstrikes(raw_data, all_heelstrike_outliers)
-
-    # Combine with current step outliers
-    final_step_outliers <- bind_rows(
-        current_step_outliers,
-        generated_step_outliers
-    ) %>%
-        distinct() %>%
-        arrange(participant, trialNum, time)
-
-    final_count <- nrow(final_step_outliers)
-    additional_count <- final_count - current_count
-
-    message("[INFO] ✓ Enhancement complete!")
-    message("[INFO] Additional step outliers generated: ", additional_count)
-    message("[INFO] Final total step outliers: ", final_count)
-
-    # Save the final enhanced step outliers with consistent name (overwrite previous results)
-    if (additional_count > 0) {
-        final_steps_file <- file.path(data_extra_dir, outliersParamEnhancedFile)
-        write.csv(final_step_outliers, final_steps_file, row.names = FALSE)
-        message("[INFO] ✓ Final enhanced step outliers saved to: ", normalizePath(final_steps_file))
-
-        # Update the result summary
-        result$additional_step_count <- additional_count
-        result$final_step_count <- final_count
-        result$final_steps_file <- final_steps_file
-    }
-
-    final_enhancement_time <- Sys.time()
-    message("[TIMING] Final enhancement completed in: ", round(difftime(final_enhancement_time, final_enhancement_start, units = "secs"), 2), " seconds")
-
     message("\n==== FINAL SUMMARY ====")
     message("HEEL STRIKES:")
     message("- Original: ", result$original_heelstrike_count)
@@ -2466,14 +2227,10 @@ main <- function() {
     message("STEPS:")
     message("- Original: ", result$original_step_count)
     message("- New predicted: ", result$predicted_step_count)
-    message("- Additional from heel strike patterns: ", if (exists("additional_count")) additional_count else 0)
-    message("- Final total: ", if (exists("final_count")) final_count else result$total_step_count)
+    message("- Total: ", result$total_step_count)
     message("Files created:")
     message("- ", basename(result$heelstrike_file))
     message("- ", basename(result$steps_file))
-    if (exists("additional_count") && additional_count > 0) {
-        message("- ", basename(result$final_steps_file), " (enhanced)")
-    }
     message("- ", basename(result$summary_file))
 
     message("\n[INFO] Heel strike and step outlier prediction complete!")
@@ -2491,7 +2248,7 @@ main <- function() {
     message("[TIMING] Script completed at: ", format(script_end_time))
     message("[TIMING] Total execution time: ", round(total_execution_time, 2), " seconds (", round(total_execution_time / 60, 2), " minutes)")
 
-    invisible(list(heelstrike_model = heelstrike_model_result, step_model = step_model_result, enhancement_stats = list(additional_steps = if (exists("additional_count")) additional_count else 0)))
+    invisible(list(heelstrike_model = heelstrike_model_result, step_model = step_model_result))
 }
 
 # Run the main function

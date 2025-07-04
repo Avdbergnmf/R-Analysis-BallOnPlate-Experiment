@@ -27,7 +27,6 @@ initialize_global_parameters <- function() {
     # Additional outlier prediction files
     falseHeelStrikesParamFile <<- "false_heelstrikes_param.csv"
     outliersParamFile <<- "outliers_param.csv"
-    outliersParamEnhancedFile <<- "outliers_param_enhanced.csv"
     falseHeelStrikesTrajFile <<- "false_heelstrikes_traj.csv"
     outliersTrajFile <<- "outliers_traj.csv"
     initialExtractionSummaryFile <<- "initial_extraction_summary.txt"
