@@ -45,6 +45,10 @@ radioButtons("outlier_mode", "Selection Mode:",
   choices = c("Remove Heel Strikes" = "heel","Remove Steps" = "step"),
   selected = "heel", inline = TRUE)
 
+div(style = "margin-top: 8px; padding: 6px; background-color: #f0f8ff; border-radius: 4px; border-left: 3px solid #007bff; font-size: 11px;",
+  div("💡 Click to cycle: none → selected → alternate → none")
+)
+
 checkboxInput("show_outliers_on_plot", "Show outliers on plot", value = TRUE)
 
 HTML('<div class="section-header">📂 Import/Export</div>')
@@ -94,7 +98,7 @@ Column
 ### Foot Trajectories {data-width=650 data-height=800}
 This interface was used to manually select the incorrectly detected steps as outliers so they could be removed from the dataset.
 
-Click a heel strike to add it to outlier list. It's wise to enable the auto-saving feature if you wish to reproduce this, as this takes quite some time, and the interface crashes randomly from time to time. You can also browse to the saved outliers (in the `data_extra` folder) and load them to load this list into the interface.
+**Single-click** a heel strike to add it to outlier list using the selected mode above. **Double-click** to use the alternate mode without switching the radio button. It's wise to enable the auto-saving feature if you wish to reproduce this, as this takes quite some time, and the interface crashes randomly from time to time. You can also browse to the saved outliers (in the `data_extra` folder) and load them to load this list into the interface.
 
 Also be aware that the data shown here is also based on the selection of data in the sidebar (this may already have some steps/trials filtered out).
 
@@ -127,7 +131,7 @@ Column
 
 **Heel Strike Removal:**
 - **Yellow X markers**: Heel strikes marked for removal
-- Click heel strikes on the plot to add/remove from this list  
+- **Single-click** heel strikes when "Remove Heel Strikes" is selected, or **double-click** when "Remove Steps" is selected
 - These heel strikes will be completely excluded from step calculations
 
 ```{r}
@@ -142,7 +146,7 @@ checkboxInput("filter_outliers_table", "Filter tables by current participant/tri
 
 **Step Outliers:**
 - **Grey left half-circle markers**: Heel strikes marked as step outliers  
-- Click heel strikes on the plot to add/remove from this list
+- **Single-click** heel strikes when "Remove Steps" is selected, or **double-click** when "Remove Heel Strikes" is selected
 - These heel strikes will be marked as outliers in statistical analysis
 
 ```{r}
@@ -154,7 +158,16 @@ DT::dataTableOutput("stepOutliersTable")
 
 # Helper function to create consistent hover text for heel strikes
 create_heel_strike_hover_text <- function(data, x_axis, y_axis, hs_type = "normal", icon = "", status_text = "") {
-  if (nrow(data) == 0) return(character(0))
+  # Safety checks
+  if (is.null(data) || !is.data.frame(data) || nrow(data) == 0) return(character(0))
+  
+  # Check if required columns exist
+  required_cols <- c("time", "participant", "trialNum", "foot", "step", x_axis, y_axis)
+  missing_cols <- setdiff(required_cols, colnames(data))
+  if (length(missing_cols) > 0) {
+    warning(paste("Missing columns in hover text data:", paste(missing_cols, collapse = ", ")))
+    return(paste("Data incomplete for", hs_type, "hover text"))
+  }
   
   # Create title based on type
   title <- switch(hs_type,
@@ -165,23 +178,29 @@ create_heel_strike_hover_text <- function(data, x_axis, y_axis, hs_type = "norma
     paste(icon, "Heel Strike")
   )
   
-  base_text <- paste0(
-    "<b>", title, "</b><br>",
-    "Time: ", round(data$time, 3), " s<br>",
-    x_axis, ": ", round(data[[x_axis]], 3), "<br>",
-    y_axis, ": ", round(data[[y_axis]], 3), "<br>",
-    "Participant: ", data$participant, "<br>",
-    "Trial: ", data$trialNum, "<br>",
-    "Foot: ", data$foot, "<br>",
-    "Step: ", data$step
-  )
-  
-  # Add status text if provided
-  if (status_text != "") {
-    base_text <- paste0(base_text, "<br>", "<i>Status: ", status_text, "</i>")
-  }
-  
-  return(base_text)
+  # Safe column access with error handling
+  tryCatch({
+    base_text <- paste0(
+      "<b>", title, "</b><br>",
+      "Time: ", round(as.numeric(data$time), 3), " s<br>",
+      x_axis, ": ", round(as.numeric(data[[x_axis]]), 3), "<br>",
+      y_axis, ": ", round(as.numeric(data[[y_axis]]), 3), "<br>",
+      "Participant: ", as.character(data$participant), "<br>",
+      "Trial: ", as.character(data$trialNum), "<br>",
+      "Foot: ", as.character(data$foot), "<br>",
+      "Step: ", as.character(data$step)
+    )
+    
+    # Add status text if provided
+    if (status_text != "") {
+      base_text <- paste0(base_text, "<br>", "<i>Status: ", status_text, "</i>")
+    }
+    
+    return(base_text)
+  }, error = function(e) {
+    warning(paste("Error creating hover text:", e$message))
+    return(paste(title, "- hover text unavailable"))
+  })
 }
 
 # Initialize a reactive value for plot refresh trigger
@@ -429,11 +448,96 @@ observeEvent(event_data("plotly_relayout"), {
   }
 })
 
-# Update outliers based on plot clicks (mode-dependent)
+
+  
+  # Helper function to set outlier state directly (simplified for cycling)
+  handle_outlier_toggle <- function(clicked_time, current_participant, current_trial, trial_data, mode, 
+                                   outlier_threshold, current_step_outliers, current_hs_outliers,
+                                   step_outliers_setter, heelstrike_outliers_setter, click_type = "") {
+    
+    # Safety checks to ensure we have proper data frames
+    if (!is.data.frame(current_step_outliers)) {
+      current_step_outliers <- data.frame(
+        participant = character(0), trialNum = numeric(0), time = numeric(0),
+        stringsAsFactors = FALSE
+      )
+    }
+    if (!is.data.frame(current_hs_outliers)) {
+      current_hs_outliers <- data.frame(
+        participant = character(0), trialNum = numeric(0), time = numeric(0),
+        stringsAsFactors = FALSE
+      )
+    }
+    
+    # Add click type to notification messages
+    click_suffix <- if (click_type != "") paste0(" (", click_type, ")") else ""
+    
+    # Find the closest heel strike
+    closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, outlier_threshold)
+    
+    if (!is.null(closest_step)) {
+      # Remove from both lists first (clean slate)
+      updated_hs_outliers <- current_hs_outliers %>%
+        dplyr::filter(!(participant == current_participant &
+                 trialNum == current_trial &
+                 abs(time - closest_step$time) <= outlier_threshold))
+      
+      updated_step_outliers <- current_step_outliers %>%
+        dplyr::filter(!(participant == current_participant &
+                 trialNum == current_trial &
+                 abs(time - closest_step$time) <= outlier_threshold))
+      
+      # Ensure results are data frames
+      if (!is.data.frame(updated_hs_outliers)) {
+        updated_hs_outliers <- data.frame(
+          participant = character(0), trialNum = numeric(0), time = numeric(0),
+          stringsAsFactors = FALSE
+        )
+      }
+      if (!is.data.frame(updated_step_outliers)) {
+        updated_step_outliers <- data.frame(
+          participant = character(0), trialNum = numeric(0), time = numeric(0),
+          stringsAsFactors = FALSE
+        )
+      }
+      
+      # Now set the desired state based on mode
+      if (mode == "step") {
+        # Add to step outliers
+        new_step_outlier <- data.frame(
+          participant = current_participant,
+          trialNum    = current_trial,
+          time        = closest_step$time,
+          stringsAsFactors = FALSE
+        )
+        updated_step_outliers <- rbind(updated_step_outliers, new_step_outlier)
+        showNotification(paste0("Marked as step outlier", click_suffix), type = "message")
+      } else if (mode == "heel") {
+        # Add to heel strike outliers
+        new_hs_outlier <- data.frame(
+          participant = current_participant,
+          trialNum    = current_trial,
+          time        = closest_step$time,
+          stringsAsFactors = FALSE
+        )
+        updated_hs_outliers <- rbind(updated_hs_outliers, new_hs_outlier)
+        showNotification(paste0("Marked for heel strike removal", click_suffix), type = "message")
+      } else if (mode == "remove") {
+        # Already removed above, just show notification
+        showNotification(paste0("Removed from all outlier lists", click_suffix), type = "message")
+      }
+      
+      # Update both lists
+      heelstrike_outliers_setter(updated_hs_outliers)
+      step_outliers_setter(updated_step_outliers)
+    }
+  }
+  
+  # Update outliers based on plot clicks (cycling based on current state)
 observeEvent(event_data("plotly_click"), {
   click_data <- event_data("plotly_click")
   
-  if (!is.null(click_data)) {
+  if (!is.null(click_data) && is.list(click_data) && !is.null(click_data$x)) {
     current_participant <- input$participant
     current_trial <- as.numeric(input$trialNum)
     clicked_time <- click_data$x
@@ -444,133 +548,56 @@ observeEvent(event_data("plotly_click"), {
     
     if (nrow(trial_data) == 0) return()
     
-    if (input$outlier_mode == "step") {
-      # Step mode: find closest heel strike to mark as step outlier
-      closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
+    # Find the closest heel strike to determine current state
+    closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
+    
+    if (!is.null(closest_step)) {
+      current_step_outliers <- step_outliers()
+      current_hs_outliers <- heelstrike_outliers()
       
-      if (!is.null(closest_step)) {
-        current_step_outliers <- step_outliers()
-        current_hs_outliers <- heelstrike_outliers()
-        
-        # Check if this heel strike is already a heel strike outlier
-        existing_hs_outlier <- current_hs_outliers %>%
-          dplyr::filter(participant == current_participant,
-                 trialNum == current_trial,
-                 abs(time - closest_step$time) <= input$outlier_threshold)
-        
-        if (nrow(existing_hs_outlier) > 0) {
-          # Move from heel strike outlier to step outlier
-          # Remove from heel strike outliers
-          updated_hs_outliers <- current_hs_outliers %>%
-            dplyr::filter(!(participant == current_participant &
-                     trialNum == current_trial &
-                     abs(time - closest_step$time) <= input$outlier_threshold))
-          heelstrike_outliers(updated_hs_outliers)
-          
-          # Add to step outliers
-          new_step_outlier <- data.frame(
-            participant = current_participant,
-            trialNum    = current_trial,
-            time        = closest_step$time,
-            stringsAsFactors = FALSE
-          )
-          updated_step_outliers <- rbind(current_step_outliers, new_step_outlier)
-          step_outliers(updated_step_outliers)
-          showNotification("Moved from heel strike removal to step outlier", type = "message")
-        } else {
-          # Check if this step already exists as step outlier
-          existing_step <- current_step_outliers %>%
-            dplyr::filter(participant == current_participant,
-                   trialNum == current_trial,
-                   abs(time - closest_step$time) <= input$outlier_threshold)
-          
-          if (nrow(existing_step) > 0) {
-            # Remove the step outlier
-            updated_step_outliers <- current_step_outliers %>%
-              dplyr::filter(!(participant == current_participant &
-                       trialNum == current_trial &
-                       abs(time - closest_step$time) <= input$outlier_threshold))
-            step_outliers(updated_step_outliers)
-            showNotification("Step outlier removed", type = "message")
-          } else {
-            # Add the step outlier
-            new_step_outlier <- data.frame(
-              participant = current_participant,
-              trialNum    = current_trial,
-              time        = closest_step$time,
-              stringsAsFactors = FALSE
-            )
-            updated_step_outliers <- rbind(current_step_outliers, new_step_outlier)
-            step_outliers(updated_step_outliers)
-            showNotification("Step outlier added", type = "message")
-          }
-        }
-      }
-    } else {
-      # Heel strike mode: find closest heel strike
-      closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
+      # Check current state of this heel strike
+      is_hs_outlier <- any(abs(current_hs_outliers$time - closest_step$time) <= input$outlier_threshold &
+                          current_hs_outliers$participant == current_participant &
+                          current_hs_outliers$trialNum == current_trial)
       
-      if (!is.null(closest_step)) {
-        current_hs_outliers <- heelstrike_outliers()
-        current_step_outliers <- step_outliers()
-        
-        # Check if this heel strike is already a step outlier
-        existing_step_outlier <- current_step_outliers %>%
-          dplyr::filter(participant == closest_step$participant,
-                 trialNum == closest_step$trialNum,
-                 abs(time - closest_step$time) <= input$outlier_threshold)
-        
-        if (nrow(existing_step_outlier) > 0) {
-          # Move from step outlier to heel strike outlier
-          # Remove from step outliers
-          updated_step_outliers <- current_step_outliers %>%
-            dplyr::filter(!(participant == closest_step$participant &
-                     trialNum == closest_step$trialNum &
-                     abs(time - closest_step$time) <= input$outlier_threshold))
-          step_outliers(updated_step_outliers)
-          
-          # Add to heel strike outliers
-          new_outlier <- data.frame(
-            participant = closest_step$participant,
-            trialNum    = closest_step$trialNum,
-            time        = closest_step$time,
-            stringsAsFactors = FALSE
-          )
-          updated_outliers <- rbind(current_hs_outliers, new_outlier)
-          heelstrike_outliers(updated_outliers)
-          showNotification("Moved from step outlier to heel strike removal", type = "message")
-        } else {
-          # Check if this heel strike already exists as heel strike outlier
-          existing_outlier <- current_hs_outliers %>%
-            dplyr::filter(participant == closest_step$participant,
-                   trialNum == closest_step$trialNum,
-                   abs(time - closest_step$time) <= input$outlier_threshold)
-          
-          if (nrow(existing_outlier) > 0) {
-            # Remove the heel strike outlier
-            updated_outliers <- current_hs_outliers %>%
-              dplyr::filter(!(participant == closest_step$participant &
-                       trialNum == closest_step$trialNum &
-                       abs(time - closest_step$time) <= input$outlier_threshold))
-            heelstrike_outliers(updated_outliers)
-            showNotification("Heel strike outlier removed", type = "message")
-          } else {
-            # Add the heel strike outlier
-            new_outlier <- data.frame(
-              participant = closest_step$participant,
-              trialNum    = closest_step$trialNum,
-              time        = closest_step$time,
-              stringsAsFactors = FALSE
-            )
-            updated_outliers <- rbind(current_hs_outliers, new_outlier)
-            heelstrike_outliers(updated_outliers)
-            showNotification("Heel strike outlier added", type = "message")
-          }
-        }
+      is_step_outlier <- any(abs(current_step_outliers$time - closest_step$time) <= input$outlier_threshold &
+                            current_step_outliers$participant == current_participant &
+                            current_step_outliers$trialNum == current_trial)
+      
+      # Determine next state based on current state
+      if (is_hs_outlier) {
+        # Currently option 1 (heel strike outlier) -> cycle to option 2 (step outlier)
+        mode_to_use <- "step"
+        action_type <- "switched"
+      } else if (is_step_outlier) {
+        # Currently option 2 (step outlier) -> cycle to none (remove)
+        mode_to_use <- "remove"
+        action_type <- "removed"
+      } else {
+        # Currently none -> cycle to option 1 (selected mode)
+        mode_to_use <- input$outlier_mode
+        action_type <- "added"
       }
+      
+      # Execute the action
+      handle_outlier_toggle(
+        clicked_time = clicked_time,
+        current_participant = current_participant,
+        current_trial = current_trial,
+        trial_data = trial_data,
+        mode = mode_to_use,
+        outlier_threshold = input$outlier_threshold,
+        current_step_outliers = current_step_outliers,
+        current_hs_outliers = current_hs_outliers,
+        step_outliers_setter = step_outliers,
+        heelstrike_outliers_setter = heelstrike_outliers,
+        click_type = action_type
+      )
     }
   }
 })
+
+
 
 # Navigation functionality for special heel strikes
 special_heel_strikes <- reactive({
