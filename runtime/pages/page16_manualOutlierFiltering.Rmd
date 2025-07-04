@@ -533,7 +533,7 @@ observeEvent(event_data("plotly_relayout"), {
     }
   }
   
-  # Update outliers based on plot clicks (cycling based on current state)
+  # Update outliers based on plot clicks (toggle based on selected mode)
 observeEvent(event_data("plotly_click"), {
   click_data <- event_data("plotly_click")
   
@@ -564,18 +564,16 @@ observeEvent(event_data("plotly_click"), {
                             current_step_outliers$participant == current_participant &
                             current_step_outliers$trialNum == current_trial)
       
-      # Determine next state based on current state
-      if (is_hs_outlier) {
-        # Currently option 1 (heel strike outlier) -> cycle to option 2 (step outlier)
-        mode_to_use <- "step"
-        action_type <- "switched"
-      } else if (is_step_outlier) {
-        # Currently option 2 (step outlier) -> cycle to none (remove)
+      # Determine action based on the selected mode and current state
+      mode_to_use <- input$outlier_mode  # "heel" or "step"
+      
+      if ((mode_to_use == "heel" && is_hs_outlier) ||
+          (mode_to_use == "step" && is_step_outlier)) {
+        # Heel-strike already has the selected mode → toggle OFF (remove)
         mode_to_use <- "remove"
         action_type <- "removed"
       } else {
-        # Currently none -> cycle to option 1 (selected mode)
-        mode_to_use <- input$outlier_mode
+        # Heel-strike not yet in selected mode → toggle ON (add)
         action_type <- "added"
       }
       

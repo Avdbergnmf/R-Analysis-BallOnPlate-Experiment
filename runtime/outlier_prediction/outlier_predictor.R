@@ -193,6 +193,18 @@ create_training_data_generic <- function(train_files, outliers_data, config, con
     feature_time <- Sys.time()
     message("[DEBUG] Features added in ", round(difftime(feature_time, feature_start, units = "secs"), 2), " seconds")
 
+    # ------------------------------------------------------------
+    # REMOVE heel strike context features for step outlier model
+    # ------------------------------------------------------------
+    if (config$model_name == "step outlier") {
+        # Drop any columns that indicate heel-strike outlier context
+        hs_cols <- grep("hs_outlier|nearby_hs_outliers", names(train_df), value = TRUE)
+        if (length(hs_cols) > 0) {
+            message("[INFO] Removing heel-strike context columns from step training data: ", paste(hs_cols, collapse = ", "))
+            train_df <- train_df %>% dplyr::select(-all_of(hs_cols))
+        }
+    }
+
     # Add outlier labels
     label_start <- Sys.time()
     message("[DEBUG] Adding outlier labels for data_type: ", config$data_type, ", time_column: ", config$time_column)
