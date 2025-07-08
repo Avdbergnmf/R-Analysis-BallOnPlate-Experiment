@@ -1,0 +1,231 @@
+<!-- Drag & Drop Components for Manual Outlier Filtering -->
+<!-- CSS Styles for Drag & Drop Zones -->
+<style>
+  .drag-drop-zone {
+    border: 2px dashed #ccc;
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 10px;
+    background: #f9f9f9;
+    position: relative;
+    min-height: 120px;
+  }
+  
+  .drag-drop-zone:hover {
+    border-color: #007bff;
+    background: #e3f2fd;
+  }
+  
+  .drag-drop-zone.dragover {
+    border-color: #28a745;
+    background: #d4edda;
+    border-style: solid;
+    box-shadow: 0 0 10px rgba(40, 167, 69, 0.3);
+  }
+  
+  .drag-drop-zone.processing {
+    border-color: #ffc107;
+    background: #fff3cd;
+  }
+  
+  .drag-drop-zone.success {
+    border-color: #28a745;
+    background: #d4edda;
+  }
+  
+  .drag-drop-zone.error {
+    border-color: #dc3545;
+    background: #f8d7da;
+  }
+  
+  .drag-drop-icon {
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+  
+  .drag-drop-text {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+  }
+  
+  .drag-drop-hint {
+    font-size: 12px;
+    color: #999;
+  }
+  
+  .file-input-hidden {
+    display: none;
+  }
+  
+  /* Simplified styling - make the entire drop zone clickable */
+  .drag-drop-zone {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .drag-drop-zone .shiny-input-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1;
+  }
+  
+  .drag-drop-zone .shiny-input-container .input-group {
+    height: 100%;
+    width: 100%;
+  }
+  
+  .drag-drop-zone .shiny-input-container .btn-file {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 10;
+  }
+  
+  /* Hide the original filename text input completely */
+  .drag-drop-zone .form-control[readonly] {
+    display: none !important;
+  }
+  
+
+  
+  /* Hide progress bar */
+  .drag-drop-zone .progress {
+    display: none;
+  }
+  
+  /* Make sure visual content stays visible above the file input */
+  .drag-drop-zone .drag-drop-icon,
+  .drag-drop-zone .drag-drop-text,
+  .drag-drop-zone .drag-drop-hint {
+    position: relative;
+    z-index: 5;
+    pointer-events: none;
+  }
+</style>
+
+<!-- JavaScript for Drag & Drop Functionality and Key Events -->
+<script>
+  // Make whole page focusable so we can always catch key events
+  $(function(){ $('body').attr('tabindex', -1).focus(); });
+
+  function toggleMode() {
+    var current = $('input[name="outlier_mode"]:checked').val();
+    var next    = (current === 'heel') ? 'step' : 'heel';
+    $('input[name="outlier_mode"][value="'+next+'"]')
+         .prop('checked',true)
+         .trigger('change');
+  }
+
+  // Listen on keydown only; ignore auto-repeat
+  $(window).on('keydown', function(e){
+     if(e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat){
+        e.preventDefault();
+        toggleMode();
+     }
+  });
+
+  // ==================== ENHANCED DRAG & DROP FUNCTIONALITY ====================
+  
+  // Initialize drag & drop when page loads
+  $(document).ready(function() {
+    initializeDragDrop();
+  });
+  
+  function initializeDragDrop() {
+    // Setup visual feedback for both drop zones
+    setupDropZone('#heelstrike-drop-zone', '#importHeelStrikeOutliers');
+    setupDropZone('#step-drop-zone', '#importStepOutliers');
+  }
+  
+  function setupDropZone(zoneSelector, inputSelector) {
+    var $zone = $(zoneSelector);
+    
+    // Monitor file input changes for success state
+    $(document).on('change', inputSelector + ' input[type="file"]', function() {
+      var $dropZone = $(zoneSelector);
+      
+      if (this.files && this.files.length > 0) {
+        var file = this.files[0];
+        var fileName = file.name;
+        
+        // Show success state
+        $dropZone.removeClass('processing dragover');
+        $dropZone.addClass('success');
+        $dropZone.find('.drag-drop-hint').text('File loaded: ' + fileName);
+      }
+    });
+    
+
+    
+    // Basic drag feedback
+    $zone.on('dragenter dragover', function(e) {
+      if (!$(this).hasClass('success')) {
+        $(this).addClass('dragover');
+        $(this).find('.drag-drop-hint').text('Drop CSV file here!');
+      }
+    });
+    
+    $zone.on('dragleave drop', function(e) {
+      $(this).removeClass('dragover');
+      if (!$(this).hasClass('success')) {
+        $(this).find('.drag-drop-hint').text('Drag & drop CSV file here or click to browse');
+      }
+    });
+  }
+  
+
+  
+  function isValidCSVFile(file) {
+    var validTypes = ['text/csv', 'application/csv', 'text/comma-separated-values'];
+    var validExtensions = ['.csv', '.CSV'];
+    
+    // Check MIME type
+    if (validTypes.includes(file.type)) {
+      return true;
+    }
+    
+    // Check file extension if MIME type is not recognized
+    var fileName = file.name.toLowerCase();
+    return validExtensions.some(ext => fileName.endsWith(ext.toLowerCase()));
+  }
+  
+  function showDropZoneError($dropZone, message) {
+    $dropZone.removeClass('processing dragover success');
+    $dropZone.addClass('error');
+    $dropZone.find('.drag-drop-hint').text(message);
+    
+    // Reset after 4 seconds
+    setTimeout(function() {
+      resetDropZone($dropZone);
+    }, 4000);
+  }
+  
+  function resetDropZone($dropZone) {
+    $dropZone.removeClass('processing dragover error');
+    // Only reset to default state if no file is loaded
+    if (!$dropZone.hasClass('success')) {
+      $dropZone.find('.drag-drop-hint').text('Drag & drop CSV file here or click to browse');
+    }
+  }
+  
+  function clearDropZone($dropZone) {
+    $dropZone.removeClass('processing dragover success error');
+    $dropZone.find('.drag-drop-hint').text('Drag & drop CSV file here or click to browse');
+  }
+  
+  // Allow natural drag & drop behavior on file inputs
+  // No global prevention needed - let browser handle it naturally
+</script> 
