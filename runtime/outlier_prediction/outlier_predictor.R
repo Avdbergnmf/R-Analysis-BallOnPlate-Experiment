@@ -44,6 +44,16 @@ USE_CV <- FALSE # Enable cross-validation
 CV_FOLDS <- 5 # Number of CV folds
 CV_REPEATS <- 3 # Number of CV repeats
 
+# DEBUG OUTPUT CONTROL
+DEBUG_LEVEL <- 1 # 0 = INFO/WARN only, 1 = Essential DEBUG, 2 = Verbose DEBUG
+
+# Helper function for conditional debug messages
+debug_msg <- function(msg, level = 1) {
+    if (DEBUG_LEVEL >= level) {
+        message(msg)
+    }
+}
+
 # ========================== PARALLEL TRAINING METHODS ====================== #
 
 # Configuration for parallel training
@@ -441,6 +451,7 @@ cat("- Cross-Validation:", USE_CV, "\n")
 cat("- RF Trees:", RF_NTREE, "\n")
 cat("- RF Node Size:", RF_NODESIZE, "\n")
 cat("- RF Max Nodes:", RF_MAXNODES, "\n")
+cat("- Debug Level:", DEBUG_LEVEL, "(0=INFO only, 1=Essential, 2=Verbose)\n")
 cat("========================================\n")
 cat("OVERFITTING PREVENTION MEASURES:\n")
 cat("- Limited to top", MAX_FEATURES, "features\n")
@@ -504,11 +515,11 @@ initialize_global_parameters()
 # --------------------------- 2. Load data ---------------------------------- #
 load_outliers <- function() {
     # Verify paths exist
-    message("[DEBUG] Looking for data files in: ", normalizePath(data_extra_dir, mustWork = FALSE))
-    message("[DEBUG] False heel strikes file: ", normalizePath(false_heelstrikes_path, mustWork = FALSE))
-    message("[DEBUG] Outliers file: ", normalizePath(outliers_path, mustWork = FALSE))
-    message("[DEBUG] Directory exists: ", dir.exists(data_extra_dir))
-    message("[DEBUG] Files in data_extra: ", paste(list.files(data_extra_dir, full.names = FALSE), collapse = ", "))
+    debug_msg(paste0("[DEBUG] Looking for data files in: ", normalizePath(data_extra_dir, mustWork = FALSE)), 2)
+    debug_msg(paste0("[DEBUG] False heel strikes file: ", normalizePath(false_heelstrikes_path, mustWork = FALSE)), 2)
+    debug_msg(paste0("[DEBUG] Outliers file: ", normalizePath(outliers_path, mustWork = FALSE)), 2)
+    debug_msg(paste0("[DEBUG] Directory exists: ", dir.exists(data_extra_dir)), 2)
+    debug_msg(paste0("[DEBUG] Files in data_extra: ", paste(list.files(data_extra_dir, full.names = FALSE), collapse = ", ")), 2)
 
     false_heelstrikes <- NULL
     outliers <- NULL
@@ -516,9 +527,9 @@ load_outliers <- function() {
     if (file.exists(false_heelstrikes_path)) {
         message("[INFO] Loading false heel strikes from: ", false_heelstrikes_path)
         false_heelstrikes <- read.csv(false_heelstrikes_path, stringsAsFactors = FALSE)
-        message("[DEBUG] False heel strikes columns: ", paste(names(false_heelstrikes), collapse = ", "))
-        message("[DEBUG] False heel strikes sample participants: ", paste(unique(false_heelstrikes$participant)[1:min(5, length(unique(false_heelstrikes$participant)))], collapse = ", "))
-        message("[DEBUG] False heel strikes ALL trials: ", paste(sort(unique(false_heelstrikes$trialNum)), collapse = ", "))
+        debug_msg(paste0("[DEBUG] False heel strikes columns: ", paste(names(false_heelstrikes), collapse = ", ")), 2)
+        debug_msg(paste0("[DEBUG] False heel strikes sample participants: ", paste(unique(false_heelstrikes$participant)[1:min(5, length(unique(false_heelstrikes$participant)))], collapse = ", ")), 2)
+        debug_msg(paste0("[DEBUG] False heel strikes ALL trials: ", paste(sort(unique(false_heelstrikes$trialNum)), collapse = ", ")), 1)
         false_heelstrikes$participant <- as.character(false_heelstrikes$participant)
         false_heelstrikes$trialNum <- as.numeric(false_heelstrikes$trialNum)
         false_heelstrikes$time <- as.numeric(false_heelstrikes$time)
@@ -529,9 +540,9 @@ load_outliers <- function() {
     if (file.exists(outliers_path)) {
         message("[INFO] Loading outliers from: ", outliers_path)
         outliers <- read.csv(outliers_path, stringsAsFactors = FALSE)
-        message("[DEBUG] Outliers columns: ", paste(names(outliers), collapse = ", "))
-        message("[DEBUG] Outliers sample participants: ", paste(unique(outliers$participant)[1:min(5, length(unique(outliers$participant)))], collapse = ", "))
-        message("[DEBUG] Outliers ALL trials: ", paste(sort(unique(outliers$trialNum)), collapse = ", "))
+        debug_msg(paste0("[DEBUG] Outliers columns: ", paste(names(outliers), collapse = ", ")), 2)
+        debug_msg(paste0("[DEBUG] Outliers sample participants: ", paste(unique(outliers$participant)[1:min(5, length(unique(outliers$participant)))], collapse = ", ")), 2)
+        debug_msg(paste0("[DEBUG] Outliers ALL trials: ", paste(sort(unique(outliers$trialNum)), collapse = ", ")), 1)
         outliers$participant <- as.character(outliers$participant)
         outliers$trialNum <- as.numeric(outliers$trialNum)
         outliers$time <- as.numeric(outliers$time)
@@ -703,7 +714,7 @@ add_heelstrike_neighbors <- function(df, k = NEIGHBOR_K) {
     sort_start <- Sys.time()
     data.table::setorder(df, participant, trialNum, time)
     sort_time <- Sys.time()
-    message("[TIMING] Data sorting completed in: ", round(difftime(sort_time, sort_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Data sorting completed in: ", round(difftime(sort_time, sort_start, units = "secs"), 2), " seconds"), 2)
 
     # Add neighbor features for ANY foot (sequential heel strikes)
     any_foot_start <- Sys.time()
@@ -720,7 +731,7 @@ add_heelstrike_neighbors <- function(df, k = NEIGHBOR_K) {
         }
     }
     any_foot_time <- Sys.time()
-    message("[TIMING] Any foot neighbor features created in: ", round(difftime(any_foot_time, any_foot_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Any foot neighbor features created in: ", round(difftime(any_foot_time, any_foot_start, units = "secs"), 2), " seconds"), 2)
 
     # Add neighbor features for SAME foot
     same_foot_start <- Sys.time()
@@ -737,14 +748,14 @@ add_heelstrike_neighbors <- function(df, k = NEIGHBOR_K) {
         }
     }
     same_foot_time <- Sys.time()
-    message("[TIMING] Same foot neighbor features created in: ", round(difftime(same_foot_time, same_foot_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Same foot neighbor features created in: ", round(difftime(same_foot_time, same_foot_start, units = "secs"), 2), " seconds"), 2)
 
     # Add time-based features
     time_features_start <- Sys.time()
     df[, time_diff_prev := c(NA, diff(time)), by = .(participant, trialNum)]
     df[, time_diff_next := c(diff(time), NA), by = .(participant, trialNum)]
     time_features_time <- Sys.time()
-    message("[TIMING] Time-based features created in: ", round(difftime(time_features_time, time_features_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Time-based features created in: ", round(difftime(time_features_time, time_features_start, units = "secs"), 2), " seconds"), 2)
 
     # Add step length approximations (distance between consecutive heel strikes)
     distance_features_start <- Sys.time()
@@ -757,7 +768,7 @@ add_heelstrike_neighbors <- function(df, k = NEIGHBOR_K) {
     by = .(participant, trialNum)
     ]
     distance_features_time <- Sys.time()
-    message("[TIMING] Distance features created in: ", round(difftime(distance_features_time, distance_features_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Distance features created in: ", round(difftime(distance_features_time, distance_features_start, units = "secs"), 2), " seconds"), 2)
 
     result <- as.data.frame(df)
     neighbor_end_time <- Sys.time()
@@ -870,8 +881,8 @@ predict_heelstrike_outliers <- function(model_result, data_files, outliers_data,
 # --------------------------- 9. Step outlier prediction functions ---------- #
 # Extract step data from raw gait data
 standardise_steps <- function(df) {
-    message("[DEBUG] standardise_steps called with input data: ", nrow(df), " rows, ", ncol(df), " columns")
-    message("[DEBUG] Input columns: ", paste(names(df), collapse = ", "))
+    debug_msg(paste0("[DEBUG] standardise_steps called with input data: ", nrow(df), " rows, ", ncol(df), " columns"), 2)
+    debug_msg(paste0("[DEBUG] Input columns: ", paste(names(df), collapse = ", ")), 2)
 
     df <- as.data.frame(df)
 
@@ -883,7 +894,7 @@ standardise_steps <- function(df) {
     }
 
     available_cols <- intersect(required_cols, names(df))
-    message("[DEBUG] Available required columns: ", paste(available_cols, collapse = ", "))
+    debug_msg(paste0("[DEBUG] Available required columns: ", paste(available_cols, collapse = ", ")), 2)
 
     # Standardize step columns - direct mapping since we know the column names exist
     # Note: stepTimes = step duration (feature), time = step timestamp (for matching outliers)
@@ -901,19 +912,19 @@ standardise_steps <- function(df) {
         select_if(~ !all(is.na(.))) %>%
         arrange(participant, trialNum, stepTime)
 
-    message("[DEBUG] standardise_steps output before normalization: ", nrow(result), " rows, ", ncol(result), " columns")
-    message("[DEBUG] Output columns: ", paste(names(result), collapse = ", "))
+    debug_msg(paste0("[DEBUG] standardise_steps output before normalization: ", nrow(result), " rows, ", ncol(result), " columns"), 1)
+    debug_msg(paste0("[DEBUG] Output columns: ", paste(names(result), collapse = ", ")), 2)
 
     if (nrow(result) == 0) {
         message("[WARN] standardise_steps returned 0 rows - possible data filtering issue")
-        message("[DEBUG] Original data had stepTime NAs: ", sum(is.na(df$time)))
-        message("[DEBUG] Original data had stepLengths NAs: ", sum(is.na(df$stepLengths)))
+        debug_msg(paste0("[DEBUG] Original data had stepTime NAs: ", sum(is.na(df$time))), 2)
+        debug_msg(paste0("[DEBUG] Original data had stepLengths NAs: ", sum(is.na(df$stepLengths))), 2)
     }
 
     # **NEW: WITHIN-TRIAL NORMALIZATION**
     # This ensures the model learns relative patterns within trials rather than absolute patterns across trials
     if (nrow(result) > 0) {
-        message("[DEBUG] Applying within-trial normalization...")
+        debug_msg("[DEBUG] Applying within-trial normalization...", 1)
 
         # Features to normalize within each trial
         features_to_normalize <- c("stepDuration", "stepLengths", "stepWidths", "stepVelocity")
@@ -937,10 +948,10 @@ standardise_steps <- function(df) {
             # Convert back to data.frame
             result <- as.data.frame(dt_result)
 
-            message("[DEBUG] Within-trial normalization completed for features: ", paste(existing_features, collapse = ", "))
-            message("[DEBUG] Raw features preserved with '_raw' suffix for debugging")
+            debug_msg(paste0("[DEBUG] Within-trial normalization completed for features: ", paste(existing_features, collapse = ", ")), 1)
+            debug_msg("[DEBUG] Raw features preserved with '_raw' suffix for debugging", 2)
         } else {
-            message("[DEBUG] No features found for within-trial normalization")
+            debug_msg("[DEBUG] No features found for within-trial normalization", 2)
         }
     }
 
@@ -968,7 +979,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
     sort_start <- Sys.time()
     data.table::setorder(df, participant, trialNum, stepTime)
     sort_time <- Sys.time()
-    message("[TIMING] Step data sorting completed in: ", round(difftime(sort_time, sort_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Step data sorting completed in: ", round(difftime(sort_time, sort_start, units = "secs"), 2), " seconds"), 2)
 
     # Add neighbor features for steps
     step_neighbors_start <- Sys.time()
@@ -985,14 +996,14 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
         }
     }
     step_neighbors_time <- Sys.time()
-    message("[TIMING] Step neighbor features created in: ", round(difftime(step_neighbors_time, step_neighbors_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Step neighbor features created in: ", round(difftime(step_neighbors_time, step_neighbors_start, units = "secs"), 2), " seconds"), 2)
 
     # Add time-based features
     time_features_start <- Sys.time()
     df[, step_time_diff_prev := c(NA, diff(stepTime)), by = .(participant, trialNum)]
     df[, step_time_diff_next := c(diff(stepTime), NA), by = .(participant, trialNum)]
     time_features_time <- Sys.time()
-    message("[TIMING] Step time-based features created in: ", round(difftime(time_features_time, time_features_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Step time-based features created in: ", round(difftime(time_features_time, time_features_start, units = "secs"), 2), " seconds"), 2)
 
     # Add heel strike outlier context features
     heel_strike_context_start <- Sys.time()
@@ -1010,7 +1021,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
                 is_hs_outlier = TRUE
             )]
         lookup_creation_time <- Sys.time()
-        message("[TIMING] Heel strike lookup creation completed in: ", round(difftime(lookup_creation_time, lookup_creation_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Heel strike lookup creation completed in: ", round(difftime(lookup_creation_time, lookup_creation_start, units = "secs"), 2), " seconds"), 2)
 
         # Add rounded time columns to step data for efficient matching
         rounding_start <- Sys.time()
@@ -1018,7 +1029,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
         df[, step_start_rounded := round(as.numeric(stepTime), 2)]
         df[, step_end_rounded := round(as.numeric(stepTime), 2)]
         rounding_time <- Sys.time()
-        message("[TIMING] Time rounding completed in: ", round(difftime(rounding_time, rounding_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Time rounding completed in: ", round(difftime(rounding_time, rounding_start, units = "secs"), 2), " seconds"), 2)
 
         # Initialize heel strike outlier context columns
         df[, step_start_hs_outlier := FALSE]
@@ -1040,7 +1051,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
             ]
         }
         start_matching_time <- Sys.time()
-        message("[TIMING] Step start heel strike matching completed in: ", round(difftime(start_matching_time, start_matching_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Step start heel strike matching completed in: ", round(difftime(start_matching_time, start_matching_start, units = "secs"), 2), " seconds"), 2)
 
         # Vectorized matching for step end heel strike outliers
         end_matching_start <- Sys.time()
@@ -1058,7 +1069,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
             ]
         }
         end_matching_time <- Sys.time()
-        message("[TIMING] Step end heel strike matching completed in: ", round(difftime(end_matching_time, end_matching_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Step end heel strike matching completed in: ", round(difftime(end_matching_time, end_matching_start, units = "secs"), 2), " seconds"), 2)
 
         # Clean up temporary columns
         df[, c("step_start_rounded", "step_end_rounded") := NULL]
@@ -1086,7 +1097,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
             as.numeric(ifelse(is.na(next_step_start_hs_outlier), 0, next_step_start_hs_outlier)) +
             as.numeric(ifelse(is.na(next_step_end_hs_outlier), 0, next_step_end_hs_outlier))]
         context_features_time <- Sys.time()
-        message("[TIMING] Context features creation completed in: ", round(difftime(context_features_time, context_features_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Context features creation completed in: ", round(difftime(context_features_time, context_features_start, units = "secs"), 2), " seconds"), 2)
     } else {
         # No heel strike outliers available - add dummy features
         message("[DEBUG] No heel strike outliers provided, adding dummy features")
@@ -1099,7 +1110,7 @@ add_step_neighbors_and_heelstrike_context <- function(df, updated_heelstrike_out
         df[, nearby_hs_outliers := 0]
     }
     heel_strike_context_time <- Sys.time()
-    message("[TIMING] Total heel strike context processing completed in: ", round(difftime(heel_strike_context_time, heel_strike_context_start, units = "secs"), 2), " seconds")
+    debug_msg(paste0("[TIMING] Total heel strike context processing completed in: ", round(difftime(heel_strike_context_time, heel_strike_context_start, units = "secs"), 2), " seconds"), 2)
 
     result <- as.data.frame(df)
     step_feature_end_time <- Sys.time()
@@ -1436,8 +1447,8 @@ get_trials_with_data <- function(data, data_type) {
 
     # Debug the returned data types
     if (nrow(result) > 0) {
-        message("[DEBUG] Returned trials participant type: ", class(result$participant[1]), " sample: '", result$participant[1], "'")
-        message("[DEBUG] Returned trials trialNum type: ", class(result$trialNum[1]), " sample: ", result$trialNum[1])
+        debug_msg(paste0("[DEBUG] Returned trials participant type: ", class(result$participant[1]), " sample: '", result$participant[1], "'"), 2)
+        debug_msg(paste0("[DEBUG] Returned trials trialNum type: ", class(result$trialNum[1]), " sample: ", result$trialNum[1]), 2)
     }
 
     return(result)
@@ -1513,12 +1524,12 @@ get_prediction_trials <- function(raw_data, existing_outlier_trials, trials_to_e
 
     # Show sample of trials to check for data type issues
     if (nrow(all_trials) > 0) {
-        message("[DEBUG] Sample all_trials participant type: ", class(all_trials$participant[1]), " value: '", all_trials$participant[1], "'")
-        message("[DEBUG] Sample all_trials trialNum type: ", class(all_trials$trialNum[1]), " value: ", all_trials$trialNum[1])
+        debug_msg(paste0("[DEBUG] Sample all_trials participant type: ", class(all_trials$participant[1]), " value: '", all_trials$participant[1], "'"), 2)
+        debug_msg(paste0("[DEBUG] Sample all_trials trialNum type: ", class(all_trials$trialNum[1]), " value: ", all_trials$trialNum[1]), 2)
     }
     if (nrow(standardized_existing_trials) > 0) {
-        message("[DEBUG] Sample existing_trials participant type: ", class(standardized_existing_trials$participant[1]), " value: '", standardized_existing_trials$participant[1], "'")
-        message("[DEBUG] Sample existing_trials trialNum type: ", class(standardized_existing_trials$trialNum[1]), " value: ", standardized_existing_trials$trialNum[1])
+        debug_msg(paste0("[DEBUG] Sample existing_trials participant type: ", class(standardized_existing_trials$participant[1]), " value: '", standardized_existing_trials$participant[1], "'"), 2)
+        debug_msg(paste0("[DEBUG] Sample existing_trials trialNum type: ", class(standardized_existing_trials$trialNum[1]), " value: ", standardized_existing_trials$trialNum[1]), 2)
     }
 
     result <- all_trials %>%
@@ -1560,24 +1571,30 @@ train_outlier_model <- function(train_df, model_name, exclude_cols = c("particip
                         median_val <- median(train_df[[col]], na.rm = TRUE)
                         if (!is.na(median_val)) {
                             train_df[[col]][is.na(train_df[[col]])] <- median_val
-                            message("[DEBUG] Imputed ", na_count, " NAs in ", col, " with median: ", round(median_val, 3))
+                            debug_msg(paste0("[DEBUG] Imputed ", na_count, " NAs in ", col, " with median: ", round(median_val, 3)), 2)
                         }
                     } else {
                         # Use mode imputation for non-numeric columns
                         mode_val <- names(sort(table(train_df[[col]]), decreasing = TRUE))[1]
                         if (!is.na(mode_val)) {
                             train_df[[col]][is.na(train_df[[col]])] <- mode_val
-                            message("[DEBUG] Imputed NAs in ", col, " with mode: ", mode_val)
+                            debug_msg(paste0("[DEBUG] Imputed NAs in ", col, " with mode: ", mode_val), 2)
                         }
                     }
                 }
+            }
+
+            # Summary of imputation
+            imputed_cols <- sum(sapply(feature_cols_temp, function(col) any(is.na(train_df[[col]]))))
+            if (imputed_cols > 0) {
+                debug_msg(paste0("[DEBUG] Completed imputation for ", length(feature_cols_temp), " feature columns"), 1)
             }
 
             # Final check: remove any rows that still have NAs (should be rare)
             original_after_impute <- nrow(train_df)
             train_df <- train_df %>% drop_na()
             if (nrow(train_df) < original_after_impute) {
-                message("[DEBUG] Removed ", original_after_impute - nrow(train_df), " rows that still had NAs after imputation")
+                debug_msg(paste0("[DEBUG] Removed ", original_after_impute - nrow(train_df), " rows that still had NAs after imputation"), 1)
             }
         }
     }
@@ -1918,7 +1935,7 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
         trial_selection_start <- Sys.time()
         trials_to_predict <- get_prediction_trials(raw_data, existing_outlier_trials)
         trial_selection_time <- Sys.time()
-        message("[TIMING] Trial selection completed in: ", round(difftime(trial_selection_time, trial_selection_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Trial selection completed in: ", round(difftime(trial_selection_time, trial_selection_start, units = "secs"), 2), " seconds"), 2)
 
         if (nrow(trials_to_predict) == 0) {
             message("[INFO] No new ", model_name, " trials to predict in ", file)
@@ -1933,19 +1950,19 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
             standardize_join_columns() %>%
             inner_join(trials_to_predict, by = c("participant", "trialNum"))
         filtering_time <- Sys.time()
-        message("[TIMING] Data filtering completed in: ", round(difftime(filtering_time, filtering_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Data filtering completed in: ", round(difftime(filtering_time, filtering_start, units = "secs"), 2), " seconds"), 2)
 
         # Standardize and add features
         standardization_start <- Sys.time()
         std_data <- standardize_func(predict_data)
         standardization_time <- Sys.time()
-        message("[TIMING] Data standardization completed in: ", round(difftime(standardization_time, standardization_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Data standardization completed in: ", round(difftime(standardization_time, standardization_start, units = "secs"), 2), " seconds"), 2)
 
         feature_creation_start <- Sys.time()
         std_data <- add_features_func(std_data)
         feature_creation_time <- Sys.time()
-        message("[TIMING] Feature creation completed in: ", round(difftime(feature_creation_time, feature_creation_start, units = "secs"), 2), " seconds")
-        message("[DEBUG] Data with features dimensions: ", nrow(std_data), " x ", ncol(std_data))
+        debug_msg(paste0("[TIMING] Feature creation completed in: ", round(difftime(feature_creation_time, feature_creation_start, units = "secs"), 2), " seconds"), 2)
+        debug_msg(paste0("[DEBUG] Data with features dimensions: ", nrow(std_data), " x ", ncol(std_data)), 1)
 
         # Handle missing values with imputation (same as training)
         cleaning_start <- Sys.time()
@@ -1985,8 +2002,8 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
         }
 
         cleaning_time <- Sys.time()
-        message("[TIMING] Data cleaning completed in: ", round(difftime(cleaning_time, cleaning_start, units = "secs"), 2), " seconds")
-        message("[DEBUG] Complete data dimensions: ", nrow(complete_data), " x ", ncol(complete_data))
+        debug_msg(paste0("[TIMING] Data cleaning completed in: ", round(difftime(cleaning_time, cleaning_start, units = "secs"), 2), " seconds"), 2)
+        debug_msg(paste0("[DEBUG] Complete data dimensions: ", nrow(complete_data), " x ", ncol(complete_data)), 1)
 
         if (nrow(complete_data) == 0) {
             message("[WARN] No complete ", model_name, " data for prediction in ", file)
@@ -2016,7 +2033,7 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
         )
 
         model_prediction_time <- Sys.time()
-        message("[TIMING] Model prediction completed in: ", round(difftime(model_prediction_time, model_prediction_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Model prediction completed in: ", round(difftime(model_prediction_time, model_prediction_start, units = "secs"), 2), " seconds"), 2)
 
         # Add predictions to data
         post_processing_start <- Sys.time()
@@ -2055,7 +2072,7 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
             dplyr::filter(pred_outlier == TRUE) %>%
             select(participant, trialNum, time = all_of(time_column), pred_outlier_prob)
         post_processing_time <- Sys.time()
-        message("[TIMING] Post-processing completed in: ", round(difftime(post_processing_time, post_processing_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Post-processing completed in: ", round(difftime(post_processing_time, post_processing_start, units = "secs"), 2), " seconds"), 2)
 
         if (nrow(predicted_outliers) > 0) {
             message("[INFO] Predicted ", nrow(predicted_outliers), " ", model_name, " outliers")
@@ -2063,7 +2080,7 @@ predict_outliers_generic <- function(model_result, data_files, existing_outlier_
         }
 
         file_time <- Sys.time()
-        message("[TIMING] Total processing for ", basename(file), " completed in: ", round(difftime(file_time, file_start, units = "secs"), 2), " seconds")
+        debug_msg(paste0("[TIMING] Total processing for ", basename(file), " completed in: ", round(difftime(file_time, file_start, units = "secs"), 2), " seconds"), 2)
     }
 
     prediction_end_time <- Sys.time()
