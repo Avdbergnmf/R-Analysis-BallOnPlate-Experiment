@@ -483,18 +483,23 @@ if (!dir.exists(models_dir)) {
 }
 
 # Training data file (RDS file with all gait parameters) - from results folder
-train_files <- c(file.path(runtime_dir, "results", "allGaitParams.rds"))
+training_data_dir <- file.path(runtime_dir, "results")
+train_files <- c(file.path(training_data_dir, "allGaitParams.rds"))
 
 # Since we're using the same file for training and prediction, we'll predict on trials
 # that don't have existing outliers within the same dataset
 
 ## -------------------------------------------------------------------------- ##
 
-# --------------------------- 1. Packages ----------------------------------- #
+# --------------------------- 1. Packages & Initialization ------------------ #
 required <- c("dplyr", "tidyr", "caret", "randomForest", "data.table", "parallel", "pROC", "foreach")
 new_pkgs <- required[!required %in% installed.packages()[, "Package"]]
 if (length(new_pkgs)) install.packages(new_pkgs, quiet = TRUE)
 lapply(required, library, character.only = TRUE)
+
+# Load initialization script for file path definitions
+source(file.path(runtime_dir, "source", "initialization.R"))
+initialize_global_parameters()
 
 # --------------------------- 2. Load data ---------------------------------- #
 load_outliers <- function() {
@@ -896,13 +901,47 @@ standardise_steps <- function(df) {
         select_if(~ !all(is.na(.))) %>%
         arrange(participant, trialNum, stepTime)
 
-    message("[DEBUG] standardise_steps output: ", nrow(result), " rows, ", ncol(result), " columns")
+    message("[DEBUG] standardise_steps output before normalization: ", nrow(result), " rows, ", ncol(result), " columns")
     message("[DEBUG] Output columns: ", paste(names(result), collapse = ", "))
 
     if (nrow(result) == 0) {
         message("[WARN] standardise_steps returned 0 rows - possible data filtering issue")
         message("[DEBUG] Original data had stepTime NAs: ", sum(is.na(df$time)))
         message("[DEBUG] Original data had stepLengths NAs: ", sum(is.na(df$stepLengths)))
+    }
+
+    # **NEW: WITHIN-TRIAL NORMALIZATION**
+    # This ensures the model learns relative patterns within trials rather than absolute patterns across trials
+    if (nrow(result) > 0) {
+        message("[DEBUG] Applying within-trial normalization...")
+
+        # Features to normalize within each trial
+        features_to_normalize <- c("stepDuration", "stepLengths", "stepWidths", "stepVelocity")
+        existing_features <- intersect(features_to_normalize, names(result))
+
+        if (length(existing_features) > 0) {
+            # Convert to data.table for efficient grouping
+            dt_result <- data.table::as.data.table(result)
+
+            # Normalize each feature within participant-trial groups
+            for (feature in existing_features) {
+                # Z-score normalization within each trial
+                dt_result[, paste0(feature, "_raw") := get(feature)] # Keep raw values for debugging
+                dt_result[, paste0(feature, "_norm") := scale(get(feature))[, 1], by = .(participant, trialNum)]
+
+                # Replace the original feature with normalized version
+                dt_result[, (feature) := get(paste0(feature, "_norm"))]
+                dt_result[, paste0(feature, "_norm") := NULL] # Remove temp column
+            }
+
+            # Convert back to data.frame
+            result <- as.data.frame(dt_result)
+
+            message("[DEBUG] Within-trial normalization completed for features: ", paste(existing_features, collapse = ", "))
+            message("[DEBUG] Raw features preserved with '_raw' suffix for debugging")
+        } else {
+            message("[DEBUG] No features found for within-trial normalization")
+        }
     }
 
     return(result)
