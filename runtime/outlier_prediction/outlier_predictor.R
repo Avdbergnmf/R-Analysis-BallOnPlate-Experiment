@@ -1430,12 +1430,16 @@ get_trials_with_data <- function(data, data_type) {
     result <- target_data %>%
         select(participant, trialNum) %>%
         distinct() %>%
-        mutate(
-            participant = as.character(participant),
-            trialNum = as.numeric(trialNum)
-        )
+        standardize_join_columns() # Use the standardize function for consistency
 
     message("[DEBUG] get_trials_with_data returning ", nrow(result), " trials for data_type: ", data_type)
+
+    # Debug the returned data types
+    if (nrow(result) > 0) {
+        message("[DEBUG] Returned trials participant type: ", class(result$participant[1]), " sample: '", result$participant[1], "'")
+        message("[DEBUG] Returned trials trialNum type: ", class(result$trialNum[1]), " sample: ", result$trialNum[1])
+    }
+
     return(result)
 }
 
@@ -1499,9 +1503,32 @@ get_prediction_trials <- function(raw_data, existing_outlier_trials, trials_to_e
         distinct() %>%
         standardize_join_columns()
 
-    all_trials %>%
-        anti_join(existing_outlier_trials, by = c("participant", "trialNum")) %>%
+    # CRITICAL FIX: Standardize existing_outlier_trials data types for proper anti_join
+    standardized_existing_trials <- existing_outlier_trials %>%
+        standardize_join_columns()
+
+    # Debug information to verify the anti_join is working
+    message("[DEBUG] All trials before anti_join: ", nrow(all_trials))
+    message("[DEBUG] Existing outlier trials: ", nrow(standardized_existing_trials))
+
+    # Show sample of trials to check for data type issues
+    if (nrow(all_trials) > 0) {
+        message("[DEBUG] Sample all_trials participant type: ", class(all_trials$participant[1]), " value: '", all_trials$participant[1], "'")
+        message("[DEBUG] Sample all_trials trialNum type: ", class(all_trials$trialNum[1]), " value: ", all_trials$trialNum[1])
+    }
+    if (nrow(standardized_existing_trials) > 0) {
+        message("[DEBUG] Sample existing_trials participant type: ", class(standardized_existing_trials$participant[1]), " value: '", standardized_existing_trials$participant[1], "'")
+        message("[DEBUG] Sample existing_trials trialNum type: ", class(standardized_existing_trials$trialNum[1]), " value: ", standardized_existing_trials$trialNum[1])
+    }
+
+    result <- all_trials %>%
+        anti_join(standardized_existing_trials, by = c("participant", "trialNum")) %>%
         exclude_trials(trials_to_exclude)
+
+    message("[DEBUG] Trials after anti_join: ", nrow(result))
+    message("[DEBUG] Successfully excluded ", nrow(all_trials) - nrow(result) - length(trials_to_exclude), " trials with existing outliers")
+
+    return(result)
 }
 
 
