@@ -1,6 +1,10 @@
 ### Actions
 
 ```{r}
+# Load shinyjs for enable/disable functionality
+library(shinyjs)
+useShinyjs()
+
 tags$style(HTML("
   .section-header {
     background-color: #f8f9fa;
@@ -21,9 +25,9 @@ tags$style(HTML("
 # Plot Data Selection
 HTML('<div class="section-header">📊 Data Selection</div>')
 
-selectizeInput("participant", "Participant",
+selectizeInput("participant_16", "Participant",
   choices = participants, selected = participants[1], multiple = FALSE)
-selectizeInput("trialNum", "Trial Number",
+selectizeInput("trialNum_16", "Trial Number",
   choices = allTrials, selected = allTrials[4], multiple = FALSE)
 
 HTML('<div class="section-header">📈 Plot Axes</div>')
@@ -53,16 +57,51 @@ checkboxInput("show_outliers_on_plot", "Show outliers on plot", value = TRUE)
 
 HTML('<div class="section-header">📂 Import/Export</div>')
 
-actionButton("load_default_outliers", "📂 Load Default Outlier Files", 
-             class = "btn-info", style = "margin-bottom: 10px; font-weight: bold;")
+fluidRow(
+  column(6,
+    actionButton("load_manual_outliers", "📂 Load Manual Files", 
+                 class = "btn-info", style = "margin-bottom: 10px; font-weight: bold; width: 100%;")
+  ),
+  column(6,
+    actionButton("load_param_outliers", "🤖 Load Param Files", 
+                 class = "btn-warning", style = "margin-bottom: 10px; font-weight: bold; width: 100%;")
+  )
+)
 
-fileInput("importHeelStrikeOutliers", "Import Heel Strike Outliers",
-  accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"))
-downloadButton("export_heelstrike_outliers", "📤 Export Heel Strikes", class = "btn-secondary")
+# Include external drag & drop components
+includeHTML("page16_drag_drop_components.html")
 
-fileInput("importStepOutliers", "Import Step Outliers",
-  accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"))
-downloadButton("export_step_outliers", "📤 Export Steps", class = "btn-secondary")
+# Custom drag & drop file inputs with enhanced UI
+div(
+  
+  # Heel Strike Outliers drag & drop zone
+  div(
+    class = "drag-drop-zone",
+    id = "heelstrike-drop-zone",
+    div(class = "drag-drop-icon", "❌"),
+    div(class = "drag-drop-text", strong("Import Heel Strike Outliers")),
+    div(class = "drag-drop-hint", "Drag & drop CSV file here or click to browse"),
+    fileInput("importHeelStrikeOutliers", NULL, 
+              accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"),
+              multiple = FALSE, buttonLabel = NULL, placeholder = NULL)
+  ),
+  
+  br(),
+  
+  # Step Outliers drag & drop zone
+  div(
+    class = "drag-drop-zone",
+    id = "step-drop-zone",
+    div(class = "drag-drop-icon", "◐"),
+    div(class = "drag-drop-text", strong("Import Step Outliers")),
+    div(class = "drag-drop-hint", "Drag & drop CSV file here or click to browse"),
+    fileInput("importStepOutliers", NULL,
+              accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"),
+              multiple = FALSE, buttonLabel = NULL, placeholder = NULL)
+  ),
+  
+
+)
 ```
 
 ```{r}
@@ -72,6 +111,19 @@ actionButton("overwrite_outliers", "⚡ Overwrite All Outliers in Dataset",
   class = "btn-success", style = "font-weight: bold;")
 
 HTML('<div class="section-header">💾 Data Management</div>')
+
+fluidRow(
+  column(6, 
+    actionButton("save_changes", "💾 Save Changes", class = "btn-success", 
+                 style = "font-weight: bold; width: 100%;")
+  ),
+  column(6, 
+    actionButton("save_as", "💾 Save As...", class = "btn-info", 
+                 style = "font-weight: bold; width: 100%;")
+  )
+)
+
+br()
 
 downloadButton("save_rds", "💾 Save Parameters to RDS", class = "btn-warning")
 
@@ -85,8 +137,7 @@ checkboxInput("autosave_overwrite", "Overwrite default files (instead of timesta
 
 uiOutput("overwrite_warning")
 
-actionButton("manual_backup", "💾 Manual Backup Both Tables", 
-             class = "btn-warning", style = "margin-top: 10px; font-weight: bold;")
+
 ```
 
 
@@ -102,14 +153,21 @@ Also be aware that the data shown here is also based on the selection of data in
 Finally, this also includes a button on the left to save the new outliers to a `.rds` file (you can use this to overwrite the original automatic calculation of the outliers, which is far from correct).
 
 ```{r}
-# Navigation buttons for jumping between special heel strikes
+# Navigation buttons for jumping between special heel strikes and trials
 fluidRow(
   column(12, 
     div(style = "text-align: center; margin: 15px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;",
+      # Trial navigation buttons
+      actionButton("nav_prev_trial", "⬅️ Previous Trial", 
+                   class = "btn-secondary", style = "margin-right: 5px;"),
+      # Special step navigation buttons
       actionButton("nav_prev_special", "⬅️ Previous Special", 
-                   class = "btn-info", style = "margin-right: 10px;"),
+                   class = "btn-info", style = "margin-right: 10px; margin-left: 5px;"),
       actionButton("nav_next_special", "➡️ Next Special", 
-                   class = "btn-info", style = "margin-left: 10px;"),
+                   class = "btn-info", style = "margin-left: 10px; margin-right: 5px;"),
+      # Trial navigation buttons
+      actionButton("nav_next_trial", "➡️ Next Trial", 
+                   class = "btn-secondary", style = "margin-left: 5px;"),
       br(),
       div(style = "margin-top: 8px; font-size: 12px; color: #666;",
           textOutput("nav_status", inline = TRUE))
@@ -132,6 +190,12 @@ Column
 - These heel strikes will be completely excluded from step calculations
 
 ```{r}
+div(style = "margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #ffc107;",
+    div(style = "font-size: 12px; font-weight: bold; color: #495057;", "Current Working File:"),
+    div(style = "font-size: 11px; color: #6c757d; font-family: monospace;", 
+        textOutput("current_hs_file", inline = TRUE))
+)
+
 DT::dataTableOutput("heelStrikeOutliersTable")
 ```
 
@@ -147,6 +211,12 @@ checkboxInput("filter_outliers_table", "Filter tables by current participant/tri
 - These heel strikes will be marked as outliers in statistical analysis
 
 ```{r}
+div(style = "margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #007bff;",
+    div(style = "font-size: 12px; font-weight: bold; color: #495057;", "Current Working File:"),
+    div(style = "font-size: 11px; color: #6c757d; font-family: monospace;", 
+        textOutput("current_step_file", inline = TRUE))
+)
+
 DT::dataTableOutput("stepOutliersTable")
 ```
 
@@ -223,8 +293,15 @@ observeEvent(input$importHeelStrikeOutliers, {
       df <- df[, required_cols, drop = FALSE]
       
       heelstrike_outliers(df)
-      showNotification(paste("Heel strike outliers imported:", nrow(df), "outliers loaded"), type = "message")
       last_hs_filename(basename(input$importHeelStrikeOutliers$name))
+      
+      # Mark as changes made since we loaded new data
+      current_hash <- calculate_current_hash()
+      last_saved_hs_hash(current_hash$hs)
+      last_saved_step_hash(current_hash$step)
+      changes_made(FALSE)  # Fresh load, no unsaved changes
+      
+      showNotification(paste("Heel strike outliers imported:", nrow(df), "outliers loaded from", basename(input$importHeelStrikeOutliers$name)), type = "message")
     } else {
       showNotification("Invalid CSV format. Required columns: participant, trialNum, time", type = "error")
     }
@@ -259,19 +336,26 @@ observeEvent(input$importStepOutliers, {
     }
     
     step_outliers(df)
-    showNotification(paste("Step outliers imported:", nrow(df), "outliers loaded"), type = "message")
     last_step_filename(basename(input$importStepOutliers$name))
+    
+    # Mark as fresh load, no unsaved changes
+    current_hash <- calculate_current_hash()
+    last_saved_hs_hash(current_hash$hs)
+    last_saved_step_hash(current_hash$step)
+    changes_made(FALSE)  # Fresh load, no unsaved changes
+    
+    showNotification(paste("Step outliers imported:", nrow(df), "outliers loaded from", basename(input$importStepOutliers$name)), type = "message")
   }, error = function(e) {
     showNotification(paste("Error importing step outliers:", e$message), type = "error")
   })
 })
 
-# Load default outlier files
-observeEvent(input$load_default_outliers, {
+# Helper function to load outlier files
+load_outlier_files <- function(heel_filename, step_filename, file_type = "files") {
   tryCatch({
-    # Check if default files exist (match initialization.R pattern)
-    heel_file <- file.path(dataExtraFolder, falseHeelStrikesFile)
-    step_file <- file.path(dataExtraFolder, outliersFile)
+    # Check if files exist
+    heel_file <- file.path(dataExtraFolder, heel_filename)
+    step_file <- file.path(dataExtraFolder, step_filename)
     
     heel_exists <- file.exists(heel_file)
     step_exists <- file.exists(step_file)
@@ -279,7 +363,7 @@ observeEvent(input$load_default_outliers, {
     if (!heel_exists && !step_exists) {
       # Detailed error message with debugging info
       debug_msg <- paste0(
-        "No default outlier files found!\n\n",
+        "No ", file_type, " found!\n\n",
         "Working directory: ", getwd(), "\n",
         "dataExtraFolder: ", dataExtraFolder, "\n\n",
         "Checked paths:\n",
@@ -362,8 +446,14 @@ observeEvent(input$load_default_outliers, {
     if (length(errors) > 0) {
       showNotification(paste("Errors occurred:", paste(errors, collapse = "; ")), type = "error", duration = 10)
     } else {
+      # Reset change tracking since we loaded fresh data
+      current_hash <- calculate_current_hash()
+      last_saved_hs_hash(current_hash$hs)
+      last_saved_step_hash(current_hash$step)
+      changes_made(FALSE)  # Fresh load, no unsaved changes
+      
       success_msg <- paste0(
-        "✅ Default outlier files loaded successfully!\n",
+        "✅ ", tools::toTitleCase(file_type), " loaded successfully!\n",
         "❌ Heel strike outliers: ", heel_loaded, " entries\n",
         "◐ Step outliers: ", step_loaded, " entries"
       )
@@ -371,8 +461,18 @@ observeEvent(input$load_default_outliers, {
     }
     
   }, error = function(e) {
-    showNotification(paste("Error loading default outlier files:", e$message), type = "error", duration = 10)
+    showNotification(paste("Error loading", file_type, ":", e$message), type = "error", duration = 10)
   })
+}
+
+# Load manual outlier files
+observeEvent(input$load_manual_outliers, {
+  load_outlier_files(falseHeelStrikesFile, outliersFile, "manual outlier files")
+})
+
+# Load parameter-trained outlier files
+observeEvent(input$load_param_outliers, {
+  load_outlier_files(falseHeelStrikesParamFile, outliersParamFile, "parameter-trained outlier files")
 })
 
 # Reactive values to store heel strike and step outliers separately
@@ -393,12 +493,12 @@ step_outliers <- reactiveVal(data.frame(
 # Current outliers for the selected participant and trial
 current_heelstrike_outliers <- reactive({
   heelstrike_outliers() %>%
-    dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+    dplyr::filter(participant == input$participant_16 & trialNum == as.numeric(input$trialNum_16))
 })
 
 current_step_outliers <- reactive({
   step_outliers() %>%
-    dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+    dplyr::filter(participant == input$participant_16 & trialNum == as.numeric(input$trialNum_16))
 })
 
 # Reactive values to store current axis limits (for plot memory)
@@ -540,8 +640,8 @@ observeEvent(event_data("plotly_click"), {
   click_data <- event_data("plotly_click")
   
   if (!is.null(click_data) && is.list(click_data) && !is.null(click_data$x)) {
-    current_participant <- input$participant
-    current_trial <- as.numeric(input$trialNum)
+    current_participant <- input$participant_16
+    current_trial <- as.numeric(input$trialNum_16)
     clicked_time <- click_data$x
     
     params <- filteredParams()
@@ -598,10 +698,10 @@ observeEvent(event_data("plotly_click"), {
 
 # Navigation functionality for special heel strikes
 special_heel_strikes <- reactive({
-  req(filteredParams(), input$participant, input$trialNum)
+  req(filteredParams(), input$participant_16, input$trialNum_16)
   
-  current_participant <- input$participant
-  current_trial <- as.numeric(input$trialNum)
+  current_participant <- input$participant_16
+  current_trial <- as.numeric(input$trialNum_16)
   
   # Get current trial data
   trial_data <- filteredParams() %>%
@@ -658,7 +758,7 @@ special_heel_strikes <- reactive({
 navigate_to_time <- function(target_time, current_x_axis, current_y_axis) {
   # Get current axis ranges or use data ranges if not set
   current_data <- filteredParams() %>%
-    dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+    dplyr::filter(participant == input$participant_16 & trialNum == as.numeric(input$trialNum_16))
   
   if (nrow(current_data) == 0) return()
   
@@ -722,7 +822,7 @@ observeEvent(input$nav_prev_special, {
   } else {
     # If no zoom set, use middle of current trial data
     trial_data <- filteredParams() %>%
-      dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+      dplyr::filter(participant == input$participant_16 & trialNum == as.numeric(input$trialNum_16))
     if (nrow(trial_data) > 0) {
       mean(range(trial_data$time, na.rm = TRUE))
     } else {
@@ -767,7 +867,7 @@ observeEvent(input$nav_next_special, {
   } else {
     # If no zoom set, use middle of current trial data
     trial_data <- filteredParams() %>%
-      dplyr::filter(participant == input$participant & trialNum == as.numeric(input$trialNum))
+      dplyr::filter(participant == input$participant_16 & trialNum == as.numeric(input$trialNum_16))
     if (nrow(trial_data) > 0) {
       mean(range(trial_data$time, na.rm = TRUE))
     } else {
@@ -796,6 +896,105 @@ observeEvent(input$nav_next_special, {
   }
 })
 
+# Helper function to get available trials for a participant
+get_participant_trials <- function(participant) {
+  if (exists("allGaitParams") && !is.null(allGaitParams)) {
+    participant_trials <- unique(allGaitParams$trialNum[allGaitParams$participant == participant])
+    return(sort(as.numeric(participant_trials)))
+  } else {
+    return(sort(as.numeric(allTrials)))
+  }
+}
+
+# Update trial choices when participant changes
+observeEvent(input$participant_16, {
+  req(input$participant_16)
+  
+  # Get available trials for this participant
+  available_trials <- get_participant_trials(input$participant_16)
+  
+  # Update the trial choices
+  updateSelectizeInput(session, "trialNum_16", 
+                       choices = available_trials,
+                       selected = available_trials[1])
+}, ignoreInit = TRUE)
+
+# Previous trial navigation
+observeEvent(input$nav_prev_trial, {
+  current_participant <- input$participant_16
+  current_trial <- as.numeric(input$trialNum_16)
+  
+  # Get available trials for current participant
+  available_trials <- get_participant_trials(current_participant)
+  current_trial_idx <- which(available_trials == current_trial)
+  
+  if (length(current_trial_idx) > 0) {
+    if (current_trial_idx > 1) {
+      # Go to previous trial for same participant
+      new_trial <- available_trials[current_trial_idx - 1]
+      updateSelectizeInput(session, "trialNum_16", selected = new_trial)
+      showNotification(paste("Navigated to trial", new_trial, "for", current_participant), type = "message")
+    } else {
+      # Go to previous participant, last trial
+      current_participant_idx <- which(participants == current_participant)
+      if (length(current_participant_idx) > 0 && current_participant_idx > 1) {
+        new_participant <- participants[current_participant_idx - 1]
+        new_participant_trials <- get_participant_trials(new_participant)
+        new_trial <- new_participant_trials[length(new_participant_trials)] # Last trial
+        updateSelectizeInput(session, "participant_16", selected = new_participant)
+        # Trial selection will be updated automatically by the participant observer
+        showNotification(paste("Navigated to", new_participant, "trial", new_trial, "(previous participant)"), type = "message")
+      } else {
+        # Wrap to last participant, last trial
+        new_participant <- participants[length(participants)]
+        new_participant_trials <- get_participant_trials(new_participant)
+        new_trial <- new_participant_trials[length(new_participant_trials)]
+        updateSelectizeInput(session, "participant_16", selected = new_participant)
+        # Trial selection will be updated automatically by the participant observer
+        showNotification(paste("Wrapped to", new_participant, "trial", new_trial, "(last participant)"), type = "message")
+      }
+    }
+  }
+})
+
+# Next trial navigation
+observeEvent(input$nav_next_trial, {
+  current_participant <- input$participant_16
+  current_trial <- as.numeric(input$trialNum_16)
+  
+  # Get available trials for current participant
+  available_trials <- get_participant_trials(current_participant)
+  current_trial_idx <- which(available_trials == current_trial)
+  
+  if (length(current_trial_idx) > 0) {
+    if (current_trial_idx < length(available_trials)) {
+      # Go to next trial for same participant
+      new_trial <- available_trials[current_trial_idx + 1]
+      updateSelectizeInput(session, "trialNum_16", selected = new_trial)
+      showNotification(paste("Navigated to trial", new_trial, "for", current_participant), type = "message")
+    } else {
+      # Go to next participant, first trial
+      current_participant_idx <- which(participants == current_participant)
+      if (length(current_participant_idx) > 0 && current_participant_idx < length(participants)) {
+        new_participant <- participants[current_participant_idx + 1]
+        new_participant_trials <- get_participant_trials(new_participant)
+        new_trial <- new_participant_trials[1] # First trial
+        updateSelectizeInput(session, "participant_16", selected = new_participant)
+        # Trial selection will be updated automatically by the participant observer
+        showNotification(paste("Navigated to", new_participant, "trial", new_trial, "(next participant)"), type = "message")
+      } else {
+        # Wrap to first participant, first trial
+        new_participant <- participants[1]
+        new_participant_trials <- get_participant_trials(new_participant)
+        new_trial <- new_participant_trials[1]
+        updateSelectizeInput(session, "participant_16", selected = new_participant)
+        # Trial selection will be updated automatically by the participant observer
+        showNotification(paste("Wrapped to", new_participant, "trial", new_trial, "(first participant)"), type = "message")
+      }
+    }
+  }
+})
+
 # Status text showing current special heel strikes count
 output$nav_status <- renderText({
   special_data <- special_heel_strikes()
@@ -820,8 +1019,8 @@ plot_yaxis <- reactiveVal(NULL)
 output$manualOutlierPlot <- renderPlotly({
   
   # Check if we need to regenerate the base plot
-  current_participant <- input$participant
-  current_trial <- as.numeric(input$trialNum)
+  current_participant <- input$participant_16
+  current_trial <- as.numeric(input$trialNum_16)
   current_xaxis <- input$xplot_16
   current_yaxis <- input$yplot_16
   
@@ -1060,8 +1259,8 @@ step_table_initialized <- reactiveVal(FALSE)
 
 # Reusable function to create outlier tables (optimized for performance)
 create_outlier_table <- function(data, table_id, table_type, initialized_flag) {
-  current_participant <- input$participant
-  current_trial <- as.numeric(input$trialNum)
+  current_participant <- input$participant_16
+  current_trial <- as.numeric(input$trialNum_16)
   
   # Track filter mode changes (only if needed)
   current_filter_mode <- input$filter_outliers_table
@@ -1156,110 +1355,9 @@ create_outlier_table <- function(data, table_id, table_type, initialized_flag) {
 
 
 
-# Manual backup functionality
-observeEvent(input$manual_backup, {
-  # Check if there are any outliers to save
-  num_heelstrike <- nrow(heelstrike_outliers())
-  num_step <- nrow(step_outliers())
-  
-  if (num_heelstrike == 0 && num_step == 0) {
-    showNotification("No outliers to backup - both tables are empty", type = "message")
-    return()
-  }
-  
-  # Create confirmation message with details
-  backup_message <- paste0(
-    "Manual Backup Confirmation\n\n",
-    "This will overwrite the existing CSV files with current table data:\n\n",
-    "• Heel Strike Outliers: ", num_heelstrike, " entries\n",
-    "  → Will save to: ", file.path(dataExtraFolder, falseHeelStrikesFile), "\n\n",
-    "• Step Outliers: ", num_step, " entries\n",
-    "  → Will save to: ", file.path(dataExtraFolder, outliersFile), "\n\n",
-    "⚠️ This will permanently overwrite existing files!\n\n",
-    "Continue with backup?"
-  )
-  
-  # Show confirmation dialog
-  showModal(modalDialog(
-    title = "💾 Manual Backup Confirmation",
-    HTML(paste0(
-      "<div style='font-family: monospace; white-space: pre-line; background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;'>",
-      "<strong>Current Table Contents:</strong><br><br>",
-      "❌ <strong>Heel Strike Outliers:</strong> ", num_heelstrike, " entries<br>",
-      "   → File: <code>", file.path(dataExtraFolder, falseHeelStrikesFile), "</code><br><br>",
-      "◐ <strong>Step Outliers:</strong> ", num_step, " entries<br>", 
-      "   → File: <code>", file.path(dataExtraFolder, outliersFile), "</code><br><br>",
-      "<span style='color: #d9534f;'><strong>⚠️ Warning:</strong> This will permanently overwrite existing files!</span>",
-      "</div>"
-    )),
-    footer = tagList(
-      modalButton("❌ Cancel"),
-      actionButton("confirm_manual_backup", "✅ Confirm Backup", 
-                   class = "btn-warning", style = "font-weight: bold;")
-    ),
-    easyClose = TRUE,
-    size = "m"
-  ))
-})
 
-# Handle confirmed manual backup
-observeEvent(input$confirm_manual_backup, {
-  removeModal()
-  
-  tryCatch({
-    backup_success <- TRUE
-    
-    # Save heel strike outliers (match initialization.R pattern)
-    heel_save_path <- file.path(dataExtraFolder, falseHeelStrikesFile)
-    if (nrow(heelstrike_outliers()) > 0) {
-      write.csv(heelstrike_outliers(), heel_save_path, row.names = FALSE)
-    } else {
-      # Create empty file if no data
-      write.csv(data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)), 
-                heel_save_path, row.names = FALSE)
-    }
-    
-    # Save step outliers (match initialization.R pattern)
-    step_save_path <- file.path(dataExtraFolder, outliersFile)
-    if (nrow(step_outliers()) > 0) {
-      write.csv(step_outliers(), step_save_path, row.names = FALSE)
-    } else {
-      # Create empty file if no data
-      write.csv(data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0)), 
-                step_save_path, row.names = FALSE)
-    }
-    
-    showNotification(
-      paste("✅ Manual backup successful!", 
-            nrow(heelstrike_outliers()), "heel strike outliers and", 
-            nrow(step_outliers()), "step outliers saved to CSV files"),
-      type = "message", duration = 5
-    )
-    
-  }, error = function(e) {
-    showNotification(paste("❌ Backup failed:", e$message), type = "error", duration = 10)
-  })
-})
 
-# Export rotations to CSV
-# Export handlers 
-output$export_heelstrike_outliers <- downloadHandler(
-  filename = function() {
-    paste0("heelstrike_outliers_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
-  },
-  content = function(file) {
-    write.csv(heelstrike_outliers(), file, row.names = FALSE)
-  }
-)
 
-output$export_step_outliers <- downloadHandler(
-  filename = function() {
-    paste0("step_outliers_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".csv")
-  },
-  content = function(file) {
-    write.csv(step_outliers(), file, row.names = FALSE)
-  }
-)
 
 # Handle delete button events for heel strike outliers
 observe({
@@ -1698,8 +1796,8 @@ observeEvent(input$confirm_selection, {
   selected_data <- event_data("plotly_selected", source = "outlier_plot")
   
   if (!is.null(selected_data)) {
-    current_participant <- input$participant
-    current_trial <- as.numeric(input$trialNum)
+    current_participant <- input$participant_16
+    current_trial <- as.numeric(input$trialNum_16)
     
     params <- filteredParams()
     trial_data <- params[params$participant == current_participant &
@@ -1757,17 +1855,97 @@ output$save_rds <- downloadHandler(
 last_hs_filename  <- reactiveVal(falseHeelStrikesFile)
 last_step_filename <- reactiveVal(outliersFile)
 
+# Track changes to enable/disable save button
+changes_made <- reactiveVal(FALSE)
+last_saved_hs_hash <- reactiveVal(NULL)
+last_saved_step_hash <- reactiveVal(NULL)
+
+# Display current working files
+output$current_hs_file <- renderText({
+  filename <- last_hs_filename()
+  if (is.null(filename) || filename == "") {
+    "No file selected"
+  } else {
+    filename
+  }
+})
+
+output$current_step_file <- renderText({
+  filename <- last_step_filename()
+  if (is.null(filename) || filename == "") {
+    "No file selected"
+  } else {
+    filename
+  }
+})
+
+# Function to calculate hash of current outlier tables
+calculate_current_hash <- function() {
+  hs_data <- heelstrike_outliers()
+  step_data <- step_outliers()
+  
+  # Create a simple hash based on data content
+  hs_hash <- if (nrow(hs_data) > 0) {
+    paste(hs_data$participant, hs_data$trialNum, hs_data$time, collapse = "_")
+  } else {
+    "empty"
+  }
+  
+  step_hash <- if (nrow(step_data) > 0) {
+    paste(step_data$participant, step_data$trialNum, step_data$time, collapse = "_")
+  } else {
+    "empty"
+  }
+  
+  return(list(hs = hs_hash, step = step_hash))
+}
+
+# Monitor changes to outlier tables
+observe({
+  current_hash <- calculate_current_hash()
+  
+  # Check if data has changed since last save
+  if (is.null(last_saved_hs_hash()) || is.null(last_saved_step_hash())) {
+    # First time, assume no changes
+    last_saved_hs_hash(current_hash$hs)
+    last_saved_step_hash(current_hash$step)
+    changes_made(FALSE)
+  } else {
+    # Check if current data differs from last saved
+    has_changes <- (current_hash$hs != last_saved_hs_hash()) || 
+                   (current_hash$step != last_saved_step_hash())
+    changes_made(has_changes)
+  }
+})
+
+# Update save button state based on changes
+observe({
+  if (changes_made()) {
+    shinyjs::enable("save_changes")
+    updateActionButton(session, "save_changes", 
+                       label = "💾 Save Changes")
+  } else {
+    shinyjs::disable("save_changes")
+    updateActionButton(session, "save_changes", 
+                       label = "✅ No Changes")
+  }
+})
+
 # Track last save moment to throttle autosave
 last_save_time <- reactiveVal(Sys.time())
 
 # Helper to save both outlier tables respecting overwrite flag
-save_outlier_tables <- function(overwrite_mode = FALSE){
+save_outlier_tables <- function(overwrite_mode = FALSE, custom_filenames = NULL){
   # Determine base filenames
   base_hs   <- last_hs_filename()  %||% falseHeelStrikesFile
   base_step <- last_step_filename() %||% outliersFile
 
   # Build final filenames
-  if(overwrite_mode){
+  if(!is.null(custom_filenames)) {
+    # Use custom filenames for "Save As" functionality
+    fname_hs   <- custom_filenames$hs
+    fname_step <- custom_filenames$step
+  } else if(overwrite_mode){
     fname_hs   <- base_hs
     fname_step <- base_step
   } else {
@@ -1776,28 +1954,240 @@ save_outlier_tables <- function(overwrite_mode = FALSE){
     fname_step <- paste0(tools::file_path_sans_ext(base_step), "_", stamp, ".csv")
   }
 
-  # Write files
+  # Get current data to save
+  current_hs_data <- heelstrike_outliers()
+  current_step_data <- step_outliers()
+  
+  # Calculate changes by comparing with existing files
   path_hs   <- file.path(dataExtraFolder, fname_hs)
   path_step <- file.path(dataExtraFolder, fname_step)
-  write.csv(heelstrike_outliers(), path_hs, row.names = FALSE)
-  write.csv(step_outliers(),      path_step, row.names = FALSE)
+  
+  # Load existing data if files exist
+  existing_hs_data <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
+  existing_step_data <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
+  
+  if (file.exists(path_hs)) {
+    tryCatch({
+      existing_hs_data <- read.csv(path_hs, stringsAsFactors = FALSE)
+    }, error = function(e) {
+      existing_hs_data <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
+    })
+  }
+  
+  if (file.exists(path_step)) {
+    tryCatch({
+      existing_step_data <- read.csv(path_step, stringsAsFactors = FALSE)
+    }, error = function(e) {
+      existing_step_data <- data.frame(participant = character(0), trialNum = numeric(0), time = numeric(0))
+    })
+  }
+  
+  # Calculate changes for heel strike outliers
+  hs_changes <- calculate_table_changes(existing_hs_data, current_hs_data)
+  
+  # Calculate changes for step outliers
+  step_changes <- calculate_table_changes(existing_step_data, current_step_data)
+  
+  # Write files
+  write.csv(current_hs_data, path_hs, row.names = FALSE)
+  write.csv(current_step_data, path_step, row.names = FALSE)
 
   # Update timer
   last_save_time(Sys.time())
 
-  list(hs_path = path_hs, step_path = path_step)
+  list(hs_path = path_hs, step_path = path_step, hs_filename = fname_hs, step_filename = fname_step,
+       hs_changes = hs_changes, step_changes = step_changes)
 }
 
-# Manual backup button handler
-observeEvent(input$manual_backup, {
-  overwrite_mode <- input$autosave_overwrite
-  res_paths <- save_outlier_tables(overwrite_mode)
+# Helper function to calculate changes between two outlier tables
+calculate_table_changes <- function(old_data, new_data) {
+  # Convert to comparable format (participant, trialNum, time)
+  if (nrow(old_data) == 0) {
+    old_key <- character(0)
+  } else {
+    old_key <- paste(old_data$participant, old_data$trialNum, round(old_data$time, 3), sep = "_")
+  }
   
-  showNotification(
-    paste("💾 Manual backup saved to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
-    type = "message", duration = 5
-  )
+  if (nrow(new_data) == 0) {
+    new_key <- character(0)
+  } else {
+    new_key <- paste(new_data$participant, new_data$trialNum, round(new_data$time, 3), sep = "_")
+  }
+  
+  # Calculate added and removed
+  added <- setdiff(new_key, old_key)
+  removed <- setdiff(old_key, new_key)
+  
+  return(list(
+    old_count = length(old_key),
+    new_count = length(new_key),
+    added = length(added),
+    removed = length(removed),
+    net_change = length(added) - length(removed)
+  ))
+}
+
+# Save Changes button handler
+observeEvent(input$save_changes, {
+  req(changes_made())  # Only proceed if there are changes
+  
+  tryCatch({
+    # Save to current working files (overwrite mode)
+    result <- save_outlier_tables(overwrite_mode = TRUE)
+    
+    # Update saved state
+    current_hash <- calculate_current_hash()
+    last_saved_hs_hash(current_hash$hs)
+    last_saved_step_hash(current_hash$step)
+    changes_made(FALSE)
+    
+    # Create detailed change report
+    hs_changes <- result$hs_changes
+    step_changes <- result$step_changes
+    
+    # Format change messages
+    hs_message <- if (hs_changes$added > 0 || hs_changes$removed > 0) {
+      paste0("❌ <strong>Heel Strike Outliers:</strong> ",
+             if (hs_changes$added > 0) paste0("+", hs_changes$added, " added") else "",
+             if (hs_changes$added > 0 && hs_changes$removed > 0) ", " else "",
+             if (hs_changes$removed > 0) paste0("-", hs_changes$removed, " removed") else "",
+             " (", hs_changes$old_count, " → ", hs_changes$new_count, ")")
+    } else {
+      paste0("❌ <strong>Heel Strike Outliers:</strong> No changes (", hs_changes$new_count, " total)")
+    }
+    
+    step_message <- if (step_changes$added > 0 || step_changes$removed > 0) {
+      paste0("◐ <strong>Step Outliers:</strong> ",
+             if (step_changes$added > 0) paste0("+", step_changes$added, " added") else "",
+             if (step_changes$added > 0 && step_changes$removed > 0) ", " else "",
+             if (step_changes$removed > 0) paste0("-", step_changes$removed, " removed") else "",
+             " (", step_changes$old_count, " → ", step_changes$new_count, ")")
+    } else {
+      paste0("◐ <strong>Step Outliers:</strong> No changes (", step_changes$new_count, " total)")
+    }
+    
+    # Show success message with detailed changes
+    showNotification(
+      HTML(paste0(
+        "✅ <strong>Changes saved successfully!</strong><br>",
+        "📁 <code>", basename(result$hs_path), "</code><br>",
+        "📁 <code>", basename(result$step_path), "</code><br><br>",
+        hs_message, "<br>",
+        step_message
+      )),
+      type = "message", duration = 8
+    )
+    
+  }, error = function(e) {
+    showNotification(paste("❌ Save failed:", e$message), type = "error", duration = 8)
+  })
 })
+
+# Save As button handler  
+observeEvent(input$save_as, {
+  showModal(modalDialog(
+    title = "💾 Save As - Specify Filenames",
+    fluidRow(
+      column(12,
+        h5("Heel Strike Outliers File:"),
+        textInput("save_as_hs_filename", NULL, 
+                  value = paste0(tools::file_path_sans_ext(last_hs_filename() %||% falseHeelStrikesFile), "_new.csv"),
+                  placeholder = "filename.csv"),
+        
+        h5("Step Outliers File:"),
+        textInput("save_as_step_filename", NULL, 
+                  value = paste0(tools::file_path_sans_ext(last_step_filename() %||% outliersFile), "_new.csv"),
+                  placeholder = "filename.csv"),
+        
+        br(),
+        div(style = "font-size: 12px; color: #6c757d;",
+            "Files will be saved to: ", tags$code(dataExtraFolder))
+      )
+    ),
+    footer = tagList(
+      modalButton("❌ Cancel"),
+      actionButton("confirm_save_as", "💾 Save As", class = "btn-success")
+    ),
+    easyClose = TRUE
+  ))
+})
+
+# Confirm Save As handler
+observeEvent(input$confirm_save_as, {
+  req(input$save_as_hs_filename, input$save_as_step_filename)
+  
+  # Validate filenames
+  hs_filename <- input$save_as_hs_filename
+  step_filename <- input$save_as_step_filename
+  
+  if (!grepl("\\.csv$", hs_filename, ignore.case = TRUE)) {
+    hs_filename <- paste0(hs_filename, ".csv")
+  }
+  if (!grepl("\\.csv$", step_filename, ignore.case = TRUE)) {
+    step_filename <- paste0(step_filename, ".csv")
+  }
+  
+  removeModal()
+  
+  tryCatch({
+    # Save with custom filenames
+    result <- save_outlier_tables(overwrite_mode = FALSE, 
+                                  custom_filenames = list(hs = hs_filename, step = step_filename))
+    
+    # Update current working files to the new files
+    last_hs_filename(hs_filename)
+    last_step_filename(step_filename)
+    
+    # Update saved state
+    current_hash <- calculate_current_hash()
+    last_saved_hs_hash(current_hash$hs)
+    last_saved_step_hash(current_hash$step)
+    changes_made(FALSE)
+    
+    # Create detailed change report
+    hs_changes <- result$hs_changes
+    step_changes <- result$step_changes
+    
+    # Format change messages
+    hs_message <- if (hs_changes$added > 0 || hs_changes$removed > 0) {
+      paste0("❌ <strong>Heel Strike Outliers:</strong> ",
+             if (hs_changes$added > 0) paste0("+", hs_changes$added, " added") else "",
+             if (hs_changes$added > 0 && hs_changes$removed > 0) ", " else "",
+             if (hs_changes$removed > 0) paste0("-", hs_changes$removed, " removed") else "",
+             " (", hs_changes$old_count, " → ", hs_changes$new_count, ")")
+    } else {
+      paste0("❌ <strong>Heel Strike Outliers:</strong> No changes (", hs_changes$new_count, " total)")
+    }
+    
+    step_message <- if (step_changes$added > 0 || step_changes$removed > 0) {
+      paste0("◐ <strong>Step Outliers:</strong> ",
+             if (step_changes$added > 0) paste0("+", step_changes$added, " added") else "",
+             if (step_changes$added > 0 && step_changes$removed > 0) ", " else "",
+             if (step_changes$removed > 0) paste0("-", step_changes$removed, " removed") else "",
+             " (", step_changes$old_count, " → ", step_changes$new_count, ")")
+    } else {
+      paste0("◐ <strong>Step Outliers:</strong> No changes (", step_changes$new_count, " total)")
+    }
+    
+    # Show success message with detailed changes
+    showNotification(
+      HTML(paste0(
+        "✅ <strong>Saved as new files!</strong><br>",
+        "📁 <code>", hs_filename, "</code><br>",
+        "📁 <code>", step_filename, "</code><br><br>",
+        hs_message, "<br>",
+        step_message, "<br><br>",
+        "💡 These are now your current working files"
+      )),
+      type = "message", duration = 8
+    )
+    
+  }, error = function(e) {
+    showNotification(paste("❌ Save As failed:", e$message), type = "error", duration = 8)
+  })
+})
+
+
 
 # Modify the reactive timer to use the user-defined interval
 autoSaveTimer <- reactiveTimer(1000 * 60 * 5)  # Default to 5 minutes
@@ -1828,15 +2218,40 @@ observe({
     return()
   }
   
-  res_paths <- save_outlier_tables(overwrite_mode)
+  # Skip if no data to save
+  if (nrow(hs_outliers_data) == 0 && nrow(step_outliers_data) == 0) {
+    return()
+  }
   
   tryCatch({
-    showNotification(
-      paste("✅ Backup successful to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
-      type = "message", duration = 5
+    res_paths <- save_outlier_tables(overwrite_mode)
+    
+    # If we saved successfully and it was overwrite mode, mark as no changes
+    if (overwrite_mode) {
+      current_hash <- calculate_current_hash()
+      last_saved_hs_hash(current_hash$hs)
+      last_saved_step_hash(current_hash$step)
+      changes_made(FALSE)
+    }
+    
+    # Create concise change summary for autosave
+    hs_changes <- res_paths$hs_changes
+    step_changes <- res_paths$step_changes
+    
+    # Show concise autosave notification
+    change_summary <- paste0(
+      "HS: ", hs_changes$new_count, " (", 
+      if (hs_changes$net_change > 0) paste0("+", hs_changes$net_change) else hs_changes$net_change,
+      "), Step: ", step_changes$new_count, " (",
+      if (step_changes$net_change > 0) paste0("+", step_changes$net_change) else step_changes$net_change,
+      ")"
     )
     
-    # Reset autosave timer by updating last_save_time (already done in save function)
+    showNotification(
+      paste("✅ Auto-save:", change_summary, "to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
+      type = "message", duration = 3
+    )
+    
   }, error = function(e) {
     showNotification(paste("Auto-save failed:", e$message), type = "error", duration = 5)
   })
@@ -1846,8 +2261,8 @@ observe({
 observe({
   input$manualOutlierPlot_click
   isolate({
-    last_click_info(list(participant = input$participant,
-                         trial = input$trialNum,
+    last_click_info(list(participant = input$participant_16,
+                         trial = input$trialNum_16,
                          time = input$manualOutlierPlot_click$x,
                          ts = as.numeric(Sys.time())))
   })
@@ -1872,26 +2287,4 @@ output$overwrite_warning <- renderUI({
         "✓ Safe mode: Creates timestamped backup files")
   }
 })
-```
-```{r}
-tags$script(HTML("
-  // make whole page focusable so we can always catch key events
-  $(function(){ $('body').attr('tabindex', -1).focus(); });
-
-  function toggleMode() {
-    var current = $('input[name=\"outlier_mode\"]:checked').val();
-    var next    = (current === 'heel') ? 'step' : 'heel';
-    $('input[name=\"outlier_mode\"][value='+next+']')
-         .prop('checked',true)
-         .trigger('change');
-  }
-
-  // listen on keydown only; ignore auto-repeat
-  $(window).on('keydown', function(e){
-     if(e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat){
-        e.preventDefault();
-        toggleMode();
-     }
-  });
-"))
 ```
