@@ -135,6 +135,19 @@
         e.preventDefault();
         toggleMode();
      }
+     
+     // Arrow key navigation for special heel strikes
+     if(e.key === 'ArrowLeft' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat){
+        e.preventDefault();
+        // Trigger previous special navigation
+        Shiny.setInputValue('nav_prev_special', Math.random(), {priority: 'event'});
+     }
+     
+     if(e.key === 'ArrowRight' && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat){
+        e.preventDefault();
+        // Trigger next special navigation
+        Shiny.setInputValue('nav_next_special', Math.random(), {priority: 'event'});
+     }
   });
 
   // ==================== ENHANCED DRAG & DROP FUNCTIONALITY ====================
