@@ -1,3 +1,26 @@
+# ============================================================================ #
+#                               DISCLAIMER                                    #
+# ============================================================================ #
+# This code was developed using a "vibe coding" approach - an experimental      #
+# attempt to create a reasonable estimation model for outlier detection.        #
+# While it achieves ~80-90% accuracy in practice, it requires manual           #
+# verification of results. The primary purpose is to highlight areas that need  #
+# manual inspection for step/heelstrike removal rather than being a definitive #
+# solution.                                                                    #
+#                                                                             #
+# There is significant room for improvement through:                           #
+# - Exploring different model architectures                                    #
+# - Proper hyperparameter tuning                                              #
+# - More sophisticated feature engineering                                     #
+#                                                                             #
+# This served its purpose for the project but should be considered a          #
+# proof-of-concept rather than a production-ready solution.                    #
+#                                                                             #
+# Author: Alex van den Berg                                                   #
+# Email: A.vandenberg@tudelft.nl                                             #
+# Date: March 2024                                                           #
+# ============================================================================ #
+
 ## ========================================================================== ##
 ## heelstrike_outlier_predictor.R - Predict false heel strikes and outliers  ##
 ## ========================================================================== ##
