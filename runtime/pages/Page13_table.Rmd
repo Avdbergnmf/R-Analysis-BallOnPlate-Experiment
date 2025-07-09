@@ -6,54 +6,155 @@ Column
 ```{r}
 fluidRow(
   column(12, h3("Full Results Table")),
-  column(12, "This table can be used to view the individual step data, and if the checkbox below is checked, the aggregated results of each trial of participant."),
-  column(3, checkboxInput("avgTable", "Summarize results (calc sd, mean, cv)", value = FALSE)),
-  column(3, downloadButton("downloadRds", "Download Table as RDS", class = "btn-sm")),
-  #column(12, DT::dataTableOutput("full_results_table_interactive"))
+  column(12, "This table can be used to view the individual step data, and if the checkbox below is checked, the aggregated results of each trial of participant.")
+)
+
+# Compact controls row
+fluidRow(
+  column(2, checkboxInput("avgTable_13", "Summarize results (calc sd, mean, cv)", value = FALSE)),
+  column(2, checkboxInput("enableFilter_13", "Enable participant/trial filter", value = FALSE)),
+  column(2, 
+    conditionalPanel(
+      condition = "input.enableFilter_13 == true",
+      selectizeInput("participant_13", "Participant", 
+                     choices = NULL, selected = NULL, multiple = TRUE,
+                     options = list(placeholder = "Select participant"))
+    )
+  ),
+  column(2,
+    conditionalPanel(
+      condition = "input.enableFilter_13 == true",
+      selectizeInput("trialNum_13", "Trial", 
+                     choices = NULL, selected = NULL, multiple = TRUE,
+                     options = list(placeholder = "Select trial"))
+    )
+  ),
+  column(2, downloadButton("downloadRds_13", "Download Table as RDS", class = "btn-sm")),
+  column(2, 
+    div(style = "margin-top: 25px;",
+        textOutput("tableInfo_13", inline = TRUE)
+    )
+  )
 )
 ```
 
 ```{r}
-#tableOutput("full_results_table")
-DT::dataTableOutput("full_results_table_interactive")
+div(
+  style = "height: 900px; overflow: auto; border: 1px solid #ddd;",
+  DT::dataTableOutput("full_results_table_interactive_13")
+)
 ```
 
 
 
 ```{r, context="server"}
-tableToUse <- reactive({
-  if (input$avgTable) {
-    return(get_mu_dyn_long())
-  }
-  else {
-    return(filteredParams())
-  }
+# Initialize participant and trial choices
+observe({
+  # Try to get participants and trials from global environment
+  tryCatch({
+    # Get participants from global environment
+    if (exists("participants", envir = .GlobalEnv)) {
+      participant_choices <- sort(get("participants", envir = .GlobalEnv))
+      updateSelectizeInput(session, "participant_13", choices = participant_choices)
+    }
+    
+    # Get allTrials from global environment
+    if (exists("allTrials", envir = .GlobalEnv)) {
+      trial_choices <- sort(get("allTrials", envir = .GlobalEnv))
+      updateSelectizeInput(session, "trialNum_13", choices = trial_choices)
+    }
+  }, error = function(e) {
+    # Fallback: use hardcoded values if global variables aren't available
+    participant_choices <- c("101", "102", "103", "104", "105", "106", "107", "108", "109", "110")
+    trial_choices <- c(2, 3, 5, 7, 8, 9, 10, 11)
+    
+    updateSelectizeInput(session, "participant_13", choices = participant_choices)
+    updateSelectizeInput(session, "trialNum_13", choices = trial_choices)
+  })
 })
 
-output$full_results_table <- renderTable({
-  return(tableToUse())
-}, rownames = TRUE, options = list(pageLength = 100, scrollY = "500px"))
+tableToUse_13 <- reactive({
+  base_data <- if (input$avgTable_13) {
+    get_mu_dyn_long()
+  } else {
+    filteredParams()
+  }
+  
+  # Apply participant/trial filter if enabled
+  if (input$enableFilter_13) {
+    if (!is.null(input$participant_13) && length(input$participant_13) > 0 && !all(input$participant_13 == "")) {
+      base_data <- base_data[base_data$participant %in% input$participant_13, ]
+    }
+    if (!is.null(input$trialNum_13) && length(input$trialNum_13) > 0 && !all(input$trialNum_13 == "")) {
+      base_data <- base_data[base_data$trialNum %in% as.numeric(input$trialNum_13), ]
+    }
+  }
+  
+  return(base_data)
+})
 
-output$full_results_table_interactive <- DT::renderDataTable({
-  dt <- tableToUse()
+output$full_results_table_interactive_13 <- DT::renderDataTable({
+  dt <- tableToUse_13()
   DT::datatable(
     dt,
     options = list(
-      pageLength = 100,
-      search = NULL #list(regex = TRUE, caseInsensitive = TRUE)
+      pageLength = 15,
+      scrollX = TRUE,
+      scrollY = "800px",
+      scrollCollapse = TRUE,
+      fixedHeader = FALSE,
+      search = list(regex = TRUE, caseInsensitive = TRUE),
+      dom = 'Bfrtip',
+      columnDefs = list(
+        list(width = "80px", targets = "_all")
+      )
     ),
-    selection = 'single'
-  )
+    selection = 'single',
+    filter = 'top'
+  ) %>%
+    DT::formatStyle(columns = 1:ncol(dt), fontSize = '12px')
 })
 
-output$downloadRds <- downloadHandler(
+# Table info display
+output$tableInfo_13 <- renderText({
+  dt <- tableToUse_13()
+  paste0("Rows: ", nrow(dt), " | Cols: ", ncol(dt))
+})
+
+output$downloadRds_13 <- downloadHandler(
   filename = function() {
-    # Create a file name with today's date (optional)
-    paste0("table_", Sys.Date(), ".rds")
+    # Create a file name with today's date and filter info
+    filter_suffix <- if (input$enableFilter_13) {
+      parts <- c()
+      if (!is.null(input$participant_13) && length(input$participant_13) > 0 && !all(input$participant_13 == "")) {
+        if (length(input$participant_13) == 1) {
+          parts <- c(parts, paste0("P", input$participant_13))
+        } else {
+          parts <- c(parts, paste0("P", paste(input$participant_13, collapse = "-")))
+        }
+      }
+      if (!is.null(input$trialNum_13) && length(input$trialNum_13) > 0 && !all(input$trialNum_13 == "")) {
+        if (length(input$trialNum_13) == 1) {
+          parts <- c(parts, paste0("T", input$trialNum_13))
+        } else {
+          parts <- c(parts, paste0("T", paste(input$trialNum_13, collapse = "-")))
+        }
+      }
+      if (length(parts) > 0) {
+        paste0("_", paste(parts, collapse = "_"))
+      } else {
+        ""
+      }
+    } else {
+      ""
+    }
+    
+    table_type <- if (input$avgTable_13) "_summary" else "_full"
+    paste0("table", table_type, filter_suffix, "_", Sys.Date(), ".rds")
   },
   content = function(file) {
     # Save the reactive table to the specified file
-    saveRDS(tableToUse(), file)
+    saveRDS(tableToUse_13(), file)
   }
 )
 ```
