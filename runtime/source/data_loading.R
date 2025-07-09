@@ -414,8 +414,14 @@ get_udp_time_ranges <- function(participant, trialNum) {
 
   # 3. Cap by prescribed trial duration ---------------------------------------
   duration_cap <- get_trial_duration(trialNum)
-  first_exceed <- which(dt$trialTime > duration_cap)[1]
-  end_row <- if (is.na(first_exceed)) nrow(dt) else first_exceed - 1
+
+  exceed_rows <- which(dt$trialTime > duration_cap)
+  if (length(exceed_rows) > 0) {
+    end_row <- exceed_rows[1] # include the first exceeding sample
+  } else {
+    end_row <- which.max(dt$trialTime) # row with the maximum trialTime
+  }
+
   dt <- dt[1:end_row]
 
   # 4. Identify pause rows (error OR startTrial==0) ----------------------------
@@ -536,10 +542,41 @@ apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "
     }
   }
 
-  # Log trimming results
+  # --------------------------------------------------------------------------
+  #  Final step: make the time column continuous across valid segments --------
+  # --------------------------------------------------------------------------
+  # Vectorised helper that removes pauses by collapsing large gaps in the
+  # timestamp series (after initial min-time normalization).  Any consecutive
+  # gap larger than `gap_threshold` seconds is treated as a pause whose full
+  # duration is removed from all subsequent samples.
+  make_time_continuous <- function(df, time_col, gap_threshold = 1) {
+    n <- nrow(df)
+    if (n == 0) {
+      return(df)
+    }
+
+    tvec <- df[[time_col]]
+    # Calculate time differences between successive samples
+    dt <- c(0, diff(tvec))
+
+    # Identify gaps larger than threshold (likely pauses)
+    large_gaps <- pmax(0, dt - gap_threshold)
+
+    # Cumulative pause time up to each row
+    cum_pause <- cumsum(large_gaps)
+
+    # Subtract cumulative pause to obtain continuous time
+    df[[time_col]] <- tvec - cum_pause
+    return(df)
+  }
+
+  # Apply continuity fix to the filtered data (time column only)
+  filtered_data <- make_time_continuous(filtered_data, time_column)
+
+  # Log trimming results (after continuity fix)
   if (nrow(filtered_data) != nrow(data)) {
     final_time_range <- if (nrow(filtered_data) > 0) {
-      sprintf("%.1f-%.1fs", min(filtered_data$time, na.rm = TRUE), max(filtered_data$time, na.rm = TRUE))
+      sprintf("%.1f-%.1fs", min(filtered_data[[time_column]], na.rm = TRUE), max(filtered_data[[time_column]], na.rm = TRUE))
     } else {
       "empty"
     }
@@ -570,7 +607,7 @@ load_or_create_udp_time_trim_info <- function(loop_function) {
     rng <- get_udp_time_ranges(p, tr)
     data.frame(
       participant           = p,
-      trial                 = tr,
+      trial                 = as.numeric(tr),
       has_udp_data          = rng$has_udp_data,
       trial_duration        = rng$trial_duration,
       total_valid_duration  = rng$total_valid_duration,

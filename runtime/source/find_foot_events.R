@@ -313,13 +313,19 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
 
   # Always check hip position for suspect marking (if hip data available)
   if (!is.null(hipData) && nrow(hipData) > 0) {
-    hip_pos_x <- approx(hipData$time, hipData$pos_x,
+    hip_pos_x <- safe_approx(hipData$time, hipData$pos_x,
       xout = footData$time, rule = 1
-    )$y
+    )
+
     relFootPos_x_hip <- footData$pos_x - hip_pos_x
 
-    hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos_x_hip)
-    # Don't update local_maxima/local_minima here - hip filtering is only for suspect marking
+    # If hip_pos_x is all NA (insufficient points), skip hip-based suspect marking
+    if (all(is.na(hip_pos_x))) {
+      hip_filtered <- NULL
+    } else {
+      hip_filtered <- filter_by_hip_position(local_maxima, local_minima, relFootPos_x_hip)
+      # Don't update local_maxima/local_minima here - hip filtering is only for suspect marking
+    }
   }
 
   # Check alternation
@@ -570,4 +576,18 @@ refine_heelstrike <- function(footData, local_maxima, local_minima,
   }
 
   return(list(maxima = refined_local_maxima, suspect_unstable = unstable_indices))
+}
+
+# -----------------------------------------------------------------------------
+# Utility: safe_approx ---------------------------------------------------------
+# Returns interpolated vector (same length as xout) or all-NA when the source
+# series does not contain at least two finite, unique sample points.  Prevents
+# approx() from erroring inside parallel workers.
+
+safe_approx <- function(x, y, xout, rule = 1) {
+  valid <- which(is.finite(x) & is.finite(y))
+  if (length(unique(x[valid])) < 2) {
+    return(rep(NA_real_, length(xout)))
+  }
+  return(approx(x[valid], y[valid], xout = xout, rule = rule)$y)
 }
