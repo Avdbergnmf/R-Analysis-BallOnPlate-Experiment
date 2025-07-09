@@ -43,7 +43,7 @@ actionButton("refresh_plot", "🔄 Refresh Plot", class = "btn-primary")
 HTML('<div class="section-header">⚙️ Outlier Settings</div>')
 
 numericInput("outlier_threshold", "Matching threshold (seconds)",
-  min = 0, max = 1, value = 0.01, step = 0.001)
+  min = 0, max = 1, value = 0.03, step = 0.001)
 
 radioButtons("outlier_mode", "Selection Mode:", 
   choices = c("Remove Heel Strikes" = "heel","Remove Steps" = "step"),
