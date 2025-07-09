@@ -134,6 +134,7 @@ numericInput("autosave_interval", "Interval (minutes)",
              value = 5, min = 1, max = 60, step = 1)
 
 checkboxInput("autosave_overwrite", "Overwrite default files (instead of timestamped)", value = FALSE)
+checkboxInput("autosave_confirm", "Show confirmation dialog before auto-save", value = FALSE)
 
 uiOutput("overwrite_warning")
 
@@ -906,6 +907,9 @@ get_participant_trials <- function(participant) {
   }
 }
 
+# Remember the preferred trial number across participant switches
+preferred_trial <- reactiveVal(NULL)
+
 # Update trial choices when participant changes
 observeEvent(input$participant_16, {
   req(input$participant_16)
@@ -913,10 +917,25 @@ observeEvent(input$participant_16, {
   # Get available trials for this participant
   available_trials <- get_participant_trials(input$participant_16)
   
+  # Determine which trial to select
+  selected_trial <- if (!is.null(preferred_trial()) && preferred_trial() %in% available_trials) {
+    # Use the preferred trial if it's available for this participant
+    preferred_trial()
+  } else {
+    # Fall back to first trial if preferred trial isn't available
+    available_trials[1]
+  }
+  
   # Update the trial choices
   updateSelectizeInput(session, "trialNum_16", 
                        choices = available_trials,
-                       selected = available_trials[1])
+                       selected = selected_trial)
+}, ignoreInit = TRUE)
+
+# Remember the preferred trial when manually changed
+observeEvent(input$trialNum_16, {
+  req(input$trialNum_16)
+  preferred_trial(as.numeric(input$trialNum_16))
 }, ignoreInit = TRUE)
 
 # Previous trial navigation
@@ -941,6 +960,7 @@ observeEvent(input$nav_prev_trial, {
         new_participant <- participants[current_participant_idx - 1]
         new_participant_trials <- get_participant_trials(new_participant)
         new_trial <- new_participant_trials[length(new_participant_trials)] # Last trial
+        preferred_trial(new_trial)  # Set preferred trial before switching participant
         updateSelectizeInput(session, "participant_16", selected = new_participant)
         # Trial selection will be updated automatically by the participant observer
         showNotification(paste("Navigated to", new_participant, "trial", new_trial, "(previous participant)"), type = "message")
@@ -949,6 +969,7 @@ observeEvent(input$nav_prev_trial, {
         new_participant <- participants[length(participants)]
         new_participant_trials <- get_participant_trials(new_participant)
         new_trial <- new_participant_trials[length(new_participant_trials)]
+        preferred_trial(new_trial)  # Set preferred trial before switching participant
         updateSelectizeInput(session, "participant_16", selected = new_participant)
         # Trial selection will be updated automatically by the participant observer
         showNotification(paste("Wrapped to", new_participant, "trial", new_trial, "(last participant)"), type = "message")
@@ -979,6 +1000,7 @@ observeEvent(input$nav_next_trial, {
         new_participant <- participants[current_participant_idx + 1]
         new_participant_trials <- get_participant_trials(new_participant)
         new_trial <- new_participant_trials[1] # First trial
+        preferred_trial(new_trial)  # Set preferred trial before switching participant
         updateSelectizeInput(session, "participant_16", selected = new_participant)
         # Trial selection will be updated automatically by the participant observer
         showNotification(paste("Navigated to", new_participant, "trial", new_trial, "(next participant)"), type = "message")
@@ -987,6 +1009,7 @@ observeEvent(input$nav_next_trial, {
         new_participant <- participants[1]
         new_participant_trials <- get_participant_trials(new_participant)
         new_trial <- new_participant_trials[1]
+        preferred_trial(new_trial)  # Set preferred trial before switching participant
         updateSelectizeInput(session, "participant_16", selected = new_participant)
         # Trial selection will be updated automatically by the participant observer
         showNotification(paste("Wrapped to", new_participant, "trial", new_trial, "(first participant)"), type = "message")
@@ -2027,19 +2050,21 @@ calculate_table_changes <- function(old_data, new_data) {
   ))
 }
 
-# Save Changes button handler
-observeEvent(input$save_changes, {
-  req(changes_made())  # Only proceed if there are changes
-  
+# Common save function with detailed change reporting
+perform_save_with_details <- function(overwrite_mode = TRUE, custom_filenames = NULL, 
+                                     save_type = "Changes saved successfully!", 
+                                     duration = 8) {
   tryCatch({
-    # Save to current working files (overwrite mode)
-    result <- save_outlier_tables(overwrite_mode = TRUE)
+    # Save the outlier tables
+    result <- save_outlier_tables(overwrite_mode = overwrite_mode, 
+                                  custom_filenames = custom_filenames)
     
     # Update saved state
     current_hash <- calculate_current_hash()
     last_saved_hs_hash(current_hash$hs)
     last_saved_step_hash(current_hash$step)
     changes_made(FALSE)
+    last_save_time(Sys.time())
     
     # Create detailed change report
     hs_changes <- result$hs_changes
@@ -2069,18 +2094,27 @@ observeEvent(input$save_changes, {
     # Show success message with detailed changes
     showNotification(
       HTML(paste0(
-        "✅ <strong>Changes saved successfully!</strong><br>",
+        "✅ <strong>", save_type, "</strong><br>",
         "📁 <code>", basename(result$hs_path), "</code><br>",
         "📁 <code>", basename(result$step_path), "</code><br><br>",
         hs_message, "<br>",
         step_message
       )),
-      type = "message", duration = 8
+      type = "message", duration = duration
     )
+    
+    return(result)
     
   }, error = function(e) {
     showNotification(paste("❌ Save failed:", e$message), type = "error", duration = 8)
+    return(NULL)
   })
+}
+
+# Save Changes button handler
+observeEvent(input$save_changes, {
+  req(changes_made())  # Only proceed if there are changes
+  perform_save_with_details(overwrite_mode = TRUE, save_type = "Changes saved successfully!")
 })
 
 # Save As button handler  
@@ -2129,132 +2163,78 @@ observeEvent(input$confirm_save_as, {
   
   removeModal()
   
-  tryCatch({
-    # Save with custom filenames
-    result <- save_outlier_tables(overwrite_mode = FALSE, 
-                                  custom_filenames = list(hs = hs_filename, step = step_filename))
-    
-    # Update current working files to the new files
-    last_hs_filename(hs_filename)
-    last_step_filename(step_filename)
-    
-    # Update saved state
-    current_hash <- calculate_current_hash()
-    last_saved_hs_hash(current_hash$hs)
-    last_saved_step_hash(current_hash$step)
-    changes_made(FALSE)
-    
-    # Create detailed change report
-    hs_changes <- result$hs_changes
-    step_changes <- result$step_changes
-    
-    # Format change messages
-    hs_message <- if (hs_changes$added > 0 || hs_changes$removed > 0) {
-      paste0("❌ <strong>Heel Strike Outliers:</strong> ",
-             if (hs_changes$added > 0) paste0("+", hs_changes$added, " added") else "",
-             if (hs_changes$added > 0 && hs_changes$removed > 0) ", " else "",
-             if (hs_changes$removed > 0) paste0("-", hs_changes$removed, " removed") else "",
-             " (", hs_changes$old_count, " → ", hs_changes$new_count, ")")
-    } else {
-      paste0("❌ <strong>Heel Strike Outliers:</strong> No changes (", hs_changes$new_count, " total)")
-    }
-    
-    step_message <- if (step_changes$added > 0 || step_changes$removed > 0) {
-      paste0("◐ <strong>Step Outliers:</strong> ",
-             if (step_changes$added > 0) paste0("+", step_changes$added, " added") else "",
-             if (step_changes$added > 0 && step_changes$removed > 0) ", " else "",
-             if (step_changes$removed > 0) paste0("-", step_changes$removed, " removed") else "",
-             " (", step_changes$old_count, " → ", step_changes$new_count, ")")
-    } else {
-      paste0("◐ <strong>Step Outliers:</strong> No changes (", step_changes$new_count, " total)")
-    }
-    
-    # Show success message with detailed changes
-    showNotification(
-      HTML(paste0(
-        "✅ <strong>Saved as new files!</strong><br>",
-        "📁 <code>", hs_filename, "</code><br>",
-        "📁 <code>", step_filename, "</code><br><br>",
-        hs_message, "<br>",
-        step_message, "<br><br>",
-        "💡 These are now your current working files"
-      )),
-      type = "message", duration = 8
-    )
-    
-  }, error = function(e) {
-    showNotification(paste("❌ Save As failed:", e$message), type = "error", duration = 8)
-  })
+  # Update current working files to the new files
+  last_hs_filename(hs_filename)
+  last_step_filename(step_filename)
+  
+  # Use the common save function
+  result <- perform_save_with_details(
+    overwrite_mode = FALSE, 
+    custom_filenames = list(hs = hs_filename, step = step_filename),
+    save_type = paste0("Saved as new files!<br>💡 These are now your current working files")
+  )
 })
 
 
 
-# Modify the reactive timer to use the user-defined interval
-autoSaveTimer <- reactiveTimer(1000 * 60 * 5)  # Default to 5 minutes
+# --- Reactive state for auto-save ---
+autosave_state <- reactiveValues(overwrite_mode = FALSE)
 
-# Observe changes to the autosave interval
-observeEvent(input$autosave_interval, {
-  invalidateLater(1000 * 60 * input$autosave_interval)
-})
-
-# Modify the autosave observer
+# Main auto-save observer (runs while auto-save is enabled)
 observe({
-  # Only proceed if autosave is enabled
-  req(input$do_autosave)
-  
-  # Trigger the timer
-  autoSaveTimer()
-  
-  isolate({
-    # Get the current outliers data for both types
-    hs_outliers_data <- heelstrike_outliers()
-    step_outliers_data <- step_outliers()
-    overwrite_mode <- input$autosave_overwrite
-  })
-  
-  # Skip if interval not yet elapsed since last save
-  elapsed <- as.numeric(difftime(Sys.time(), last_save_time(), units="secs"))
-  if (elapsed < input$autosave_interval*60) {
-    return()
-  }
-  
-  # Skip if no data to save
-  if (nrow(hs_outliers_data) == 0 && nrow(step_outliers_data) == 0) {
-    return()
-  }
-  
-  tryCatch({
-    res_paths <- save_outlier_tables(overwrite_mode)
-    
-    # If we saved successfully and it was overwrite mode, mark as no changes
-    if (overwrite_mode) {
-      current_hash <- calculate_current_hash()
-      last_saved_hs_hash(current_hash$hs)
-      last_saved_step_hash(current_hash$step)
-      changes_made(FALSE)
-    }
-    
-    # Create concise change summary for autosave
-    hs_changes <- res_paths$hs_changes
-    step_changes <- res_paths$step_changes
-    
-    # Show concise autosave notification
-    change_summary <- paste0(
-      "HS: ", hs_changes$new_count, " (", 
-      if (hs_changes$net_change > 0) paste0("+", hs_changes$net_change) else hs_changes$net_change,
-      "), Step: ", step_changes$new_count, " (",
-      if (step_changes$net_change > 0) paste0("+", step_changes$net_change) else step_changes$net_change,
-      ")"
+  req(input$do_autosave)                                   # auto-save switch
+
+  # Re-schedule this observer at the user-chosen interval
+  invalidateLater(1000 * 60 * input$autosave_interval, session)
+
+  # Throttle: don't ask again until the full interval passed since last save/skip
+  if (as.numeric(difftime(Sys.time(), last_save_time(), units = "secs")) <
+      input$autosave_interval * 60) return()
+
+  # Nothing to save?  Bail out quietly
+  if (!changes_made()) return()
+
+  # Remember overwrite preference for the upcoming save
+  autosave_state$overwrite_mode <- input$autosave_overwrite
+
+  # Check if confirmation is required
+  if (input$autosave_confirm) {
+    # Ask the user what to do
+    showModal(modalDialog(
+      title = "⏱️ Auto-save triggered",
+      HTML(paste0(
+        "<p>The auto-save interval (", input$autosave_interval,
+        " min) has elapsed.</p>",
+        "<p>Do you want to save the current outlier tables now?</p>"
+      )),
+      footer = tagList(
+        actionButton("confirm_autosave", "💾 Save now", class = "btn-success"),
+        modalButton("Skip")          # closes the dialog – no save
+      ),
+      easyClose = TRUE
+    ))
+  } else {
+    # Save directly without confirmation
+    perform_save_with_details(
+      overwrite_mode = autosave_state$overwrite_mode,
+      save_type = "Auto-save completed (silent)!",
+      duration = 3
     )
-    
-    showNotification(
-      paste("✅ Auto-save:", change_summary, "to", basename(res_paths$hs_path), "&", basename(res_paths$step_path)),
-      type = "message", duration = 3
-    )
-    
-  }, error = function(e) {
-    showNotification(paste("Auto-save failed:", e$message), type = "error", duration = 5)
-  })
+  }
+
+  # Mark the inquiry time so we won't ask again until the next interval
+  last_save_time(Sys.time())
+})
+
+# Handle the "Save now" button
+observeEvent(input$confirm_autosave, {
+  removeModal()
+  # Use the common save function with detailed change reporting
+  perform_save_with_details(
+    overwrite_mode = autosave_state$overwrite_mode,
+    save_type = "Auto-save completed!",
+    duration = 5
+  )
 })
 
 # Update last click information
@@ -2277,14 +2257,26 @@ output$overwrite_warning <- renderUI({
     current_hs_file <- last_hs_filename() %||% falseHeelStrikesFile
     current_step_file <- last_step_filename() %||% outliersFile
     
+    confirmation_text <- if (input$autosave_confirm) {
+      "with confirmation dialog"
+    } else {
+      "AUTOMATICALLY without confirmation"
+    }
+    
     div(style = "font-size: 11px; color: #d63384; margin-top: -5px; margin-bottom: 10px; background-color: #fff3cd; padding: 5px; border-radius: 3px; border-left: 3px solid #ffc107;",
-        paste0("⚠️ WARNING: Will overwrite ", current_hs_file, " and ", current_step_file),
+        paste0("⚠️ WARNING: Will overwrite ", current_hs_file, " and ", current_step_file, " ", confirmation_text),
         br(),
         "✗ Unchecked: Creates timestamped backup files")
   } else {
     # Show normal info when overwrite is disabled
+    confirmation_text <- if (input$autosave_confirm) {
+      " (with confirmation)"
+    } else {
+      " (silent mode)"
+    }
+    
     div(style = "font-size: 11px; color: #666; margin-top: -5px; margin-bottom: 10px;",
-        "✓ Safe mode: Creates timestamped backup files")
+        paste0("✓ Safe mode: Creates timestamped backup files", confirmation_text))
   }
 })
 ```
