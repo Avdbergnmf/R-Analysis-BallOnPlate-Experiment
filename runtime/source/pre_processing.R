@@ -41,8 +41,7 @@ preprocess_data <- function(participant, trialNum, dataName) {
     return(data.frame())
   }
 
-  # Apply trial duration capping
-  data <- apply_trial_duration_cap(data, trialNum)
+  # Data already trimmed in get_t_data(); no extra capping needed
 
   if (is_kinematic_data(data)) {
     rotation <- load_rotations(participant, trialNum)

@@ -234,8 +234,10 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
   )
 }
 
+
+
 # get any type of data
-get_t_data <- function(participant, trackerType, trialNum) {
+get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE) {
   # Check if file exists
   if (!check_file_exists(participant, trackerType, trialNum)) {
     message(sprintf("File does not exist for participant %s, tracker %s, trial %d", participant, trackerType, trialNum))
@@ -258,6 +260,23 @@ get_t_data <- function(participant, trackerType, trialNum) {
       return(NULL)
     }
   )
+
+  # Apply UDP time-based trimming if requested and data is available
+  if (!is.null(data) && apply_udp_trimming) {
+    if (trackerType == "udp") {
+      # For UDP dataset itself, propagate errors
+      data <- apply_udp_time_trimming(data, participant, trialNum, "time")
+    } else {
+      # For other datasets, be tolerant: if UDP info missing, keep data untrimmed
+      data <- tryCatch(
+        apply_udp_time_trimming(data, participant, trialNum, "time"),
+        error = function(e) {
+          message(sprintf("[WARN] Trimming skipped for %s P%s T%s: %s", trackerType, participant, trialNum, e$message))
+          data
+        }
+      )
+    }
+  }
 
   return(data)
 }
@@ -362,45 +381,227 @@ get_trial_duration <- function(trialNum) {
   }
 }
 
-adjust_times <- function(dataset, minTime, maxTime = 180) { # make sure we start at t=0
-  dataset$time <- dataset$time - minTime
-  dataset <- subset(dataset, time <= maxTime) # dataset <- subset(dataset)
-  return(dataset)
+############### UDP time-based trimming info ###############
+
+# Helper to build valid time ranges from UDP data for a specific participant/trial
+# Returns a list with valid time ranges that should be kept
+get_udp_time_ranges <- function(participant, trialNum) {
+  ensure_global_data_initialized()
+
+  # 1. Try global table first --------------------------------------------------
+  if (exists("udpTimeTrimInfo", envir = .GlobalEnv)) {
+    result <- get_trim_info_from_table(participant, trialNum)
+    if (!is.null(result)) {
+      return(result)
+    }
+  }
+
+  # 2. Load UDP dataset --------------------------------------------------------
+  if (!check_file_exists(participant, "udp", trialNum)) {
+    stop(sprintf("UDP file missing for participant %s trial %s", participant, trialNum))
+  }
+
+  prefix <- filenameDict[["udp"]]
+  filePath <- file.path(get_p_dir(participant), "trackers", sprintf("%s_T%03d.csv", prefix, as.numeric(trialNum)))
+
+  cols <- c("time", "trialTime", "isError", "startTrial")
+  dt <- tryCatch(data.table::fread(filePath, select = cols, showProgress = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(dt) || nrow(dt) == 0) {
+    stop(sprintf("Empty or unreadable UDP file for participant %s trial %s", participant, trialNum))
+  }
+
+  # 3. Cap by prescribed trial duration ---------------------------------------
+  duration_cap <- get_trial_duration(trialNum)
+  first_exceed <- which(dt$trialTime > duration_cap)[1]
+  end_row <- if (is.na(first_exceed)) nrow(dt) else first_exceed - 1
+  dt <- dt[1:end_row]
+
+  # 4. Identify pause rows (error OR startTrial==0) ----------------------------
+  pause_mask <- (dt$isError == 1) | (dt$startTrial == 0)
+
+  # 5. Extract valid segments --------------------------------------------------
+  rle_mask <- rle(!pause_mask) # TRUE for valid rows
+  idx_end <- cumsum(rle_mask$lengths)
+  idx_start <- c(1, head(idx_end, -1) + 1)
+
+  seg_df <- data.frame(start_time = numeric(0), end_time = numeric(0))
+  for (i in seq_along(rle_mask$values)) {
+    if (rle_mask$values[i]) { # valid segment
+      s <- idx_start[i]
+      e <- idx_end[i]
+      seg_df <- rbind(seg_df, data.frame(start_time = dt$time[s], end_time = dt$time[e]))
+    }
+  }
+
+  num_segments <- nrow(seg_df)
+  if (num_segments == 0) {
+    stop(sprintf("No valid segments detected for participant %s trial %s", participant, trialNum))
+  }
+
+  # 6. Compute total valid duration -------------------------------------------
+  total_valid <- sum(seg_df$end_time - seg_df$start_time)
+
+  list(
+    valid_ranges           = seg_df,
+    trial_duration         = duration_cap,
+    num_segments           = num_segments,
+    total_valid_duration   = total_valid,
+    has_udp_data           = TRUE
+  )
 }
 
-# Apply trial duration capping to any dataset with a time column
-apply_trial_duration_cap <- function(data, trialNum) {
-  if (is.null(data) || nrow(data) == 0 || !"time" %in% colnames(data)) {
+# Apply UDP-based time trimming to any dataset with a time column
+apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "time") {
+  if (is.null(data) || nrow(data) == 0) {
     return(data)
   }
 
-  trial_duration <- get_trial_duration(trialNum)
-  minTime <- data$time[1]
+  # Check if the dataset has the required time column
+  if (!time_column %in% colnames(data)) {
+    warning(sprintf("Time column '%s' not found in dataset, skipping UDP time trimming", time_column))
+    return(data)
+  }
 
-  # Debug logging
-  original_rows <- nrow(data)
-  original_time_range <- range(data$time, na.rm = TRUE)
+  # Get UDP time ranges (these are based on trialTime)
+  time_ranges <- get_udp_time_ranges(participant, trialNum)
 
-  # Use the existing adjust_times function
-  result <- adjust_times(data, minTime, trial_duration)
+  # If no UDP data available, apply basic duration cap and normalization
+  if (!time_ranges$has_udp_data || nrow(time_ranges$valid_ranges) == 0) {
+    # Apply basic duration cap and normalize time to start from 0
+    trial_duration <- time_ranges$trial_duration
+    minTime <- min(data[[time_column]], na.rm = TRUE)
 
-  final_rows <- nrow(result)
-  if (final_rows > 0) {
-    final_time_range <- range(result$time, na.rm = TRUE)
-    cat(sprintf(
-      "DEBUG: Trial %s - Duration cap %.1fs | Original: %d rows (%.1f-%.1fs) | Final: %d rows (%.1f-%.1fs) | Kept: %.1f%%\n",
-      trialNum, trial_duration, original_rows,
-      original_time_range[1], original_time_range[2],
-      final_rows, final_time_range[1], final_time_range[2],
-      (final_rows / original_rows) * 100
-    ))
+    # Normalize time to start from 0
+    data[[time_column]] <- data[[time_column]] - minTime
+
+    # Apply duration cap
+    data <- data[data[[time_column]] <= trial_duration, ]
+    return(data)
+  }
+
+  # For UDP datasets, we need to handle trialTime vs time differently
+  if ("trialTime" %in% colnames(data)) {
+    # UDP dataset: use trialTime for filtering, then normalize time column
+
+    # Step 1: Apply time-based filtering using UDP ranges (based on trialTime)
+    valid_rows <- rep(FALSE, nrow(data))
+
+    for (i in seq_len(nrow(time_ranges$valid_ranges))) {
+      range_start <- time_ranges$valid_ranges$start_time[i]
+      range_end <- time_ranges$valid_ranges$end_time[i]
+
+      # Find rows within this time range using trialTime
+      in_range <- data$trialTime >= range_start & data$trialTime <= range_end
+      valid_rows <- valid_rows | in_range
+    }
+
+    # Filter data to valid rows
+    filtered_data <- data[valid_rows, ]
+
+    # Step 2: Normalize the time column to start from 0 and cap at trial duration
+    if (nrow(filtered_data) > 0) {
+      minTime <- min(filtered_data$time, na.rm = TRUE)
+      filtered_data$time <- filtered_data$time - minTime
+
+      # Apply duration cap to normalized time
+      filtered_data <- filtered_data[filtered_data$time <= time_ranges$trial_duration, ]
+    }
   } else {
+    # Non-UDP dataset: use time column for filtering and normalization
+
+    # Step 1: Apply time-based filtering using UDP ranges
+    valid_rows <- rep(FALSE, nrow(data))
+
+    for (i in seq_len(nrow(time_ranges$valid_ranges))) {
+      range_start <- time_ranges$valid_ranges$start_time[i]
+      range_end <- time_ranges$valid_ranges$end_time[i]
+
+      # Find rows within this time range using time column
+      in_range <- data[[time_column]] >= range_start & data[[time_column]] <= range_end
+      valid_rows <- valid_rows | in_range
+    }
+
+    # Filter data to valid rows
+    filtered_data <- data[valid_rows, ]
+
+    # Step 2: Normalize the time column to start from 0 and cap at trial duration
+    if (nrow(filtered_data) > 0) {
+      minTime <- min(filtered_data[[time_column]], na.rm = TRUE)
+      filtered_data[[time_column]] <- filtered_data[[time_column]] - minTime
+
+      # Apply duration cap to normalized time
+      filtered_data <- filtered_data[filtered_data[[time_column]] <= time_ranges$trial_duration, ]
+    }
+  }
+
+  # Log trimming results
+  if (nrow(filtered_data) != nrow(data)) {
+    final_time_range <- if (nrow(filtered_data) > 0) {
+      sprintf("%.1f-%.1fs", min(filtered_data$time, na.rm = TRUE), max(filtered_data$time, na.rm = TRUE))
+    } else {
+      "empty"
+    }
+
     cat(sprintf(
-      "DEBUG: Trial %s - Duration cap %.1fs | Original: %d rows (%.1f-%.1fs) | Final: 0 rows (ALL DATA FILTERED OUT!)\n",
-      trialNum, trial_duration, original_rows,
-      original_time_range[1], original_time_range[2]
+      "UDP TRIM APPLIED: %s T%03d | %d → %d rows (%.1f%% kept) | Final time range: %s\n",
+      participant, trialNum, nrow(data), nrow(filtered_data),
+      (nrow(filtered_data) / nrow(data)) * 100, final_time_range
     ))
   }
 
-  return(result)
+  return(filtered_data)
+}
+
+
+#--------------------------------------------------------------------
+# Wrapper used by load_or_calculate
+#--------------------------------------------------------------------
+load_or_create_udp_time_trim_info <- function(loop_function) {
+  ensure_global_data_initialized()
+
+  if (missing(loop_function) || !is.function(loop_function)) {
+    stop("load_or_create_udp_time_trim_info: valid 'loop_function' must be supplied")
+  }
+
+  # Build via provided loop_function (can be parallel or sequential)
+  build_row <- function(p, tr, ...) {
+    rng <- get_udp_time_ranges(p, tr)
+    data.frame(
+      participant           = p,
+      trial                 = tr,
+      has_udp_data          = rng$has_udp_data,
+      trial_duration        = rng$trial_duration,
+      total_valid_duration  = rng$total_valid_duration,
+      num_segments          = rng$num_segments,
+      valid_ranges          = I(list(rng$valid_ranges)),
+      stringsAsFactors      = FALSE
+    )
+  }
+
+  df <- loop_function(build_row, datasets_to_verify = c("udp"))
+  return(df)
+}
+
+# Helper function to get trim info from the global udpTimeTrimInfo table
+get_trim_info_from_table <- function(participant, trialNum) {
+  # If global table not yet built or row missing, return NULL silently; caller will compute on-the-fly.
+  if (!exists("udpTimeTrimInfo", envir = .GlobalEnv)) {
+    return(NULL)
+  }
+
+  trim_row <- udpTimeTrimInfo[udpTimeTrimInfo$participant == participant & udpTimeTrimInfo$trial == trialNum, ]
+  if (nrow(trim_row) == 0) {
+    return(NULL)
+  }
+
+  # Convert back to the expected format
+  return(list(
+    valid_ranges = trim_row$valid_ranges[[1]],
+    trial_duration = trim_row$trial_duration,
+    has_udp_data = trim_row$has_udp_data,
+    total_valid_duration = trim_row$total_valid_duration,
+    num_segments = trim_row$num_segments
+  ))
 }

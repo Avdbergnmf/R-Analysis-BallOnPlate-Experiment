@@ -96,7 +96,7 @@ calculate_all_scores <- function(qType) {
   return(allScores)
 }
 
-get_all_questionnaire_results <- function(loop_function) {
+get_all_questionnaire_results <- function(loop_function = NULL) {
   # Note: This function doesn't use loop_function as it processes questionnaire data directly
   # The parameter is kept for consistency with other calculation functions
   all_questionnaires <- c("IMI", "UserExperience")

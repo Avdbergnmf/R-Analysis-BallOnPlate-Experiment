@@ -50,9 +50,14 @@ simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
+# Create UDP time trim info for all participants and trials for improved performance
+udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
+udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
+
 # Load or calculate the data using the global parallel setting
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
 allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params, force_recalc = FALSE)
+
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
@@ -292,3 +297,4 @@ $(function() {
   setTimeout(saveCurrentPage, 2000);
 });
 ```
+

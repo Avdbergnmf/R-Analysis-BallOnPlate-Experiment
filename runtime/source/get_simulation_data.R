@@ -123,7 +123,7 @@ get_simulation_variable_names <- function() {
 get_simulation_data <- function(participant, trial) {
     # Load raw simulation data and apply trial duration capping
     sim_data <- get_t_data(participant, "sim", trial)
-    sim_data <- apply_trial_duration_cap(sim_data, trial)
+    # Data already trimmed in get_t_data(); no extra capping needed
 
     # Filter out non-simulation steps
     sim_data <- sim_data %>%
@@ -135,14 +135,14 @@ get_simulation_data <- function(participant, trial) {
 
     # Get level data for arcDeg and apply trial duration capping
     level_data <- get_t_data(participant, "level", trial)
-    level_data <- apply_trial_duration_cap(level_data, trial)
+    # Data already trimmed in get_t_data(); no extra capping needed
 
     # Process the simulation data
     sim_data <- process_simulation_data(sim_data, level_data)
 
     # Load task data and apply trial duration capping
     task_data <- get_t_data(participant, "task", trial)
-    task_data <- apply_trial_duration_cap(task_data, trial)
+    # Data already trimmed in get_t_data(); no extra capping needed
 
     if (!is.null(task_data) && nrow(task_data) > 0) {
         # Add pInput if available
