@@ -1,24 +1,12 @@
 ### Actions
 
-```{r}
+```{r, context="server"}
 # Load shinyjs for enable/disable functionality
 library(shinyjs)
 useShinyjs()
 
-tags$style(HTML("
-  .section-header {
-    background-color: #f8f9fa;
-    padding: 8px 12px;
-    margin: 10px 0 5px 0;
-    border-left: 4px solid #007bff;
-    font-weight: bold;
-    color: #495057;
-  }
-  
-  .btn-info {
-    margin-top: 5px;
-  }
-"))
+# Initialize reactive values at top level
+prepared_changes <- reactiveVal(NULL)
 ```
 
 ```{r}
@@ -39,6 +27,7 @@ selectizeInput("yplot_16", "Y-axis",
 
 actionButton("refresh_plot", "🔄 Refresh Plot", class = "btn-primary")
 ```
+
 ```{r}
 HTML('<div class="section-header">⚙️ Outlier Settings</div>')
 
@@ -49,7 +38,7 @@ radioButtons("outlier_mode", "Selection Mode:",
   choices = c("Remove Heel Strikes" = "heel","Remove Steps" = "step"),
   selected = "heel", inline = TRUE)
 
-div(style = "margin-top: 8px; padding: 6px; background-color: #f0f8ff; border-radius: 4px; border-left: 3px solid #007bff; font-size: 11px;",
+div(class = "helper-text",
   div("💡 Click to toggle, press TAB to switch modes")
 )
 
@@ -60,20 +49,19 @@ HTML('<div class="section-header">📂 Import/Export</div>')
 fluidRow(
   column(6,
     actionButton("load_manual_outliers", "📂 Load Manual Files", 
-                 class = "btn-info", style = "margin-bottom: 10px; font-weight: bold; width: 100%;")
+                 class = "btn-info", style = "width: 100%;")
   ),
   column(6,
     actionButton("load_param_outliers", "🤖 Load Param Files", 
-                 class = "btn-warning", style = "margin-bottom: 10px; font-weight: bold; width: 100%;")
+                 class = "btn-warning", style = "width: 100%;")
   )
 )
 
 # Include external drag & drop components
-includeHTML("page16_drag_drop_components.html")
+includeHTML("page16_html_imports.html")
 
 # Custom drag & drop file inputs with enhanced UI
 div(
-  
   # Heel Strike Outliers drag & drop zone
   div(
     class = "drag-drop-zone",
@@ -98,34 +86,27 @@ div(
     fileInput("importStepOutliers", NULL,
               accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"),
               multiple = FALSE, buttonLabel = NULL, placeholder = NULL)
-  ),
-  
-
+  )
 )
 ```
 
 ```{r}
 HTML('<div class="section-header">✅ Apply Changes</div>')
 
-actionButton("overwrite_outliers", "⚡ Overwrite All Outliers in Dataset", 
-  class = "btn-success", style = "font-weight: bold;")
-
 HTML('<div class="section-header">💾 Data Management</div>')
 
 fluidRow(
   column(6, 
     actionButton("save_changes", "💾 Save Changes", class = "btn-success", 
-                 style = "font-weight: bold; width: 100%;")
+                 style = "width: 100%;")
   ),
   column(6, 
     actionButton("save_as", "💾 Save As...", class = "btn-info", 
-                 style = "font-weight: bold; width: 100%;")
+                 style = "width: 100%;")
   )
 )
 
 br()
-
-downloadButton("save_rds", "💾 Save Parameters to RDS", class = "btn-warning")
 
 HTML('<div class="section-header">🔄 Auto-save</div>')
 
@@ -137,10 +118,7 @@ checkboxInput("autosave_overwrite", "Overwrite default files (instead of timesta
 checkboxInput("autosave_confirm", "Show confirmation dialog before auto-save", value = FALSE)
 
 uiOutput("overwrite_warning")
-
-
 ```
-
 
 Column
 --------------------------------------------
@@ -154,10 +132,24 @@ Also be aware that the data shown here is also based on the selection of data in
 Finally, this also includes a button on the left to save the new outliers to a `.rds` file (you can use this to overwrite the original automatic calculation of the outliers, which is far from correct).
 
 ```{r}
+# Action buttons for applying changes and saving workspace
+fluidRow(
+  column(12,
+    div(class = "action-buttons-container",
+      actionButton("apply_to_workspace", "Apply Current Selection to Workspace", 
+                  class = "btn-danger", 
+                  style = "font-weight: bold;"),
+      downloadButton("save_workspace_rds", "Save Workspace to .RDS", 
+                    class = "btn-warning", 
+                    style = "font-weight: bold;")
+    )
+  )
+)
+
 # Navigation buttons for jumping between special heel strikes and trials
 fluidRow(
   column(12, 
-    div(style = "text-align: center; margin: 15px 0; padding: 10px; background-color: #f8f9fa; border-radius: 5px;",
+    div(class = "navigation-buttons-container",
       # Trial navigation buttons
       actionButton("nav_prev_trial", "⬅️ Previous Trial", 
                    class = "btn-secondary", style = "margin-right: 5px;"),
@@ -191,10 +183,9 @@ Column
 - These heel strikes will be completely excluded from step calculations
 
 ```{r}
-div(style = "margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #ffc107;",
-    div(style = "font-size: 12px; font-weight: bold; color: #495057;", "Current Working File:"),
-    div(style = "font-size: 11px; color: #6c757d; font-family: monospace;", 
-        textOutput("current_hs_file", inline = TRUE))
+div(class = "file-info-box warning",
+    div(class = "title", "Current Working File:"),
+    div(class = "content", textOutput("current_hs_file", inline = TRUE))
 )
 
 DT::dataTableOutput("heelStrikeOutliersTable")
@@ -212,10 +203,9 @@ checkboxInput("filter_outliers_table", "Filter tables by current participant/tri
 - These heel strikes will be marked as outliers in statistical analysis
 
 ```{r}
-div(style = "margin-bottom: 10px; padding: 8px; background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #007bff;",
-    div(style = "font-size: 12px; font-weight: bold; color: #495057;", "Current Working File:"),
-    div(style = "font-size: 11px; color: #6c757d; font-family: monospace;", 
-        textOutput("current_step_file", inline = TRUE))
+div(class = "file-info-box info",
+    div(class = "title", "Current Working File:"),
+    div(class = "content", textOutput("current_step_file", inline = TRUE))
 )
 
 DT::dataTableOutput("stepOutliersTable")
@@ -1382,227 +1372,7 @@ create_outlier_table <- function(data, table_id, table_type, initialized_flag) {
 
 
 
-# Handle delete button events for heel strike outliers
-observe({
-  all_inputs <- names(input)
-  del_hs_inputs <- all_inputs[grepl("^del_hs_", all_inputs)]
-  
-  lapply(del_hs_inputs, function(input_id) {
-    observeEvent(input[[input_id]], {
-      if (!is.null(input[[input_id]]) && input[[input_id]]) {
-        tryCatch({
-          # Extract participant, trial, and time from the input_id
-          # Format: del_hs_PARTICIPANT_TRIALNUMBER_TIMEMILLISECONDS
-          parts <- strsplit(input_id, "_")[[1]]
-          if (length(parts) >= 4) {
-            participant <- gsub("_", " ", parts[3])
-            trial_num <- as.numeric(parts[4])
-            time_ms <- as.numeric(parts[5])
-            time_sec <- time_ms / 1000
-            
-            # Remove from heel strike outliers
-            current_hs_outliers <- heelstrike_outliers()
-            updated_outliers <- current_hs_outliers %>%
-              dplyr::filter(!(participant == !!participant &
-                       trialNum == !!trial_num &
-                       abs(time - !!time_sec) <= !!input$outlier_threshold))
-            
-            heelstrike_outliers(updated_outliers)
-            showNotification("Heel strike outlier deleted", type = "message", duration = 1)
-          }
-        }, error = function(e) {
-          showNotification(paste("Error deleting heel strike outlier:", e$message), type = "error")
-        })
-      }
-    }, ignoreInit = TRUE)
-  })
-})
-
-# Handle delete button events for step outliers
-observe({
-  all_inputs <- names(input)
-  del_step_inputs <- all_inputs[grepl("^del_step_", all_inputs)]
-  
-  lapply(del_step_inputs, function(input_id) {
-    observeEvent(input[[input_id]], {
-      if (!is.null(input[[input_id]]) && input[[input_id]]) {
-        tryCatch({
-          # Extract participant, trial, and time from the input_id
-          # Format: del_step_PARTICIPANT_TRIALNUMBER_TIMEMILLISECONDS  
-          parts <- strsplit(input_id, "_")[[1]]
-          if (length(parts) >= 4) {
-            participant <- gsub("_", " ", parts[3])
-            trial_num <- as.numeric(parts[4])
-            time_ms <- as.numeric(parts[5])
-            time_sec <- time_ms / 1000
-            
-            # Remove from step outliers
-            current_step_outliers <- step_outliers()
-            updated_outliers <- current_step_outliers %>%
-              dplyr::filter(!(participant == !!participant &
-                       trialNum == !!trial_num &
-                       abs(time - !!time_sec) <= !!input$outlier_threshold))
-            
-            step_outliers(updated_outliers)
-            showNotification("Step outlier deleted", type = "message", duration = 1)
-          }
-        }, error = function(e) {
-          showNotification(paste("Error deleting step outlier:", e$message), type = "error")
-        })
-      }
-    }, ignoreInit = TRUE)
-  })
-})
-
-# Observer to apply outliers to allGaitParams
-# This will PERMANENTLY remove heel strikes and mark step outliers
-# ALL previous outlier/suspect markings will be completely overwritten
-observeEvent(input$overwrite_outliers, {
-  tryCatch({
-    # Get current outliers for both types
-    current_hs_outliers <- heelstrike_outliers()
-    current_step_outliers_data <- step_outliers()
-    
-    # Calculate detailed impact statistics before applying
-    total_outliers <- nrow(current_hs_outliers) + nrow(current_step_outliers_data)
-    
-    if (total_outliers == 0) {
-      showNotification("No outliers to apply", type = "message", duration = 3)
-      return()
-    }
-    
-    # Calculate heel strike impact
-    hs_impact_details <- ""
-    if (nrow(current_hs_outliers) > 0) {
-      # Filter out invalid participants
-      valid_participants <- unique(allGaitParams$participant)
-      valid_hs_outliers <- current_hs_outliers[
-        as.character(current_hs_outliers$participant) %in% as.character(valid_participants), 
-      ]
-      
-      if (nrow(valid_hs_outliers) > 0) {
-        # Calculate how many heel strikes will be affected per participant/trial
-        hs_summary <- data.frame()
-        total_hs_affected <- 0
-        
-        for (i in seq_len(nrow(valid_hs_outliers))) {
-          hs_outlier <- valid_hs_outliers[i, ]
-          
-          # Find matching heel strikes
-          matches <- which(
-            abs(allGaitParams$time - hs_outlier$time) <= input$outlier_threshold &
-            as.character(allGaitParams$participant) == as.character(hs_outlier$participant) &
-            as.numeric(allGaitParams$trialNum) == as.numeric(hs_outlier$trialNum)
-          )
-          
-          if (length(matches) > 0) {
-            total_hs_affected <- total_hs_affected + length(matches)
-            participant_trial <- paste0("P", hs_outlier$participant, "_T", hs_outlier$trialNum)
-            existing_row <- which(hs_summary$participant_trial == participant_trial)
-            
-            if (length(existing_row) > 0) {
-              hs_summary$count[existing_row] <- hs_summary$count[existing_row] + length(matches)
-            } else {
-              hs_summary <- rbind(hs_summary, data.frame(
-                participant_trial = participant_trial,
-                count = length(matches),
-                stringsAsFactors = FALSE
-              ))
-            }
-          }
-        }
-        
-        if (nrow(hs_summary) > 0) {
-          hs_details <- paste(hs_summary$participant_trial, "(", hs_summary$count, ")", collapse = ", ")
-          hs_impact_details <- paste0("❌ HEEL STRIKES TO PERMANENTLY REMOVE: ", total_hs_affected, " total\n   Per trial: ", hs_details, "\n   ⚠️ These will be deleted from the dataset!\n\n")
-        }
-      }
-    }
-    
-    # Calculate step outlier impact
-    step_impact_details <- ""
-    if (nrow(current_step_outliers_data) > 0) {
-      # Filter out invalid participants
-      valid_participants <- unique(allGaitParams$participant)
-      valid_step_outliers <- current_step_outliers_data[
-        as.character(current_step_outliers_data$participant) %in% as.character(valid_participants), 
-      ]
-      
-      if (nrow(valid_step_outliers) > 0) {
-        # Calculate how many data points will be affected per participant/trial
-        step_summary <- data.frame()
-        total_steps_affected <- 0
-        
-        for (i in seq_len(nrow(valid_step_outliers))) {
-          step_outlier <- valid_step_outliers[i, ]
-          
-          # Find matching heel strikes for step outliers
-          step_matches <- which(
-            abs(allGaitParams$time - step_outlier$time) <= 0.01 &
-            as.character(allGaitParams$participant) == as.character(step_outlier$participant) &
-            as.numeric(allGaitParams$trialNum) == as.numeric(step_outlier$trialNum)
-          )
-          
-          if (length(step_matches) > 0) {
-            total_steps_affected <- total_steps_affected + length(step_matches)
-            participant_trial <- paste0("P", step_outlier$participant, "_T", step_outlier$trialNum)
-            existing_row <- which(step_summary$participant_trial == participant_trial)
-            
-            if (length(existing_row) > 0) {
-              step_summary$count[existing_row] <- step_summary$count[existing_row] + length(step_matches)
-            } else {
-              step_summary <- rbind(step_summary, data.frame(
-                participant_trial = participant_trial,
-                count = length(step_matches),
-                stringsAsFactors = FALSE
-              ))
-            }
-          }
-        }
-        
-        if (nrow(step_summary) > 0) {
-          step_details <- paste(step_summary$participant_trial, "(", step_summary$count, ")", collapse = ", ")
-          step_impact_details <- paste0("◐ STEP OUTLIERS TO MARK: ", total_steps_affected, " total\n   Per trial: ", step_details, "\n\n")
-        }
-      }
-    }
-    
-    # Create confirmation message
-    confirmation_msg <- paste0(
-      "OUTLIER APPLICATION CONFIRMATION\n\n",
-      hs_impact_details,
-      step_impact_details,
-      "⚠️  PERMANENT CHANGES TO DATASET:\n",
-      "• Heel strikes will be PERMANENTLY DELETED from allGaitParams\n",
-      "• Step outliers will be marked for exclusion in analysis\n",
-      "• ALL existing outlier/suspect markings will be OVERWRITTEN\n",
-      "• This replaces any previous automatic outlier detection\n\n",
-      "Are you sure you want to proceed?\n\n",
-      "Click 'Apply Changes' to confirm or 'Cancel' to abort."
-    )
-    
-    # Show confirmation dialog
-    showModal(modalDialog(
-      title = "⚠️ Confirm Outlier Application",
-      HTML(paste0("<pre style='font-family: monospace; white-space: pre-wrap; font-size: 12px;'>", 
-                  confirmation_msg, "</pre>")),
-      footer = tagList(
-        actionButton("confirm_apply_outliers", "✅ Apply Changes", class = "btn-success"),
-        modalButton("❌ Cancel")
-      ),
-      easyClose = FALSE,
-      size = "l"
-    ))
-    
-  }, error = function(e) {
-    showNotification(paste("Error preparing outlier application:", e$message), type = "error", duration = 5)
-    warning("Error in overwrite_outliers preparation: ", e$message)
-  })
-})
-
 # Helper function to find closest heel strike for a given outlier
-# This replicates the logic used in plot clicking
-# Uses the user-defined tolerance (input$outlier_threshold) or defaults to 0.01 seconds
 find_closest_heel_strike <- function(outlier_time, participant, trial_num, data_source = NULL, max_distance = 0.01) {
   # Use provided data source or default to allGaitParams
   if (is.null(data_source)) {
@@ -1631,188 +1401,6 @@ find_closest_heel_strike <- function(outlier_time, participant, trial_num, data_
     return(NULL)
   }
 }
-
-# Handle confirmed outlier application
-observeEvent(input$confirm_apply_outliers, {
-  tryCatch({
-    # Close the modal first
-    removeModal()
-    
-    # Get current outliers for both types
-    current_hs_outliers <- heelstrike_outliers()
-    current_step_outliers_data <- step_outliers()
-    
-    # Show progress
-    total_outliers <- nrow(current_hs_outliers) + nrow(current_step_outliers_data)
-    showNotification(paste("Applying", total_outliers, "outliers..."), 
-                     type = "message", duration = 2)
-    
-    # Step 1: Actually remove heel strikes marked for removal
-    rows_to_remove <- c()
-    
-    if (nrow(current_hs_outliers) > 0) {
-      # Debug: Show what we're about to process
-      showNotification(paste("Processing", nrow(current_hs_outliers), "heel strike outliers with threshold", input$outlier_threshold, "seconds"), 
-                       type = "message", duration = 3)
-      
-      # Filter out invalid participants
-      valid_participants <- unique(allGaitParams$participant)
-      current_hs_outliers <- current_hs_outliers[
-        as.character(current_hs_outliers$participant) %in% as.character(valid_participants), 
-      ]
-      
-      # Debug: Track matches per outlier
-      total_matches <- 0
-      
-      for (i in seq_len(nrow(current_hs_outliers))) {
-        hs_outlier <- current_hs_outliers[i, ]
-        
-        # Find the closest heel strike (same logic as plot clicking)
-        closest_heel_strike <- find_closest_heel_strike(
-          hs_outlier$time, 
-          hs_outlier$participant, 
-          as.numeric(hs_outlier$trialNum),
-          data_source = NULL,
-          max_distance = input$outlier_threshold
-        )
-        
-        if (!is.null(closest_heel_strike)) {
-          # Find the exact row to remove using precise matching
-          exact_match <- which(
-            allGaitParams$time == closest_heel_strike$time &
-            allGaitParams$participant == closest_heel_strike$participant &
-            allGaitParams$trialNum == closest_heel_strike$trialNum
-          )
-          
-          if (length(exact_match) > 0) {
-            # Should only be one exact match
-            total_matches <- total_matches + length(exact_match)
-            rows_to_remove <- c(rows_to_remove, exact_match)
-            
-            # Debug: Show what we matched
-            showNotification(paste("Outlier at", round(hs_outlier$time, 3), 
-                                 "→ closest heel strike at", round(closest_heel_strike$time, 3), 
-                                 "(diff:", round(closest_heel_strike$time_diff, 4), "s)"), 
-                           type = "message", duration = 2)
-          }
-        } else {
-          # No close heel strike found for this outlier
-          showNotification(paste("No heel strike found near outlier at time", round(hs_outlier$time, 3)), 
-                           type = "warning", duration = 3)
-        }
-      }
-      
-      # Remove duplicates
-      rows_to_remove <- unique(rows_to_remove)
-      
-      # Debug: Show final removal stats
-      showNotification(paste("Found", total_matches, "total matches,", length(rows_to_remove), "unique rows to remove"), 
-                       type = "message", duration = 3)
-      
-      if (length(rows_to_remove) > 0) {
-        # Store removed rows count before removal
-        n_heel_removed <- length(rows_to_remove)
-        
-        # Safety check - warn if removing a large percentage of data
-        removal_percentage <- (n_heel_removed / nrow(allGaitParams)) * 100
-        if (removal_percentage > 10) {
-          showNotification(paste("WARNING: Removing", round(removal_percentage, 1), "% of all heel strikes!"), 
-                           type = "warning", duration = 5)
-        }
-        
-        # Safety check - abort if removing more than 50% of data
-        if (removal_percentage > 50) {
-          showNotification(paste("ABORTED: Would remove", round(removal_percentage, 1), "% of data! Check your outlier threshold and selections."), 
-                           type = "error", duration = 10)
-          return()
-        }
-        
-        # Actually remove the rows from allGaitParams
-        allGaitParams <<- allGaitParams[-rows_to_remove, ]
-        
-        # Reset row names to maintain proper indexing
-        rownames(allGaitParams) <<- NULL
-        
-        showNotification(paste("Permanently removed", n_heel_removed, "heel strikes from dataset"), 
-                         type = "message", duration = 2)
-      }
-    }
-    
-    # Step 2: Reset ALL outlier-related columns and then mark step outliers
-    # This completely overwrites any previous outlier detection (automatic or manual)
-    allGaitParams$outlierSteps <<- FALSE
-    
-    # Remove outlier-related columns if they exist (clean slate approach)
-    if ("heelStrikeBad" %in% colnames(allGaitParams)) {
-      allGaitParams$heelStrikeBad <<- NULL
-    }
-    if ("suspect" %in% colnames(allGaitParams)) {
-      allGaitParams$suspect <<- NULL
-    }
-    
-    if (nrow(current_step_outliers_data) > 0) {
-      # Filter out invalid participants
-      valid_participants <- unique(allGaitParams$participant)
-      current_step_outliers_data <- current_step_outliers_data[
-        as.character(current_step_outliers_data$participant) %in% as.character(valid_participants), 
-      ]
-      
-      for (i in seq_len(nrow(current_step_outliers_data))) {
-        step_outlier <- current_step_outliers_data[i, ]
-        
-        # Find the closest heel strike (same logic as plot clicking)
-        closest_heel_strike <- find_closest_heel_strike(
-          step_outlier$time, 
-          step_outlier$participant, 
-          as.numeric(step_outlier$trialNum),
-          data_source = NULL,
-          max_distance = input$outlier_threshold
-        )
-        
-        if (!is.null(closest_heel_strike)) {
-          # Find the exact row to mark as step outlier
-          exact_match <- which(
-            allGaitParams$time == closest_heel_strike$time &
-            allGaitParams$participant == closest_heel_strike$participant &
-            allGaitParams$trialNum == closest_heel_strike$trialNum
-          )
-          
-          if (length(exact_match) > 0) {
-            allGaitParams$outlierSteps[exact_match] <<- TRUE
-          }
-        }
-      }
-      
-      n_outlier_steps <- sum(allGaitParams$outlierSteps, na.rm = TRUE)
-      showNotification(paste("Marked", n_outlier_steps, "step outliers"), 
-                       type = "message", duration = 1)
-    }
-    
-    # Update the filtered data table reference if it exists
-    if (exists(".allGaitParams_dt", envir = .GlobalEnv)) {
-      .allGaitParams_dt <<- NULL  # Force recreation with updated data
-    }
-    
-    # Increment the trigger to force an update of filteredGaitParams
-    refresh_trigger(refresh_trigger() + 1)
-    
-    # Show final summary
-    n_outlier_steps <- sum(allGaitParams$outlierSteps, na.rm = TRUE)
-    n_rows_removed <- length(rows_to_remove)
-    
-    showNotification(paste("Outliers applied successfully:", n_outlier_steps, "steps marked as outliers,", 
-                         n_rows_removed, "heel strikes removed from dataset.", 
-                         "All previous outlier/suspect markings have been overwritten."), 
-                   type = "message", duration = 5)
-                   
-    # Note: Step calculation will happen automatically during analysis
-    # based on the remaining (non-removed) heel strikes
-    
-  }, error = function(e) {
-    showNotification(paste("Error applying outliers:", e$message), type = "error", duration = 5)
-    warning("Error in confirm_apply_outliers: ", e$message)
-  })
-})
 
 # Handle multiple point selection (updated for new outlier system)
 observeEvent(input$confirm_selection, {
@@ -2287,4 +1875,152 @@ output$overwrite_warning <- renderUI({
         )))
   }
 })
+
+# Observer to show confirmation dialog for applying outliers
+observeEvent(input$apply_to_workspace, {
+  tryCatch({
+    # Ensure data.table is available
+    if (!requireNamespace("data.table", quietly = TRUE)) {
+      stop("Package 'data.table' is required for this operation.")
+    }
+    
+    # Get current outliers for both types
+    current_hs_outliers <- heelstrike_outliers()
+    current_step_outliers <- step_outliers()
+    
+    if (nrow(current_hs_outliers) == 0 && nrow(current_step_outliers) == 0) {
+      showNotification("No outliers to apply.", type = "message", duration = 3)
+      return()
+    }
+
+    # Convert to data.table for efficient processing
+    # Make copies to avoid modifying the original reactive data frames
+    gait_dt <- as.data.table(allGaitParams)
+    hs_outliers_dt <- as.data.table(current_hs_outliers)
+    step_outliers_dt <- as.data.table(current_step_outliers)
+    
+    # Ensure consistent types for join columns
+    gait_dt[, trialNum := as.numeric(as.character(trialNum))]
+    hs_outliers_dt[, trialNum := as.numeric(as.character(trialNum))]
+    step_outliers_dt[, trialNum := as.numeric(as.character(trialNum))]
+    
+    # --- Calculate Heel Strike Removals ---
+    hs_impact_details <- ""
+    rows_to_remove <- integer(0)
+    if (nrow(hs_outliers_dt) > 0) {
+      # Add time window columns for non-equi join
+      threshold <- input$outlier_threshold
+      hs_outliers_dt[, `:=`(time_min = time - threshold, time_max = time + threshold)]
+      
+      # Perform a non-equi join to find all matches within the time threshold
+      hs_matches <- gait_dt[hs_outliers_dt, 
+          on = .(participant, trialNum, time >= time_min, time <= time_max),
+          nomatch = 0,
+          .(participant, trialNum, time = x.time)] # x.time is the time from gait_dt
+      
+      if(nrow(hs_matches) > 0){
+        # Get indices of rows to be removed by joining back to the original table
+        rows_to_remove <- gait_dt[hs_matches, on = .(participant, trialNum, time), which = TRUE]
+        
+        # Summarize impact
+        hs_summary <- hs_matches[, .N, by = .(participant, trialNum)]
+        hs_details <- paste0("P", hs_summary$participant, "_T", hs_summary$trialNum, " (", hs_summary$N, ")", collapse = ", ")
+        hs_impact_details <- sprintf("❌ HEEL STRIKES TO PERMANENTLY REMOVE: %d total\n   Per trial: %s\n   ⚠️ These will be deleted from the dataset!\n\n",
+                                     length(rows_to_remove), hs_details)
+      }
+    }
+    
+    # --- Calculate Step Outlier Markings ---
+    step_impact_details <- ""
+    rows_to_mark <- integer(0)
+    if (nrow(step_outliers_dt) > 0) {
+      # Perform join to find exact matches to mark as step outliers
+      # A simple inner join is sufficient here.
+      rows_to_mark <- gait_dt[step_outliers_dt, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
+      
+      if (length(rows_to_mark) > 0) {
+        step_summary <- gait_dt[rows_to_mark, .N, by = .(participant, trialNum)]
+        step_details <- paste0("P", step_summary$participant, "_T", step_summary$trialNum, " (", step_summary$N, ")", collapse = ", ")
+        step_impact_details <- sprintf("◐ STEP OUTLIERS TO MARK: %d total\n   Per trial: %s\n\n",
+                                       length(rows_to_mark), step_details)
+      }
+    }
+
+    # Store the indices for the actual operation
+    prepared_changes(list(remove = rows_to_remove, mark = rows_to_mark))
+
+    # --- Create and Show Confirmation Dialog ---
+    confirmation_msg <- paste0(
+      "OUTLIER APPLICATION CONFIRMATION\n\n",
+      hs_impact_details,
+      step_impact_details,
+      "⚠️  PERMANENT CHANGES TO DATASET:\n",
+      "• Heel strikes will be PERMANENTLY DELETED from allGaitParams.\n",
+      "• Step outliers will be marked for exclusion in analysis.\n",
+      "• ALL existing outlier/suspect markings will be OVERWRITTEN.\n\n",
+      "Are you sure you want to proceed?"
+    )
+    
+    showModal(modalDialog(
+      title = "⚠️ Confirm Outlier Application",
+      HTML(paste0("<pre style='font-family: monospace; white-space: pre-wrap; font-size: 12px;'>", confirmation_msg, "</pre>")),
+      footer = tagList(
+        actionButton("confirm_apply_outliers", "✅ Apply Changes", class = "btn-success"),
+        modalButton("❌ Cancel")
+      ),
+      easyClose = FALSE, size = "l"
+    ))
+    
+  }, error = function(e) {
+    showNotification(paste("Error preparing outlier application:", e$message), type = "error", duration = 10)
+    warning("Error in apply_to_workspace preparation: ", e$message)
+  })
+})
+
+# Handle confirmed outlier application
+observeEvent(input$confirm_apply_outliers, {
+  tryCatch({
+    removeModal()
+
+    current_hs_outliers <- heelstrike_outliers()
+    current_step_outliers_data <- step_outliers()
+
+    allGaitParams <<- apply_outliers_to_gaitparams(
+      allGaitParams,
+      current_hs_outliers,
+      current_step_outliers_data,
+      tolerance = input$outlier_threshold
+    )
+
+    if (exists(".allGaitParams_dt", envir = .GlobalEnv)) {
+      .allGaitParams_dt <<- NULL
+    }
+
+    refresh_trigger(refresh_trigger() + 1)
+
+    # Show summary of what was done
+    n_outlier_steps <- sum(allGaitParams$outlierSteps, na.rm = TRUE)
+    n_rows_removed <- nrow(current_hs_outliers)
+    
+    showNotification(paste("Outliers applied successfully:", n_outlier_steps, "steps marked as outliers,", 
+                         n_rows_removed, "heel strikes removed from dataset.", 
+                         "All previous outlier/suspect markings have been overwritten."), 
+                   type = "message", duration = 5)
+  }, error = function(e) {
+    showNotification(paste("Error applying outliers:", e$message), type = "error", duration = 5)
+    warning("Error in confirm_apply_outliers: ", e$message)
+  })
+})
+
+# Download handler for saving the entire allGaitParams object to an RDS file
+output$save_workspace_rds <- downloadHandler(
+  filename = function() {
+    # Generate a filename with a timestamp
+    paste("allGaitParams-", Sys.Date(), ".rds", sep="")
+  },
+  content = function(file) {
+    saveRDS(allGaitParams, file)
+  }
+)
 ```
+

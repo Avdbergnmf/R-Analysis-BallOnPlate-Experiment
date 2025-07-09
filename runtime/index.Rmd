@@ -25,6 +25,7 @@ source('source/setup.R')
 source('source/data_loading.R', local = FALSE)
 source('source/pre_processing.R', local = FALSE)
 
+source("source/outlier_utils.R", local = FALSE)
 source('source/find_foot_events.R', local = FALSE)
 
 # =============================================================================
