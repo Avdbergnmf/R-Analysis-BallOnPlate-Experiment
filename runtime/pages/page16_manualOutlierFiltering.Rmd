@@ -2264,7 +2264,13 @@ output$overwrite_warning <- renderUI({
     }
     
     div(style = "font-size: 11px; color: #d63384; margin-top: -5px; margin-bottom: 10px; background-color: #fff3cd; padding: 5px; border-radius: 3px; border-left: 3px solid #ffc107;",
-        paste0("⚠️ WARNING: Will overwrite ", current_hs_file, " and ", current_step_file, " ", confirmation_text),
+        HTML(paste0(
+          "⚠️ <strong>WARNING</strong><br>",
+          "Will overwrite:<br>",
+          "<code>", current_hs_file, "</code><br>",
+          "<code>", current_step_file, "</code><br>",
+          confirmation_text
+        )),
         br(),
         "✗ Unchecked: Creates timestamped backup files")
   } else {
@@ -2276,7 +2282,9 @@ output$overwrite_warning <- renderUI({
     }
     
     div(style = "font-size: 11px; color: #666; margin-top: -5px; margin-bottom: 10px;",
-        paste0("✓ Safe mode: Creates timestamped backup files", confirmation_text))
+        HTML(paste0(
+          "✓ <strong>Safe mode</strong>: Creates timestamped backup files", confirmation_text
+        )))
   }
 })
 ```
