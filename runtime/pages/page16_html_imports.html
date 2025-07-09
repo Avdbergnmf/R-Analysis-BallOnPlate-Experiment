@@ -1,6 +1,7 @@
 <!-- Drag & Drop Components for Manual Outlier Filtering -->
-<!-- CSS Styles for Drag & Drop Zones -->
+<!-- CSS Styles for Drag & Drop Zones and Page Components -->
 <style>
+  /* Drag & Drop Zone Styles */
   .drag-drop-zone {
     border: 2px dashed #ccc;
     border-radius: 10px;
@@ -99,8 +100,6 @@
     display: none !important;
   }
   
-
-  
   /* Hide progress bar */
   .drag-drop-zone .progress {
     display: none;
@@ -113,6 +112,77 @@
     position: relative;
     z-index: 5;
     pointer-events: none;
+  }
+
+  /* Section Headers and Layout Components */
+  .section-header {
+    background-color: #f8f9fa;
+    padding: 8px 12px;
+    margin: 10px 0 5px 0;
+    border-left: 4px solid #007bff;
+    font-weight: bold;
+    color: #495057;
+  }
+  
+  .btn-info {
+    margin-top: 5px;
+  }
+
+  .action-buttons-container {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin: 15px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+  }
+
+  .navigation-buttons-container {
+    text-align: center;
+    margin: 15px 0;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+  }
+
+  /* File Info Boxes */
+  .file-info-box {
+    margin-bottom: 10px;
+    padding: 8px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid;
+  }
+
+  .file-info-box.warning {
+    border-left-color: #ffc107;
+  }
+
+  .file-info-box.info {
+    border-left-color: #007bff;
+  }
+
+  .file-info-box .title {
+    font-size: 12px;
+    font-weight: bold;
+    color: #495057;
+  }
+
+  .file-info-box .content {
+    font-size: 11px;
+    color: #6c757d;
+    font-family: monospace;
+  }
+
+  /* Helper Text Styles */
+  .helper-text {
+    margin-top: 8px;
+    padding: 6px;
+    background-color: #f0f8ff;
+    border-radius: 4px;
+    border-left: 3px solid #007bff;
+    font-size: 11px;
   }
 </style>
 
@@ -181,8 +251,6 @@
       }
     });
     
-
-    
     // Basic drag feedback
     $zone.on('dragenter dragover', function(e) {
       if (!$(this).hasClass('success')) {
@@ -198,8 +266,6 @@
       }
     });
   }
-  
-
   
   function isValidCSVFile(file) {
     var validTypes = ['text/csv', 'application/csv', 'text/comma-separated-values'];
@@ -238,7 +304,4 @@
     $dropZone.removeClass('processing dragover success error');
     $dropZone.find('.drag-drop-hint').text('Drag & drop CSV file here or click to browse');
   }
-  
-  // Allow natural drag & drop behavior on file inputs
-  // No global prevention needed - let browser handle it naturally
 </script> 
