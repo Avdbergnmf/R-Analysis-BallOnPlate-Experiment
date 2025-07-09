@@ -6,6 +6,11 @@
 # Note: ensure_global_data_initialized() is called by functions that need the data
 ################ Data retrieval / helper methods ################
 
+# New helper: convert trial identifiers such as "T5" to the numeric value 5
+sanitize_trial_num <- function(trialNum) {
+  as.numeric(gsub("[^0-9]", "", as.character(trialNum)))
+}
+
 # Data retrieval functions
 get_p_dir <- function(participant) {
   ensure_global_data_initialized()
@@ -191,7 +196,8 @@ check_file_exists <- function(participant, trackerType, trialNum) {
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
+  trialNum_numeric <- sanitize_trial_num(trialNum)
+  filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   return(file.exists(filePath))
@@ -207,7 +213,8 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
+  trialNum_numeric <- sanitize_trial_num(trialNum)
+  filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   if (!file.exists(filePath)) {
@@ -246,7 +253,8 @@ get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = 
 
   # Get the file prefix from the dictionary
   prefix <- filenameDict[[trackerType]]
-  filename <- paste0(prefix, "_T", sprintf("%03d", as.numeric(trialNum)), ".csv")
+  trialNum_numeric <- sanitize_trial_num(trialNum)
+  filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
   filePath <- file.path(get_p_dir(participant), "trackers", filename)
 
   # Use tryCatch for more robust error handling
@@ -355,6 +363,7 @@ get_question_weights <- function(qType) { # qType = IMI / UserExperience
 
 # Get trial duration using predefined defaults
 get_trial_duration <- function(trialNum) {
+  trialNum <- sanitize_trial_num(trialNum)
   # Define reasonable default durations based on trial type
   default_durations <- list(
     "1" = 120, # warmup - 2 minutes
@@ -402,7 +411,8 @@ get_udp_time_ranges <- function(participant, trialNum) {
   }
 
   prefix <- filenameDict[["udp"]]
-  filePath <- file.path(get_p_dir(participant), "trackers", sprintf("%s_T%03d.csv", prefix, as.numeric(trialNum)))
+  trialNum_numeric <- sanitize_trial_num(trialNum)
+  filePath <- file.path(get_p_dir(participant), "trackers", sprintf("%s_T%03d.csv", prefix, trialNum_numeric))
 
   cols <- c("time", "trialTime", "isError", "startTrial")
   dt <- tryCatch(data.table::fread(filePath, select = cols, showProgress = FALSE),
@@ -583,7 +593,7 @@ apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "
 
     cat(sprintf(
       "UDP TRIM APPLIED: %s T%03d | %d → %d rows (%.1f%% kept) | Final time range: %s\n",
-      participant, trialNum, nrow(data), nrow(filtered_data),
+      participant, sanitize_trial_num(trialNum), nrow(data), nrow(filtered_data),
       (nrow(filtered_data) / nrow(data)) * 100, final_time_range
     ))
   }
