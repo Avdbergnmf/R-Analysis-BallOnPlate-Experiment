@@ -143,52 +143,59 @@ check_alternation <- function(local_maxima, local_minima) {
     length(local_maxima), length(local_minima)
   ))
 
-  i <- 1
-  while (i <= length(local_minima) && i <= length(local_maxima)) {
-    if (i > length(local_minima) || i > length(local_maxima)) break
+  original_maxima_count <- length(local_maxima)
+  original_minima_count <- length(local_minima)
 
-    # Debug current state
-    if (i <= length(local_maxima) && i <= length(local_minima)) {
-      cat(sprintf(
-        "DEBUG: Iteration %d - maxima[%d]=%d, minima[%d]=%d\n",
-        i, i, local_maxima[i], i, local_minima[i]
-      ))
-    }
+  # Vectorized approach: identify which elements to keep
+  min_len <- min(length(local_maxima), length(local_minima))
+  
+  if (min_len == 0) {
+    return(list(
+      maxima = local_maxima, minima = local_minima,
+      N_removed_min = 0, N_removed_max = 0
+    ))
+  }
 
-    # Remove maxima that come before their corresponding minima
-    while (i <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] < local_minima[i]) {
-      if (length(local_maxima) < i) break
-      cat(sprintf(
-        "DEBUG: Removing maxima[%d]=%d (comes before minima[%d]=%d)\n",
-        i, local_maxima[i], i, local_minima[i]
-      ))
-      local_maxima <- local_maxima[-i]
-      N_removed_min <- N_removed_min + 1
-      if (length(local_maxima) < i) break
-    }
+  # Create logical vectors for which elements to keep
+  keep_maxima <- rep(TRUE, length(local_maxima))
+  keep_minima <- rep(TRUE, length(local_minima))
 
-    # Remove minima that come after the next maxima
-    while ((i + 1) <= length(local_minima) && i <= length(local_maxima) && local_maxima[i] > local_minima[i + 1]) {
-      if (length(local_minima) < (i + 1)) break
-      cat(sprintf(
-        "DEBUG: Removing minima[%d]=%d (comes after maxima[%d]=%d)\n",
-        i + 1, local_minima[i + 1], i, local_maxima[i]
-      ))
-      local_minima <- local_minima[-(i + 1)]
-      N_removed_max <- N_removed_max + 1
-      if (length(local_minima) < (i + 1)) break
-    }
+  # Vectorized: Remove maxima that come before their corresponding minima
+  if (min_len > 0) {
+    indices_to_check <- seq_len(min_len)
+    keep_maxima[indices_to_check] <- local_maxima[indices_to_check] >= local_minima[indices_to_check]
+  }
 
-    i <- i + 1
+  # Vectorized: Remove minima that come after the next maxima
+  if (length(local_maxima) > 0 && length(local_minima) > 1) {
+    max_indices <- seq_len(min(length(local_maxima), length(local_minima) - 1))
+    min_indices <- max_indices + 1
+    keep_minima[min_indices] <- local_minima[min_indices] >= local_maxima[max_indices]
+  }
+
+  # Apply filtering in one operation
+  new_maxima <- local_maxima[keep_maxima]
+  new_minima <- local_minima[keep_minima]
+
+  # Calculate removed counts
+  N_removed_min <- original_maxima_count - length(new_maxima)
+  N_removed_max <- original_minima_count - length(new_minima)
+
+  # Debug logging for removals
+  if (N_removed_min > 0) {
+    cat(sprintf("DEBUG: Removed %d maxima\n", N_removed_min))
+  }
+  if (N_removed_max > 0) {
+    cat(sprintf("DEBUG: Removed %d minima\n", N_removed_max))
   }
 
   cat(sprintf(
     "DEBUG: Alternation check - Output: %d maxima, %d minima (removed %d max, %d min)\n",
-    length(local_maxima), length(local_minima), N_removed_min, N_removed_max
+    length(new_maxima), length(new_minima), N_removed_min, N_removed_max
   ))
 
   return(list(
-    maxima = local_maxima, minima = local_minima,
+    maxima = new_maxima, minima = new_minima,
     N_removed_min = N_removed_min, N_removed_max = N_removed_max
   ))
 }
