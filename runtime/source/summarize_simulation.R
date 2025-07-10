@@ -8,29 +8,55 @@ calculate_total_score <- function(sim_data) {
     final_score <- NA_real_
     time_in_bowl_bonus <- 0
 
+    # Extract participant and trial from sim_data for debugging
+    participant_id <- if ("participant" %in% colnames(sim_data)) as.character(sim_data$participant[1]) else "Unknown"
+    trial_id <- if ("trialNum" %in% colnames(sim_data)) as.character(sim_data$trialNum[1]) else "Unknown"
+
     # Get final score from simulation data
     if ("score" %in% colnames(sim_data)) {
         # Get the final (last) non-NA score value instead of maximum
         score_values <- sim_data$score[!is.na(sim_data$score)]
         if (length(score_values) > 0) {
             final_score <- tail(score_values, 1) # Take the last value instead of max
+            cat(sprintf("DEBUG: Participant %s Trial %s - Final score: %f (from %d score values)\n", 
+                          participant_id, trial_id, final_score, length(score_values)))
+        } else {
+            cat(sprintf("DEBUG: Participant %s Trial %s - No valid score values found\n", 
+                          participant_id, trial_id))
         }
+    } else {
+        cat(sprintf("DEBUG: Participant %s Trial %s - No score column found\n", 
+                      participant_id, trial_id))
     }
 
     # Add time_in_bowl bonus points if the column exists
     if ("time_in_bowl" %in% colnames(sim_data)) {
         time_in_bowl_values <- sim_data$time_in_bowl[!is.na(sim_data$time_in_bowl)]
         if (length(time_in_bowl_values) > 0) {
-            # Convert time_in_bowl to points
+            # Convert time_in_bowl to points (currently just taking the raw value)
             time_in_bowl_bonus <- tail(time_in_bowl_values, 1)
+            cat(sprintf("DEBUG: Participant %s Trial %s - Time in bowl bonus: %f (from %d time_in_bowl values)\n", 
+                          participant_id, trial_id, time_in_bowl_bonus, length(time_in_bowl_values)))
+        } else {
+            cat(sprintf("DEBUG: Participant %s Trial %s - No valid time_in_bowl values found\n", 
+                          participant_id, trial_id))
         }
+    } else {
+        cat(sprintf("DEBUG: Participant %s Trial %s - No time_in_bowl column found\n", 
+                      participant_id, trial_id))
     }
+
+    # Calculate total score
+    total_score <- if (is.na(final_score)) time_in_bowl_bonus else final_score + time_in_bowl_bonus
+    cat(sprintf("DEBUG: Participant %s Trial %s - Total score: %f (final_score: %f + time_in_bowl_bonus: %f)\n", 
+                  participant_id, trial_id, total_score, 
+                  ifelse(is.na(final_score), 0, final_score), time_in_bowl_bonus))
 
     # Return calculated scores
     return(list(
         final_score = final_score,
         time_in_bowl_bonus = time_in_bowl_bonus,
-        total_score = final_score + time_in_bowl_bonus
+        total_score = total_score
     ))
 }
 
