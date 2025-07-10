@@ -1366,42 +1366,6 @@ create_outlier_table <- function(data, table_id, table_type, initialized_flag) {
   return(dt_table)
 }
 
-
-
-
-
-
-
-# Helper function to find closest heel strike for a given outlier
-find_closest_heel_strike <- function(outlier_time, participant, trial_num, data_source = NULL, max_distance = 0.01) {
-  # Use provided data source or default to allGaitParams
-  if (is.null(data_source)) {
-    data_source <- allGaitParams
-  }
-  
-  # Get trial data for this participant/trial
-  trial_data <- data_source %>%
-    dplyr::filter(participant == !!participant & trialNum == !!trial_num) %>%
-    dplyr::arrange(time)
-  
-  if (nrow(trial_data) == 0) {
-    return(NULL)
-  }
-  
-  # Find closest heel strike
-  closest_step <- trial_data %>%
-    dplyr::mutate(time_diff = abs(time - !!outlier_time)) %>%
-    dplyr::arrange(time_diff) %>%
-    dplyr::slice(1)
-  
-  # Only return if within acceptable distance
-  if (nrow(closest_step) > 0 && closest_step$time_diff <= max_distance) {
-    return(closest_step)
-  } else {
-    return(NULL)
-  }
-}
-
 # Handle multiple point selection (updated for new outlier system)
 observeEvent(input$confirm_selection, {
   selected_data <- event_data("plotly_selected", source = "outlier_plot")
@@ -1905,47 +1869,37 @@ observeEvent(input$apply_to_workspace, {
     step_outliers_dt[, trialNum := as.numeric(as.character(trialNum))]
     
     # --- Calculate Heel Strike Removals ---
-    hs_impact_details <- ""
-    rows_to_remove <- integer(0)
-    if (nrow(hs_outliers_dt) > 0) {
-      # Add time window columns for non-equi join
-      threshold <- input$outlier_threshold
-      hs_outliers_dt[, `:=`(time_min = time - threshold, time_max = time + threshold)]
-      
-      # Perform a non-equi join to find all matches within the time threshold
-      hs_matches <- gait_dt[hs_outliers_dt, 
-          on = .(participant, trialNum, time >= time_min, time <= time_max),
-          nomatch = 0,
-          .(participant, trialNum, time = x.time)] # x.time is the time from gait_dt
-      
-      if(nrow(hs_matches) > 0){
-        # Get indices of rows to be removed by joining back to the original table
-        rows_to_remove <- gait_dt[hs_matches, on = .(participant, trialNum, time), which = TRUE]
-        
-        # Summarize impact
-        hs_summary <- hs_matches[, .N, by = .(participant, trialNum)]
-        hs_details <- paste0("P", hs_summary$participant, "_T", hs_summary$trialNum, " (", hs_summary$N, ")", collapse = ", ")
-        hs_impact_details <- sprintf("❌ HEEL STRIKES TO PERMANENTLY REMOVE: %d total\n   Per trial: %s\n   ⚠️ These will be deleted from the dataset!\n\n",
-                                     length(rows_to_remove), hs_details)
-      }
-    }
+    threshold <- input$outlier_threshold
+
+    # Find heel strikes to remove
+    hs_matches  <- find_closest_heel_strikes(current_hs_outliers, gait_dt, threshold)
+    rows_to_remove <- if (!is.null(hs_matches)) gait_dt[hs_matches,
+                          on = .(participant, trialNum, time), which = TRUE] else integer(0)
+
+    # Build summary string
+    hs_impact_details <- if (length(rows_to_remove)) {
+      hs_summary <- gait_dt[rows_to_remove, .N, by = .(participant, trialNum)]
+      paste0(
+        "❌ HEEL STRIKES TO PERMANENTLY REMOVE: ", length(rows_to_remove), " total\n   Per trial: ",
+        paste0("P", hs_summary$participant, "_T", hs_summary$trialNum, " (", hs_summary$N, ")", collapse = ", "),
+        "\n   ⚠️ These will be deleted from the dataset!\n\n"
+      )
+    } else ""
     
     # --- Calculate Step Outlier Markings ---
-    step_impact_details <- ""
-    rows_to_mark <- integer(0)
-    if (nrow(step_outliers_dt) > 0) {
-      # Perform join to find exact matches to mark as step outliers
-      # A simple inner join is sufficient here.
-      rows_to_mark <- gait_dt[step_outliers_dt, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
-      
-      if (length(rows_to_mark) > 0) {
-        step_summary <- gait_dt[rows_to_mark, .N, by = .(participant, trialNum)]
-        step_details <- paste0("P", step_summary$participant, "_T", step_summary$trialNum, " (", step_summary$N, ")", collapse = ", ")
-        step_impact_details <- sprintf("◐ STEP OUTLIERS TO MARK: %d total\n   Per trial: %s\n\n",
-                                       length(rows_to_mark), step_details)
-      }
-    }
+    step_matches <- find_closest_heel_strikes(current_step_outliers, gait_dt, threshold)
+    rows_to_mark <- if (!is.null(step_matches)) gait_dt[step_matches,
+                       on = .(participant, trialNum, time), which = TRUE] else integer(0)
 
+    step_impact_details <- if (length(rows_to_mark)) {
+      step_summary <- gait_dt[rows_to_mark, .N, by = .(participant, trialNum)]
+      paste0(
+        "◐ STEP OUTLIERS TO MARK: ", length(rows_to_mark), " total\n   Per trial: ",
+        paste0("P", step_summary$participant, "_T", step_summary$trialNum, " (", step_summary$N, ")", collapse = ", "),
+        "\n\n"
+      )
+    } else ""
+    
     # Store the indices for the actual operation
     prepared_changes(list(remove = rows_to_remove, mark = rows_to_mark))
 

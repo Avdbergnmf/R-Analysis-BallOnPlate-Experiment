@@ -1,36 +1,54 @@
 # Utility functions for handling outliers
 
-#' Find the closest heel strike in a dataset
+#' Find the closest heel strikes in a dataset efficiently using data.table
 #'
-#' @param outlier_time Time of the outlier
-#' @param participant  Participant identifier
-#' @param trial_num    Trial number
-#' @param data_source  Data frame containing heel strike data
+#' @param outliers Data frame with outlier information
+#' @param data_source Data frame containing heel strike data
 #' @param max_distance Maximum time difference allowed
-#' @return The closest row from \code{data_source} within \code{max_distance} or NULL
-find_closest_heel_strike <- function(outlier_time, participant, trial_num,
-                                     data_source = NULL, max_distance = 0.03) {
-    if (is.null(data_source)) {
-        data_source <- allGaitParams
-    }
-
-    trial_data <- data_source %>%
-        dplyr::filter(participant == !!participant & trialNum == !!trial_num) %>%
-        dplyr::arrange(time)
-
-    if (nrow(trial_data) == 0) {
+#' @return Data table with matched rows
+find_closest_heel_strikes <- function(outliers, data_source, max_distance = 0.03) {
+    if (is.null(outliers) || nrow(outliers) == 0) {
         return(NULL)
     }
 
-    closest_step <- trial_data %>%
-        dplyr::mutate(time_diff = abs(time - !!outlier_time)) %>%
-        dplyr::arrange(time_diff) %>%
-        dplyr::slice(1)
+    # Convert to data.table and ensure consistent types
+    dt <- data.table::as.data.table(data_source)
+    outliers_dt <- data.table::as.data.table(outliers)
 
-    if (nrow(closest_step) > 0 && closest_step$time_diff <= max_distance) {
-        return(closest_step)
-    }
-    NULL
+    # Ensure consistent types
+    dt[, `:=`(
+        participant = as.character(participant),
+        trialNum = as.numeric(as.character(trialNum))
+    )]
+    outliers_dt[, `:=`(
+        participant = as.character(participant),
+        trialNum = as.numeric(as.character(trialNum))
+    )]
+
+    # Find matches within time window
+    matches <- data.table::rbindlist(lapply(seq_len(nrow(outliers_dt)), function(i) {
+        outlier <- outliers_dt[i]
+
+        # Filter to current participant/trial
+        trial_data <- dt[participant == outlier$participant &
+            trialNum == outlier$trialNum]
+
+        if (nrow(trial_data) == 0) {
+            return(NULL)
+        }
+
+        # Find closest time within tolerance
+        time_diffs <- abs(trial_data$time - outlier$time)
+        closest_idx <- which.min(time_diffs)
+
+        if (time_diffs[closest_idx] > max_distance) {
+            return(NULL)
+        }
+
+        trial_data[closest_idx]
+    }))
+
+    matches
 }
 
 #' Check if a heel strike is marked as an outlier
@@ -58,14 +76,6 @@ check_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0
 
     diffs <- abs(participant_outliers$time - time)
     return(min(diffs) <= tolerance)
-}
-
-#' Backward compatibility function for outlier checking
-#'
-#' @inheritParams check_outlier_heel_strike
-#' @return TRUE if the heel strike is marked as an outlier, FALSE otherwise
-is_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0.03) {
-    check_outlier_heel_strike(participant, trialNum, time, tolerance)
 }
 
 #' Mark outlier steps in heel strike data
@@ -103,64 +113,46 @@ mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, toleran
 
 #' Apply manual outliers to a gait parameter table
 #'
-#' Removes heel strikes specified in \code{heel_outliers} and marks step outliers
-#' in \code{step_outliers}. Utilises \code{mark_outlier_steps()} from
-#' \code{find_foot_events.R}.
-#'
-#' @param data            allGaitParams data frame
-#' @param heel_outliers   data frame with columns participant, trialNum, time
-#' @param step_outliers   data frame with columns participant, trialNum, time
-#' @param tolerance       matching tolerance in seconds
-#' @return Modified \code{data}
-apply_outliers_to_gaitparams <- function(data, heel_outliers, step_outliers,
-                                         tolerance = 0.03) {
-    rows_to_remove <- integer(0)
+#' @param data Data frame containing gait parameters
+#' @param heel_outliers Data frame with heel strike outliers
+#' @param step_outliers Data frame with step outliers
+#' @param tolerance Matching tolerance in seconds
+#' @return Modified data frame
+apply_outliers_to_gaitparams <- function(data, heel_outliers, step_outliers, tolerance = 0.03) {
+    # Convert to data.table for efficient operations
+    dt <- data.table::as.data.table(data)
 
+    # Reset only the outlierSteps column
+    dt[, outlierSteps := FALSE]
+
+    # Remove heel strike outliers
     if (!is.null(heel_outliers) && nrow(heel_outliers) > 0) {
-        for (i in seq_len(nrow(heel_outliers))) {
-            hs <- heel_outliers[i, ]
-            closest <- find_closest_heel_strike(hs$time, hs$participant,
-                as.numeric(hs$trialNum),
-                data_source = data,
-                max_distance = tolerance
-            )
-            if (!is.null(closest)) {
-                idx <- which(data$time == closest$time &
-                    data$participant == closest$participant &
-                    data$trialNum == closest$trialNum)
-                rows_to_remove <- c(rows_to_remove, idx)
-            }
-        }
-        rows_to_remove <- unique(rows_to_remove)
-        if (length(rows_to_remove) > 0) {
-            data <- data[-rows_to_remove, ]
-            rownames(data) <- NULL
+        matches <- find_closest_heel_strikes(heel_outliers, dt, tolerance)
+        if (!is.null(matches) && nrow(matches) > 0) {
+            # Create unique identifier for each row
+            dt[, row_id := .I]
+            matches[, row_id := .I]
+
+            # Remove matched rows
+            dt <- dt[!row_id %in% matches$row_id]
+            dt[, row_id := NULL]
         }
     }
 
-    # Reset outlier related columns
-    data$outlierSteps <- FALSE
-    if ("heelStrikeBad" %in% colnames(data)) data$heelStrikeBad <- NULL
-    if ("suspect" %in% colnames(data)) data$suspect <- NULL
-
+    # Mark step outliers
     if (!is.null(step_outliers) && nrow(step_outliers) > 0) {
-        for (i in seq_len(nrow(step_outliers))) {
-            so <- step_outliers[i, ]
-            closest <- find_closest_heel_strike(so$time, so$participant,
-                as.numeric(so$trialNum),
-                data_source = data,
-                max_distance = tolerance
-            )
-            if (!is.null(closest)) {
-                idx <- which(data$time == closest$time &
-                    data$participant == closest$participant &
-                    data$trialNum == closest$trialNum)
-                if (length(idx) > 0) {
-                    data$outlierSteps[idx] <- TRUE
-                }
-            }
+        matches <- find_closest_heel_strikes(step_outliers, dt, tolerance)
+        if (!is.null(matches) && nrow(matches) > 0) {
+            # Create unique identifier for each row
+            dt[, row_id := .I]
+            matches[, row_id := .I]
+
+            # Mark matched rows
+            dt[row_id %in% matches$row_id, outlierSteps := TRUE]
+            dt[, row_id := NULL]
         }
     }
 
-    data
+    # Convert back to data.frame
+    as.data.frame(dt)
 }
