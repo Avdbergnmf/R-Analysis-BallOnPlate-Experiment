@@ -32,18 +32,48 @@ getTypes <- function(dt) {
 #' # You can still override the global setting if needed
 #' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
 #'
-load_or_calculate <- function(filePath, calculate_function, parallel = USE_PARALLEL, force_recalc = FORCE_RECALC) {
+# -----------------------------------------------------------------------------
+# load_or_calculate ------------------------------------------------------------
+# Added global cluster reuse: a single parallel cluster is created on the very
+# first call (when `parallel = TRUE`) and stored in `.GLOBAL_PARALLEL_CLUSTER`.
+# Subsequent calls reuse the same cluster so we avoid the high overhead of
+# repeatedly spawning worker processes.  Pass `stop_cluster = TRUE` on the **last**
+# call to gracefully shut the workers down.
+# -----------------------------------------------------------------------------
+load_or_calculate <- function(filePath,
+                              calculate_function,
+                              parallel = USE_PARALLEL,
+                              force_recalc = FORCE_RECALC,
+                              stop_cluster = FALSE) {
     if (!force_recalc && file.exists(filePath)) {
         data <- readRDS(filePath)
     } else {
+        # ------------------------------------------------------------------
         # Choose the appropriate loop function based on parallel setting
+        # ------------------------------------------------------------------
         if (parallel) {
+            # ------------------------------------------------------------------
+            # Obtain or create a reusable cluster to avoid repeated start-ups
+            # ------------------------------------------------------------------
+            if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
+                is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
+                assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+            }
+
+            cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+
             # Extract the main function name for meaningful log file names
             main_func_name <- deparse(substitute(calculate_function))
             log_file_name <- sprintf("parallel_log_%s.txt", main_func_name)
 
             loop_function <- function(calc_func, ...) {
-                get_data_from_loop_parallel(calc_func, ..., log_to_file = ENABLE_FILE_LOGGING, log_file = log_file_name)
+                get_data_from_loop_parallel(
+                    calc_func,
+                    ...,
+                    cl          = cl,
+                    log_to_file = ENABLE_FILE_LOGGING,
+                    log_file    = log_file_name
+                )
             }
         } else {
             loop_function <- get_data_from_loop
@@ -53,6 +83,19 @@ load_or_calculate <- function(filePath, calculate_function, parallel = USE_PARAL
         data <- calculate_function(loop_function)
 
         saveRDS(data, filePath)
+        # Optionally stop and clean up the global cluster
+        if (stop_cluster && parallel && exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)) {
+            tryCatch(
+                {
+                    cl_to_stop <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+                    stopCluster(cl_to_stop)
+                },
+                error = function(e) {
+                    warning("Failed to stop global parallel cluster: ", e$message)
+                }
+            )
+            rm(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+        }
     }
     return(data)
 }

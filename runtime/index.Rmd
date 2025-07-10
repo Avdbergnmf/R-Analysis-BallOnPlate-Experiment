@@ -57,7 +57,7 @@ udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_ti
 
 # Load or calculate the data using the global parallel setting
 allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE)
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params, parallel = TRUE)
 
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
@@ -75,7 +75,7 @@ source('source/complexity.R', local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 
 ## Plotting code
 source('source/plotting.R', local = FALSE)

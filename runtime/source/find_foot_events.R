@@ -1,6 +1,11 @@
 ################ Data Manipulation ################
 
 # Helper function to check if hip data is stationary
+if (!exists("apply_outliers", mode = "function")) {
+  # Ensure the unified outlier helpers are available
+  source("source/outlier_utils.R", local = FALSE)
+}
+
 is_hip_stationary <- function(hipData, threshold_cm = 0.01, time_window = 30) {
   first_seconds <- hipData$time <= (hipData$time[1] + time_window)
   hip_range_x <- max(hipData$pos_x[first_seconds]) - min(hipData$pos_x[first_seconds])
@@ -382,6 +387,19 @@ find_foot_events <- function(participant, trialNum) {
   combinedHeelStrikes <- combinedHeelStrikes[order(combinedHeelStrikes$time), ]
   combinedToeOffs <- combinedToeOffs[order(combinedToeOffs$time), ]
 
+  # ---------------------------------------------------------------------------
+  # Ensure participant / trialNum columns exist for downstream outlier handling
+  # The detection routines often return heel-strike data without these columns
+  # because they are known implicitly from the function arguments.  The unified
+  # `apply_outliers()` helper, however, requires them for reliable joins.
+  # ---------------------------------------------------------------------------
+  if (!"participant" %in% names(combinedHeelStrikes)) {
+    combinedHeelStrikes$participant <- as.character(participant)
+  }
+  if (!"trialNum" %in% names(combinedHeelStrikes)) {
+    combinedHeelStrikes$trialNum <- as.numeric(trialNum)
+  }
+
   # propagate suspect flags; if missing columns, set FALSE
   if (!"suspect" %in% colnames(combinedHeelStrikes)) combinedHeelStrikes$suspect <- FALSE
   if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
@@ -413,8 +431,13 @@ find_foot_events <- function(participant, trialNum) {
 
   # Note: Heel strike removal is now handled in the UI (page16_manualOutlierFiltering.Rmd)
 
-  # Mark outlier steps based on CSV data
-  combinedHeelStrikes <- apply_outliers(combinedHeelStrikes, participant, trialNum)
+  # Mark outlier steps and remove false heel-strikes based on global CSV data
+  combinedHeelStrikes <- apply_outliers(
+    combinedHeelStrikes,
+    heel_outliers  = outliers_heel_data,
+    step_outliers  = outliers_steps_data,
+    tolerance      = 0.03
+  )
 
   # Label step numbers. Assuming each heel strike represents a new step
   combinedHeelStrikes$step <- seq_len(nrow(combinedHeelStrikes))
