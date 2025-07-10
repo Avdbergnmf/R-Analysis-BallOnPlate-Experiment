@@ -142,6 +142,7 @@ check_alternation <- function(local_maxima, local_minima) {
     "DEBUG: Alternation check - Input: %d maxima, %d minima\n",
     length(local_maxima), length(local_minima)
   ))
+  flush.console()
 
   original_maxima_count <- length(local_maxima)
   original_minima_count <- length(local_minima)
@@ -184,15 +185,18 @@ check_alternation <- function(local_maxima, local_minima) {
   # Debug logging for removals
   if (N_removed_min > 0) {
     cat(sprintf("DEBUG: Removed %d maxima\n", N_removed_min))
+    flush.console()
   }
   if (N_removed_max > 0) {
     cat(sprintf("DEBUG: Removed %d minima\n", N_removed_max))
+    flush.console()
   }
 
   cat(sprintf(
     "DEBUG: Alternation check - Output: %d maxima, %d minima (removed %d max, %d min)\n",
     length(new_maxima), length(new_minima), N_removed_min, N_removed_max
   ))
+  flush.console()
 
   return(list(
     maxima = new_maxima, minima = new_minima,
@@ -234,6 +238,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
     "DEBUG: Initial detection - %d maxima, %d minima\n",
     length(local_maxima), length(local_minima)
   ))
+  flush.console()
 
   # Filter extremes based on time and position
   filtered <- filter_extremes(local_maxima, local_minima, footData$time, relFootPos_filtered)
@@ -244,6 +249,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
     "DEBUG: After time/position filtering - %d maxima, %d minima\n",
     length(local_maxima), length(local_minima)
   ))
+  flush.console()
 
   # Filter by other foot position, with hip as fallback
   position_filtered <- NULL
@@ -266,6 +272,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
       "DEBUG: After other foot filtering - %d maxima, %d minima\n",
       length(local_maxima), length(local_minima)
     ))
+    flush.console()
   }
 
   # Always check hip position for suspect marking (if hip data available)
@@ -301,6 +308,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
     "DEBUG: After refinement - %d maxima, %d minima\n",
     length(local_maxima), length(local_minima)
   ))
+  flush.console()
 
   # Ensure lengths match
   lMax <- length(local_maxima)
@@ -321,6 +329,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
       "DEBUG: After length matching - %d maxima, %d minima\n",
       length(local_maxima), length(local_minima)
     ))
+    flush.console()
   }
 
   # Logging

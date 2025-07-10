@@ -20,13 +20,16 @@ calculate_total_score <- function(sim_data) {
             final_score <- tail(score_values, 1) # Take the last value instead of max
             cat(sprintf("DEBUG: Participant %s Trial %s - Final score: %f (from %d score values)\n", 
                           participant_id, trial_id, final_score, length(score_values)))
+            flush.console()
         } else {
             cat(sprintf("DEBUG: Participant %s Trial %s - No valid score values found\n", 
                           participant_id, trial_id))
+            flush.console()
         }
     } else {
         cat(sprintf("DEBUG: Participant %s Trial %s - No score column found\n", 
                       participant_id, trial_id))
+        flush.console()
     }
 
     # Add time_in_bowl bonus points if the column exists
@@ -37,13 +40,16 @@ calculate_total_score <- function(sim_data) {
             time_in_bowl_bonus <- tail(time_in_bowl_values, 1)
             cat(sprintf("DEBUG: Participant %s Trial %s - Time in bowl bonus: %f (from %d time_in_bowl values)\n", 
                           participant_id, trial_id, time_in_bowl_bonus, length(time_in_bowl_values)))
+            flush.console()
         } else {
             cat(sprintf("DEBUG: Participant %s Trial %s - No valid time_in_bowl values found\n", 
                           participant_id, trial_id))
+            flush.console()
         }
     } else {
         cat(sprintf("DEBUG: Participant %s Trial %s - No time_in_bowl column found\n", 
                       participant_id, trial_id))
+        flush.console()
     }
 
     # Calculate total score
@@ -51,6 +57,7 @@ calculate_total_score <- function(sim_data) {
     cat(sprintf("DEBUG: Participant %s Trial %s - Total score: %f (final_score: %f + time_in_bowl_bonus: %f)\n", 
                   participant_id, trial_id, total_score, 
                   ifelse(is.na(final_score), 0, final_score), time_in_bowl_bonus))
+    flush.console()
 
     # Return calculated scores
     return(list(
