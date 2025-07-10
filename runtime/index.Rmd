@@ -74,7 +74,7 @@ source('source/summarize_simulation.R', local = FALSE)
 source('source/complexity.R', local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, force_recalc = TRUE)
 allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 
 ## Plotting code

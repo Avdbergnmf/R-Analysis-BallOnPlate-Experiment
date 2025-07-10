@@ -200,6 +200,7 @@ check_alternation <- function(local_maxima, local_minima) {
 
   return(list(
     maxima = new_maxima, minima = new_minima,
+    maxima = new_maxima, minima = new_minima,
     N_removed_min = N_removed_min, N_removed_max = N_removed_max
   ))
 }
