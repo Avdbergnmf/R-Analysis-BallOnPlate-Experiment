@@ -521,8 +521,9 @@ observeEvent(input$refresh_plot, {
 })
 
 # Observe changes in the plot's layout to remember axis limits
-observeEvent(event_data("plotly_relayout"), {
-  relayout_data <- event_data("plotly_relayout")
+# Only handle relayout events from the manual outlier plot
+observeEvent(event_data("plotly_relayout", source = "manual_outlier_plot"), {
+  relayout_data <- event_data("plotly_relayout", source = "manual_outlier_plot")
   
   if (!is.null(relayout_data)) {
     # Update x-axis limits
@@ -627,8 +628,9 @@ observeEvent(event_data("plotly_relayout"), {
   }
   
   # Update outliers based on plot clicks (toggle based on selected mode)
-observeEvent(event_data("plotly_click"), {
-  click_data <- event_data("plotly_click")
+  # Only handle clicks from the manual outlier plot, not other plotly plots
+observeEvent(event_data("plotly_click", source = "manual_outlier_plot"), {
+  click_data <- event_data("plotly_click", source = "manual_outlier_plot")
   
   if (!is.null(click_data) && is.list(click_data) && !is.null(click_data$x)) {
     current_participant <- input$participant_16
@@ -1187,7 +1189,8 @@ output$manualOutlierPlot <- renderPlotly({
   y_range_current <- isolate(axis_limits$y)
   
   # Convert to plotly with interactive zoom and pan
-  p <- ggplotly(p, width = input$plotwidth, height = input$plotheight, tooltip = "text") %>%
+  # Set source to "manual_outlier_plot" to isolate events from other plotly plots
+  p <- ggplotly(p, width = input$plotwidth, height = input$plotheight, tooltip = "text", source = "manual_outlier_plot") %>%
     style(
       hoverinfo = "none",
       traces = which(sapply(.$x$data, function(d) d$type) == "scatter" & sapply(.$x$data, function(d) d$mode) == "lines")
@@ -1368,7 +1371,7 @@ create_outlier_table <- function(data, table_id, table_type, initialized_flag) {
 
 # Handle multiple point selection (updated for new outlier system)
 observeEvent(input$confirm_selection, {
-  selected_data <- event_data("plotly_selected", source = "outlier_plot")
+  selected_data <- event_data("plotly_selected", source = "manual_outlier_plot")
   
   if (!is.null(selected_data)) {
     current_participant <- input$participant_16
@@ -1790,14 +1793,17 @@ observeEvent(input$confirm_autosave, {
 })
 
 # Update last click information
+# Only track clicks from the manual outlier plot
 observe({
-  input$manualOutlierPlot_click
-  isolate({
-    last_click_info(list(participant = input$participant_16,
-                         trial = input$trialNum_16,
-                         time = input$manualOutlierPlot_click$x,
-                         ts = as.numeric(Sys.time())))
-  })
+  click_data <- event_data("plotly_click", source = "manual_outlier_plot")
+  if (!is.null(click_data)) {
+    isolate({
+      last_click_info(list(participant = input$participant_16,
+                           trial = input$trialNum_16,
+                           time = click_data$x,
+                           ts = as.numeric(Sys.time())))
+    })
+  }
 })
 
 # Update filename trackers when files are imported or defaults loaded
