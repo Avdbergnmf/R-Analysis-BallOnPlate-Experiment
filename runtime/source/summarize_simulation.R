@@ -21,7 +21,7 @@ calculate_total_score <- function(sim_data) {
     if ("time_in_bowl" %in% colnames(sim_data)) {
         time_in_bowl_values <- sim_data$time_in_bowl[!is.na(sim_data$time_in_bowl)]
         if (length(time_in_bowl_values) > 0) {
-            # Convert time_in_bowl to points (assuming 1 second = 1 point, adjust as needed)
+            # Convert time_in_bowl to points
             time_in_bowl_bonus <- tail(time_in_bowl_values, 1)
         }
     }

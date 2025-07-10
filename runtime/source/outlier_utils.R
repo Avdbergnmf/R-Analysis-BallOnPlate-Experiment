@@ -147,6 +147,7 @@ apply_outliers <- function(data,
     if (!is.null(heel_outliers) && nrow(heel_outliers) > 0) {
         matches <- find_closest_heel_strikes(heel_outliers, dt, tolerance)
         if (!is.null(matches) && nrow(matches) > 0) {
+            matches <- data.table::as.data.table(matches)
             rows_to_remove <- dt[matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
             if (length(rows_to_remove)) {
                 dt <- dt[-rows_to_remove]

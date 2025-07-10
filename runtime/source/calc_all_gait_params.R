@@ -25,12 +25,32 @@ add_category_columns <- function(data) {
   tread_val <- get_move_speed(participant, trial)
   cond_val <- condition_number(participant)
 
+  # ---------------------------------------------------------------------
+  # Demographic / questionnaire details fetched from p_details.csv
+  # ---------------------------------------------------------------------
+  gender_val <- get_p_detail(participant, "gender")
+  motion_val <- get_p_detail(participant, "motion")
+  age_val <- as.numeric(get_p_detail(participant, "age"))
+  weight_val <- as.numeric(get_p_detail(participant, "weight"))
+  education_val <- get_p_detail(participant, "education")
+  vr_exp_val <- get_p_detail(participant, "vr_experience")
+  height_scale_val <- as.numeric(get_p_detail(participant, "height_scale"))
+
   n <- nrow(data)
   data$perturbations <- as.factor(rep(perturb_val, n))
   data$visualizations <- as.factor(rep(vis_val, n))
   data$task <- as.factor(rep(task_val, n))
   data$treadmillSpeed <- as.numeric(rep(tread_val, n))
   data$condition <- as.factor(rep(cond_val, n))
+
+  # Demographic columns (repeat per row)
+  data$gender <- as.factor(rep(gender_val, n))
+  data$motion <- as.factor(rep(motion_val, n))
+  data$age <- rep(age_val, n)
+  data$weight <- rep(weight_val, n)
+  data$education <- as.factor(rep(education_val, n))
+  data$vr_experience <- as.factor(rep(vr_exp_val, n))
+  data$height_scale <- rep(height_scale_val, n)
 
   return(data)
 }

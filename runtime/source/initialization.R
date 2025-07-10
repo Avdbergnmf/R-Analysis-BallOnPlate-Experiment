@@ -51,7 +51,7 @@ initialize_global_parameters <- function() {
     ENABLE_FILE_LOGGING <<- TRUE # Enable/disable parallel process logging to files
 
     # Cache control
-    FORCE_RECALC <<- TRUE # Set to TRUE to ignore cached RDS files and recompute datasets
+    FORCE_RECALC <<- FALSE # Set to TRUE to ignore cached RDS files and recompute datasets
 
     # Signal filtering control
     USE_CONTINUOUS_FILTERING <<- TRUE # Enable/disable 4Hz low-pass filter on continuous data before complexity calculation
@@ -63,8 +63,17 @@ initialize_global_parameters <- function() {
     xOptions <<- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
 
     # Categories for data grouping and analysis
-    categories <<- c("participant", "condition", "trialNum")
-    columns_to_not_summarize <<- c("visualizations", "perturbations")
+    # Added gender (biological sex) and motion-sickness sensitivity so they can
+    # be used for grouping / faceting in summary tables and plots.
+    categories <<- c("participant", "condition", "trialNum", "gender", "motion")
+
+    # Columns that are descriptive (should not be summarized numerically).
+    # Include demographic / questionnaire details so they are preserved in
+    # summary tables but excluded from mean/SD calculations.
+    columns_to_not_summarize <<- c(
+        "visualizations", "perturbations",
+        "age", "weight", "education", "vr_experience", "height_scale"
+    )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
     categoriesExtraInputs <<- append(categoriesExtra, c("foot", "slice_index", "None"))
 
