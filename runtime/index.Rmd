@@ -53,11 +53,11 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
-udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info, parallel = FALSE)
+udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
 
 # Load or calculate the data using the global parallel setting
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE)
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params, parallel = TRUE)
+allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
@@ -81,7 +81,7 @@ allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complex
 source('source/plotting.R', local = FALSE)
 
 # for testing combining of tables
-#mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
+mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
 #mu_combined <- merge_mu_with_questionnaire(mu_gait, allQResults)
 #mu_combined <- merge_mu_with_task(mu_gait, allTaskMetrics)
 #mu_combined <- merge_mu_with_complexity(mu_combined, allComplexityMetrics)
