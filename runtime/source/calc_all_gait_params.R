@@ -100,6 +100,7 @@ calculate_gait_parameters <- function(participant, trialNum) {
       participant, trialNum, num_outliers, total_steps,
       100 * num_outliers / total_steps
     ))
+    flush.console()
   }
 
   # Remove the first step from all parameters (first step is always wrong)

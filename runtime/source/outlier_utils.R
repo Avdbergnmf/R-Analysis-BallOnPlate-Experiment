@@ -106,6 +106,7 @@ mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, toleran
             "DEBUG: Marked %d heel strikes as step outliers from CSV data\n",
             num_step_outliers
         ))
+        flush.console()
     }
 
     return(heel_strikes_data)
