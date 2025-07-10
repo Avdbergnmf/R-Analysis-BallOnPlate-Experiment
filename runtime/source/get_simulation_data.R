@@ -154,6 +154,23 @@ get_simulation_data <- function(participant, trial) {
         if ("score" %in% colnames(task_data)) {
             sim_data <- left_join(sim_data, task_data %>% select(time, score), by = "time")
         }
+
+        # Add time_in_bowl if available
+        if ("time_in_bowl" %in% colnames(task_data)) {
+            sim_data <- left_join(sim_data, task_data %>% select(time, time_in_bowl), by = "time")
+        }
+    }
+
+    # DEBUG: Check if time_in_bowl column successfully merged and resolve duplicates if needed
+    time_in_bowl_like <- grep("^time_in_bowl", colnames(sim_data), value = TRUE)
+    if (length(time_in_bowl_like) > 1 && !("time_in_bowl" %in% colnames(sim_data))) {
+        # Prefer unsuffixed column if exists, otherwise take the first match
+        sim_data$time_in_bowl <- sim_data[[time_in_bowl_like[1]]]
+    }
+
+    if ("time_in_bowl" %in% colnames(sim_data)) {
+        non_na_idx <- which(!is.na(sim_data$time_in_bowl))
+        first_val <- if (length(non_na_idx) > 0) sim_data$time_in_bowl[non_na_idx[1]] else NA_real_
     }
 
     # Add identifiers
