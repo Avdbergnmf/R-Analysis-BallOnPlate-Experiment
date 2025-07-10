@@ -58,6 +58,18 @@ get_move_speed <- function(participant, trialNum) { # return move speed in m/s
   return(get_p_results(participant, "move_speed", trialNum))
 }
 
+get_trial_phase <- function(participant, trialNum) { # return phase name for trial
+  # Use the centralized phase mapping from initialization.R
+  ensure_global_data_initialized()
+  trial_key <- as.character(trialNum)
+  if (trial_key %in% names(default_phases)) {
+    return(default_phases[[trial_key]])
+  } else {
+    warning(sprintf("Unknown trial number: %s", trialNum))
+    return("unknown")
+  }
+}
+
 get_p_detail <- function(participant, detail) {
   # get the path to the details file for the participant
   detailsFile <- file.path(get_p_dir(participant), "session_info/participant_details.csv")
@@ -364,20 +376,8 @@ get_question_weights <- function(qType) { # qType = IMI / UserExperience
 # Get trial duration using predefined defaults
 get_trial_duration <- function(trialNum) {
   trialNum <- sanitize_trial_num(trialNum)
-  # Define reasonable default durations based on trial type
-  default_durations <- list(
-    "1" = 120, # warmup - 2 minutes
-    "2" = 300, # baseline - 5 minutes
-    "3" = 300, # familiarisation_walk - 5 minutes
-    "4" = 120, # familiarisation_stand - 2 minutes
-    "5" = 300, # baseline_task - 5 minutes
-    "6" = 120, # familiarisation_training - 2 minutes
-    "7" = 600, # training1 - 5 minutes
-    "8" = 600, # training2 - 10 minutes
-    "9" = 300, # washout - 5 minutes
-    "10" = 300, # retention - 5 minutes
-    "11" = 300 # transfer - 5 minutes
-  )
+  # Use the centralized duration mapping from initialization.R
+  ensure_global_data_initialized()
 
   trial_key <- as.character(trialNum)
 

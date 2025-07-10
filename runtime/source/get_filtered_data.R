@@ -28,6 +28,7 @@ filteredParams <- reactive({
     participant %in% input$filterParticipants &
       trialNum %in% input$filterTrials &
       condition %in% input$filterCondition &
+      phase %in% input$filterPhase &
       outlierSteps %in% input$filterOutliers &
       suspect %in% input$filterSuspect &
       foot %in% input$filterSide

@@ -8,12 +8,14 @@ selectizeInput("filterParticipants", "Participants", choices = participants, sel
 defaultTrials <- allTrials# c(5,7,8,10,11)
 selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
 selectizeInput("filterCondition", "Condition", choices = c("baseline", "perturbation", "perturbation_visualization"), selected = c("baseline", "perturbation", "perturbation_visualization"), multiple = TRUE)
+phaseChoices <- unique(unlist(default_phases))
+selectizeInput("filterPhase", "Phase", choices = phaseChoices, selected = phaseChoices, multiple = TRUE)
 ```
 
 #### Step Filtering
 Note: slicing doesn't work completely atm. But left the old code in because I will probably need it later.
 ```{r}
-selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE, TRUE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
+selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
 selectizeInput("filterSuspect", "Suspect Steps", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE) # INCLUDE suspect steps (TRUE), INCLUDE non-suspect steps (FALSE)
 
 checkboxInput("do_slicing", "Slice data", value = FALSE)

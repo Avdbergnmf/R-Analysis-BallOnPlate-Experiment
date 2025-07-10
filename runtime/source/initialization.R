@@ -30,6 +30,16 @@ initialize_global_parameters <- function() {
     initialExtractionSummaryFile <<- "initial_extraction_summary.txt"
 
     # =============================================================================
+    # COMPONENT FILE PATHS
+    # =============================================================================
+    # Use absolute path to avoid working directory issues when knitting child documents
+    root_dir <<- getwd()
+    page16_components_folder <<- file.path(root_dir, "pages", "page16_components")
+    page16_utils_file <<- file.path(page16_components_folder, "page16_utils.R")
+    page16_data_manager_file <<- file.path(page16_components_folder, "page16_data_manager.R")
+    page16_components_html_file <<- file.path(page16_components_folder, "page16_components.html")
+
+    # =============================================================================
     # QUESTIONNAIRE CONFIGURATION
     # =============================================================================
     qTypes <<- c("IMI", "UserExperience")
@@ -42,6 +52,36 @@ initialize_global_parameters <- function() {
     # trial 1 is just selecting the walking speed
     # trial 4 is standing familiarization with the task
     # trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
+
+    # Define default durations for each trial (in seconds)
+    default_durations <<- list(
+        "1" = 120, # warmup - 2 minutes
+        "2" = 300, # baseline - 5 minutes
+        "3" = 300, # familiarisation_walk - 5 minutes
+        "4" = 120, # familiarisation_stand - 2 minutes
+        "5" = 300, # baseline_task - 5 minutes
+        "6" = 120, # familiarisation_training - 2 minutes
+        "7" = 600, # training1 - 10 minutes
+        "8" = 600, # training2 - 10 minutes
+        "9" = 300, # washout - 5 minutes
+        "10" = 300, # retention - 5 minutes
+        "11" = 300 # transfer - 5 minutes
+    )
+
+    # Define phase names for each trial
+    default_phases <<- list(
+        "1" = "warmup",
+        "2" = "baseline",
+        "3" = "familiarisation_walk",
+        "4" = "familiarisation_stand",
+        "5" = "baseline_task",
+        "6" = "familiarisation_training",
+        "7" = "training1",
+        "8" = "training2",
+        "9" = "washout",
+        "10" = "retention",
+        "11" = "transfer"
+    )
 
     # =============================================================================
     # PERFORMANCE CONFIGURATION
@@ -65,7 +105,7 @@ initialize_global_parameters <- function() {
     # Categories for data grouping and analysis
     # Added gender (biological sex) and motion-sickness sensitivity so they can
     # be used for grouping / faceting in summary tables and plots.
-    categories <<- c("participant", "condition", "trialNum", "gender", "motion")
+    categories <<- c("participant", "trialNum", "condition", "gender", "motion", "phase")
 
     # Columns that are descriptive (should not be summarized numerically).
     # Include demographic / questionnaire details so they are preserved in

@@ -2,7 +2,7 @@
 
 ```{r}
 selectizeInput("plot", "Plot",
-  choices = dataTypes, selected = dataTypes[1], multiple = FALSE
+  choices = dataTypes, selected = dataTypes[4], multiple = FALSE
 )
 selectizeInput("group", "Group by",
   choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE

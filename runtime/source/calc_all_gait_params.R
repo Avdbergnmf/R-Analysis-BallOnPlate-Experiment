@@ -24,6 +24,7 @@ add_category_columns <- function(data) {
   task_val <- has_task(participant, trial)
   tread_val <- get_move_speed(participant, trial)
   cond_val <- condition_number(participant)
+  phase_val <- get_trial_phase(participant, trial)
 
   # ---------------------------------------------------------------------
   # Demographic / questionnaire details fetched from p_details.csv
@@ -42,6 +43,7 @@ add_category_columns <- function(data) {
   data$task <- as.factor(rep(task_val, n))
   data$treadmillSpeed <- as.numeric(rep(tread_val, n))
   data$condition <- as.factor(rep(cond_val, n))
+  data$phase <- as.factor(rep(phase_val, n))
 
   # Demographic columns (repeat per row)
   data$gender <- as.factor(rep(gender_val, n))

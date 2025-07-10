@@ -61,5 +61,8 @@ library(dbscan) # Density-based clustering for outlier detection
 library(devtools) # Development tools
 library(markdown) # Markdown rendering for data dictionary
 
+library(shinyjs) # ShinyJS for interactive UI
+
+
 # Load initialization functions
 source("source/initialization.R", local = FALSE)
