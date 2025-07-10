@@ -19,8 +19,8 @@ initialize_global_parameters <- function() {
     # =============================================================================
     # OUTLIER FILE NAMES
     # =============================================================================
-    falseHeelStrikesFile <<- "false_heelstrikes_manual.csv"
-    outliersFile <<- "outliers_manual.csv"
+    falseHeelStrikesFile <<- "false_heelstrikes_final.csv"
+    outliersFile <<- "outliers_final.csv"
     rotationsFile <<- "rotations_kinematic_data.csv"
     filenameDictFile <<- "filenameDict.csv"
 
@@ -51,7 +51,7 @@ initialize_global_parameters <- function() {
     ENABLE_FILE_LOGGING <<- TRUE # Enable/disable parallel process logging to files
 
     # Cache control
-    FORCE_RECALC <<- FALSE # Set to TRUE to ignore cached RDS files and recompute datasets
+    FORCE_RECALC <<- TRUE # Set to TRUE to ignore cached RDS files and recompute datasets
 
     # Signal filtering control
     USE_CONTINUOUS_FILTERING <<- TRUE # Enable/disable 4Hz low-pass filter on continuous data before complexity calculation
@@ -165,9 +165,9 @@ initialize_global_data <- function() {
                             stringsAsFactors = FALSE, verbose = FALSE
                         )
                     } else {
-                        outliers_steps_data <<- data.frame(
+                        outliers_steps_data <<- data.table::as.data.table(data.frame(
                             participant = character(0), trialNum = numeric(0), time = numeric(0)
-                        )
+                        ))
                     }
 
                     if (file.exists(heel_file)) {
@@ -175,10 +175,14 @@ initialize_global_data <- function() {
                             stringsAsFactors = FALSE, verbose = FALSE
                         )
                     } else {
-                        outliers_heel_data <<- data.frame(
+                        outliers_heel_data <<- data.table::as.data.table(data.frame(
                             participant = character(0), trialNum = numeric(0), time = numeric(0)
-                        )
+                        ))
                     }
+
+                    # Ensure both are data.table for downstream key setting
+                    outliers_steps_data <<- data.table::as.data.table(outliers_steps_data)
+                    outliers_heel_data <<- data.table::as.data.table(outliers_heel_data)
 
                     data.table::setkey(outliers_steps_data, participant, trialNum, time)
                     data.table::setkey(outliers_heel_data, participant, trialNum, time)

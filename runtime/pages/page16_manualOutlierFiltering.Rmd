@@ -1939,7 +1939,7 @@ observeEvent(input$confirm_apply_outliers, {
     current_hs_outliers <- heelstrike_outliers()
     current_step_outliers_data <- step_outliers()
 
-    allGaitParams <<- apply_outliers_to_gaitparams(
+    allGaitParams <<- apply_outliers(
       allGaitParams,
       current_hs_outliers,
       current_step_outliers_data,

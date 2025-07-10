@@ -414,7 +414,7 @@ find_foot_events <- function(participant, trialNum) {
   # Note: Heel strike removal is now handled in the UI (page16_manualOutlierFiltering.Rmd)
 
   # Mark outlier steps based on CSV data
-  combinedHeelStrikes <- mark_outlier_steps(combinedHeelStrikes, participant, trialNum)
+  combinedHeelStrikes <- apply_outliers(combinedHeelStrikes, participant, trialNum)
 
   # Label step numbers. Assuming each heel strike represents a new step
   combinedHeelStrikes$step <- seq_len(nrow(combinedHeelStrikes))
