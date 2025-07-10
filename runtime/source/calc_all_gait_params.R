@@ -19,6 +19,7 @@ add_category_columns <- function(data) {
   participant <- as.character(data$participant[1])
   trial <- as.numeric(as.character(data$trialNum[1]))
 
+  # Get experimental condition values
   perturb_val <- has_perturbations(participant, trial)
   vis_val <- has_visualizations(participant, trial)
   task_val <- has_task(participant, trial)
@@ -26,9 +27,7 @@ add_category_columns <- function(data) {
   cond_val <- condition_number(participant)
   phase_val <- get_trial_phase(participant, trial)
 
-  # ---------------------------------------------------------------------
-  # Demographic / questionnaire details fetched from p_details.csv
-  # ---------------------------------------------------------------------
+  # Get demographic values from p_details.csv
   gender_val <- get_p_detail(participant, "gender")
   motion_val <- get_p_detail(participant, "motion")
   age_val <- as.numeric(get_p_detail(participant, "age"))
@@ -38,6 +37,8 @@ add_category_columns <- function(data) {
   height_scale_val <- as.numeric(get_p_detail(participant, "height_scale"))
 
   n <- nrow(data)
+  
+  # Add experimental condition columns
   data$perturbations <- as.factor(rep(perturb_val, n))
   data$visualizations <- as.factor(rep(vis_val, n))
   data$task <- as.factor(rep(task_val, n))
@@ -45,7 +46,7 @@ add_category_columns <- function(data) {
   data$condition <- as.factor(rep(cond_val, n))
   data$phase <- as.factor(rep(phase_val, n))
 
-  # Demographic columns (repeat per row)
+  # Add demographic columns
   data$gender <- as.factor(rep(gender_val, n))
   data$motion <- as.factor(rep(motion_val, n))
   data$age <- rep(age_val, n)

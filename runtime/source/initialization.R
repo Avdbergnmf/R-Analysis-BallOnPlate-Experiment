@@ -103,15 +103,15 @@ initialize_global_parameters <- function() {
     xOptions <<- c("time", "pos_x", "pos_y", "pos_z", "actual_pos_z")
 
     # Categories for data grouping and analysis
-    # Added gender (biological sex) and motion-sickness sensitivity so they can
-    # be used for grouping / faceting in summary tables and plots.
+    # These are now managed through the category_management.R system
+    # The following variables are maintained for backward compatibility
     categories <<- c("participant", "trialNum", "condition", "gender", "motion", "phase")
 
     # Columns that are descriptive (should not be summarized numerically).
     # Include demographic / questionnaire details so they are preserved in
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
-        "visualizations", "perturbations",
+        "visualizations", "perturbations", "task", "treadmillSpeed",
         "age", "weight", "education", "vr_experience", "height_scale"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
