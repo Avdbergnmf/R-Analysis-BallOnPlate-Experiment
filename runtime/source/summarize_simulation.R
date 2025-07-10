@@ -30,7 +30,6 @@ calculate_total_score <- function(sim_data) {
         time_in_bowl_values <- sim_data$time_in_bowl[!is.na(sim_data$time_in_bowl)]
         if (length(time_in_bowl_values) > 0) {
             # Convert time_in_bowl to points (currently just taking the raw value)
-            # Convert time_in_bowl to points (currently just taking the raw value)
             time_in_bowl_bonus <- tail(time_in_bowl_values, 1)
         }
     }
@@ -42,7 +41,6 @@ calculate_total_score <- function(sim_data) {
     return(list(
         final_score = final_score,
         time_in_bowl_bonus = time_in_bowl_bonus,
-        total_score = total_score
         total_score = total_score
     ))
 }
