@@ -190,7 +190,7 @@ condition_number <- function(participant) {
   if (p) {
     return("perturbation") # pert
   }
-  return("baseline") # neither
+  return("control") # neither
 }
 
 has_simulation_data <- function(participant, trial) {

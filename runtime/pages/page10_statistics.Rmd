@@ -20,7 +20,7 @@ checkboxInput("getSummarizedData_stats", "Use summarized data", value = TRUE)
 checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
 checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
 
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * (trialNum) + (1 | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "baseline + condition * phase.x + (1 | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = FALSE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
@@ -170,7 +170,53 @@ get_stats_data <- reactive({
   else {
     data <- filteredParams()
   }
-  
+
+  # -------------------------------------------------------------------
+  # Add a single numeric column "baseline" (per participant) that contains
+  # the value of the currently selected dependent variable (input$depVar)
+  # measured in the baseline trial/phase (trial 5 or phase == "baseline").
+  # This column will automatically show up in the selectize inputs and can
+  # be added as an independent variable.
+  # -------------------------------------------------------------------
+  if (!is.null(input$depVar) && input$depVar %in% names(data) &&
+      "participant" %in% names(data) && nrow(data) > 0) {
+
+    # Identify baseline rows
+    baseline_filter <- rep(FALSE, nrow(data))
+    if ("trialNum" %in% names(data)) {
+      baseline_filter <- baseline_filter | (data$trialNum == 5)
+    }
+    if ("phase" %in% names(data)) {
+      baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
+    }
+
+    baseline_rows <- data[baseline_filter, c("participant", input$depVar), drop = FALSE]
+
+    if (nrow(baseline_rows) > 0) {
+      baseline_map <- baseline_rows %>%
+        dplyr::group_by(participant) %>%
+        dplyr::summarise(baseline = first(.data[[input$depVar]]), .groups = "drop")
+
+      data <- dplyr::left_join(data, baseline_map, by = "participant")
+    }
+  }
+
+  # -------------------------------------------------------------------
+  # If the user selects "baseline" as the dependent variable, restrict the
+  # dataset to baseline rows (trial 5 or phase == "baseline") so that each
+  # participant contributes a single observation.
+  # -------------------------------------------------------------------
+  if (!is.null(input$depVar) && input$depVar == "baseline") {
+    baseline_filter <- rep(FALSE, nrow(data))
+    if ("trialNum" %in% names(data)) {
+      baseline_filter <- baseline_filter | (data$trialNum == 5)
+    }
+    if ("phase" %in% names(data)) {
+      baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
+    }
+    data <- data[baseline_filter, , drop = FALSE]
+  }
+
   return(data)
 })
 
