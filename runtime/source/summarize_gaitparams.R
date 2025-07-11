@@ -270,6 +270,10 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
   # Get the summarized gait data (without questionnaire merging)
   muGait <- summarize_table(allGaitParams, c(categories, "foot"), avg_feet, add_diff) ##### Note that we add foot here as a category, to make sure we summarize each foot individually
 
+  # Add baseline category from Trial 5 data and rename baseline condition to Control
+  muGait <- add_baseline_category(muGait, categories)
+  muGait <- rename_baseline_to_control(muGait)
+
   return(muGait)
 }
 
@@ -393,6 +397,10 @@ get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
       ungroup()
   }
 
+  # Add baseline category from Trial 5 data and rename baseline condition to Control
+  muGait <- add_baseline_category(muGait, categories)
+  muGait <- rename_baseline_to_control(muGait)
+
   # Merge with questionnaire data using the new consistent approach
   muGait_with_questionnaire <- merge_mu_with_questionnaire(muGait, allQResults)
 
@@ -510,4 +518,71 @@ calculate_phase_differences <- function(data) {
     warning("No phase differences could be calculated")
     return(data)
   }
+}
+
+#' Add baseline performance data from Trial 5 as an additional categorical variable
+#' This function creates a new 'Baseline' category that indicates if data corresponds to 
+#' baseline performance (Trial 5) or subsequent phases, serving as a pre-training reference
+#' @param data Summary table data frame
+#' @param categories Vector of category column names
+#' @return Data frame with additional 'Baseline' categorical column
+add_baseline_category <- function(data, categories) {
+  # Check if data has the required columns
+  if (!"trialNum" %in% colnames(data)) {
+    warning("trialNum column not found - cannot add baseline category")
+    return(data)
+  }
+  
+  # Check if Trial 5 (baseline_task) data is present in the summary data
+  trial_5_data <- data %>% dplyr::filter(trialNum == 5)
+  
+  if (nrow(trial_5_data) == 0) {
+    # No Trial 5 data available - return data unchanged
+    message("No Trial 5 baseline data found in summary table - baseline category not added")
+    return(data)
+  }
+  
+  # Add baseline category based on trial number
+  # Trial 5 is the baseline_task (pre-training reference)
+  data_with_baseline <- data %>%
+    dplyr::mutate(
+      Baseline = dplyr::case_when(
+        trialNum == 5 ~ "Baseline",  # Trial 5 is baseline performance
+        TRUE ~ "Training/Retention/Transfer"  # All other trials
+      )
+    ) %>%
+    dplyr::mutate(Baseline = as.factor(Baseline))
+  
+  # Reorder columns to put Baseline after the main categories
+  category_cols <- c(categories, "Baseline")
+  other_cols <- setdiff(colnames(data_with_baseline), category_cols)
+  
+  data_with_baseline <- data_with_baseline %>%
+    dplyr::select(all_of(category_cols), all_of(other_cols))
+  
+  return(data_with_baseline)
+}
+
+#' Rename baseline condition to Control in summary data
+#' This function renames the existing 'baseline' condition to 'Control' to clearly 
+#' distinguish it from the new 'Baseline' category that represents Trial 5 performance
+#' @param data Summary table data frame
+#' @return Data frame with renamed condition values
+rename_baseline_to_control <- function(data) {
+  if (!"condition" %in% colnames(data)) {
+    warning("condition column not found - cannot rename baseline to control")
+    return(data)
+  }
+  
+  # Rename baseline condition to Control
+  data_renamed <- data %>%
+    dplyr::mutate(
+      condition = dplyr::case_when(
+        condition == "baseline" ~ "Control",
+        TRUE ~ as.character(condition)
+      )
+    ) %>%
+    dplyr::mutate(condition = as.factor(condition))
+  
+  return(data_renamed)
 }

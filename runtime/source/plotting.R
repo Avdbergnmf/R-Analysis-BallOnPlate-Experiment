@@ -6,7 +6,7 @@
 get_pretty_condition_labels <- function(conditions) {
   # Create a mapping from long names to short labels
   condition_map <- c(
-    "baseline" = "B",
+    "Control" = "C",
     "perturbation" = "P",
     "perturbation_visualization" = "PV"
   )
@@ -157,8 +157,8 @@ plot_steps_with_overlay <- function(data, selected_participant, selected_trialNu
   condition <- condition_number(selected_participant)
 
   # Assign colors based on condition instead of VFD
-  if (condition == "baseline") {
-    color <- "yellow" # baseline condition
+  if (condition == "Control") {
+    color <- "yellow" # Control condition
   } else if (condition == "perturbation") {
     color <- "green" # perturbations only
   } else if (condition == "perturbation_visualization") {
