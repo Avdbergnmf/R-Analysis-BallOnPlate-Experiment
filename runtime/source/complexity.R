@@ -310,9 +310,14 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             values <- values[seq(1, length(values), by = downsample_factor)]
           }
 
-          # Optimized metrics for continuous data
+          # Compute multiscale entropy index
+          max_scale <- if (length(values) > 1000) 10 else 20
+          mse_result <- mse(values, max.scale = max_scale)
+
+          # Optimized metrics for continuous data (now including MSE index)
           metrics <- list(
             sampen = sampen(values, m = 2, r = 0.15 * sd(values)),
+            mse_index = mse_result$complexity,
             dfa_alpha = dfa_alpha(values, n.points = 8),
             lyapunov = lyapunov(values),
             sd_ratio = {
@@ -332,7 +337,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
         error = function(e) {
           warning(paste("Error in continuous", var_name, "complexity calculation:", e$message))
           # Add NAs for failed metrics
-          na_metrics <- c("sampen", "dfa_alpha", "lyapunov", "sd_ratio")
+          na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
           for (metric in na_metrics) {
             result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
           }
@@ -340,7 +345,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       )
     } else {
       # Insufficient variability - add NAs
-      na_metrics <- c("sampen", "dfa_alpha", "lyapunov", "sd_ratio")
+      na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
       for (metric in na_metrics) {
         result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
       }
@@ -388,7 +393,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
     }
   } else {
     # Insufficient data - add NAs for continuous metrics
-    na_metrics <- c("sampen", "dfa_alpha", "lyapunov", "sd_ratio")
+    na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
     for (metric in na_metrics) {
       result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
     }
@@ -513,7 +518,8 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
           for (var_name in available_vars) {
             debug_log("    Processing continuous variable:", var_name)
 
-            # Apply 4 Hz low-pass filter (zero-phase) to continuous data
+            # Apply 6 Hz low-pass Butterworth (4th-order, zero-lag) to retain
+            # the 0.05–0.5 Hz perturbation band while removing higher-frequency noise
             values_raw <- sim_data_filtered[[var_name]]
 
             times <- sim_data_filtered$time
@@ -524,13 +530,24 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
               fs <- 120 # fallback sampling rate if 'time' not present
             }
 
-            cutoff <- 4 / (fs / 2) # normalised cutoff for butter()
+            cutoff <- 6 / (fs / 2) # normalised cutoff for butter()
             if (cutoff >= 1) {
               values_filt <- values_raw # can't filter if fs too low
             } else {
               bf <- signal::butter(4, cutoff, type = "low")
               # filtfilt ensures zero phase / no delay
               values_filt <- as.numeric(signal::filtfilt(bf, values_raw))
+            }
+
+            # ------------------------------------------------------------------
+            # Down-sample to 30 Hz to avoid oversampling bias in complexity stats
+            # ------------------------------------------------------------------
+            if (fs > 30) {
+              dec_factor <- floor(fs / 30)
+              if (dec_factor > 1) {
+                values_filt <- values_filt[seq(1, length(values_filt), by = dec_factor)]
+                debug_log("      Down-sampled with factor", dec_factor, "→", length(values_filt), "samples (@30 Hz approx.)")
+              }
             }
             values <- values_filt
             debug_log("      Raw data length:", length(values), "values")
