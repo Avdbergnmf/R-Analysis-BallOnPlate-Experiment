@@ -138,12 +138,12 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
     )
 
   # Retrieve the non-summarised category columns from **orig_data** (which still contains them)
-  meta_cols <- c("participant", "trialNum", columns_to_not_summarize, setdiff(categories, c("participant", "trialNum")))
+  meta_cols <- c(categories, columns_to_not_summarize)
   meta <- orig_data %>%
     select(all_of(meta_cols)) %>%
     distinct()
   mu_wide <- mu_wide %>%
-    left_join(meta, by = c("participant", "trialNum"))
+    left_join(meta, by = categories)
 
   # Reorder columns
   mu_wide <- mu_wide %>%
