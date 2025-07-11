@@ -15,44 +15,40 @@ add_identifiers <- function(data, participant, trial) {
 }
 
 add_category_columns <- function(data) {
-  # participant and trial constant per data frame
-  participant <- as.character(data$participant[1])
-  trial <- as.numeric(as.character(data$trialNum[1]))
+  # Compute category and demographic columns for each individual row rather than assuming
+  # the whole data frame belongs to a single participant/trial.
+  data <- data %>%
+    dplyr::rowwise() %>%
+    dplyr::mutate(
+      perturbations   = has_perturbations(as.character(participant), as.numeric(as.character(trialNum))),
+      visualizations  = has_visualizations(as.character(participant), as.numeric(as.character(trialNum))),
+      task            = has_task(as.character(participant), as.numeric(as.character(trialNum))),
+      treadmillSpeed  = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
+      condition       = condition_number(as.character(participant)),
+      phase           = get_trial_phase(as.character(participant), as.numeric(as.character(trialNum))),
 
-  perturb_val <- has_perturbations(participant, trial)
-  vis_val <- has_visualizations(participant, trial)
-  task_val <- has_task(participant, trial)
-  tread_val <- get_move_speed(participant, trial)
-  cond_val <- condition_number(participant)
-  phase_val <- get_trial_phase(participant, trial)
-
-  # ---------------------------------------------------------------------
-  # Demographic / questionnaire details fetched from p_details.csv
-  # ---------------------------------------------------------------------
-  gender_val <- get_p_detail(participant, "gender")
-  motion_val <- get_p_detail(participant, "motion")
-  age_val <- as.numeric(get_p_detail(participant, "age"))
-  weight_val <- as.numeric(get_p_detail(participant, "weight"))
-  education_val <- get_p_detail(participant, "education")
-  vr_exp_val <- get_p_detail(participant, "vr_experience")
-  height_scale_val <- as.numeric(get_p_detail(participant, "height_scale"))
-
-  n <- nrow(data)
-  data$perturbations <- as.factor(rep(perturb_val, n))
-  data$visualizations <- as.factor(rep(vis_val, n))
-  data$task <- as.factor(rep(task_val, n))
-  data$treadmillSpeed <- as.numeric(rep(tread_val, n))
-  data$condition <- as.factor(rep(cond_val, n))
-  data$phase <- as.factor(rep(phase_val, n))
-
-  # Demographic columns (repeat per row)
-  data$gender <- as.factor(rep(gender_val, n))
-  data$motion <- as.factor(rep(motion_val, n))
-  data$age <- rep(age_val, n)
-  data$weight <- rep(weight_val, n)
-  data$education <- as.factor(rep(education_val, n))
-  data$vr_experience <- as.factor(rep(vr_exp_val, n))
-  data$height_scale <- rep(height_scale_val, n)
+      # Demographic / questionnaire details
+      gender          = get_p_detail(as.character(participant), "gender"),
+      motion          = get_p_detail(as.character(participant), "motion"),
+      age             = as.numeric(get_p_detail(as.character(participant), "age")),
+      weight          = as.numeric(get_p_detail(as.character(participant), "weight")),
+      education       = get_p_detail(as.character(participant), "education"),
+      vr_experience   = get_p_detail(as.character(participant), "vr_experience"),
+      height_scale    = as.numeric(get_p_detail(as.character(participant), "height_scale"))
+    ) %>%
+    dplyr::ungroup() %>%
+    # Convert categorical variables to factors
+    dplyr::mutate(
+      perturbations   = as.factor(perturbations),
+      visualizations  = as.factor(visualizations),
+      task            = as.factor(task),
+      condition       = as.factor(condition),
+      phase           = as.factor(phase),
+      gender          = as.factor(gender),
+      motion          = as.factor(motion),
+      education       = as.factor(education),
+      vr_experience   = as.factor(vr_experience)
+    )
 
   return(data)
 }

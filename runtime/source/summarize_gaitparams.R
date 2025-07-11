@@ -103,11 +103,14 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
 
 # This table is huge (like 160 columns)
 summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE) { # note: add diff only works if also averaging over feet
+  # Keep a copy with *all* columns so we can fetch meta info later
+  orig_data <- data
+
   dataTypes <- setdiff(getTypes(data), categories)
 
-  # Define the list of columns to remove - We add these later, but remove them here so they are not considered for the summary table
-  data <- data %>% select(-all_of(columns_to_not_summarize)) # Remove the specified columns from the data
-  types <- setdiff(dataTypes, columns_to_not_summarize) # Also remove them from our types list
+  # Remove descriptive columns **after** saving orig_data so they are not included in numeric summaries
+  data <- data %>% select(-all_of(columns_to_not_summarize))
+  types <- setdiff(dataTypes, columns_to_not_summarize)
 
   if (avg_feet) {
     mu <- average_over_feet(data, types, categories, add_diff = add_diff)
@@ -134,11 +137,13 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
       values_from = value
     )
 
-  # Note: Questionnaire merging is now handled by merge_mu_with_questionnaire()
-  # This function now just returns the summarized gait data
-
-  # Create the new column using mutate and sapply
-  mu_wide <- add_category_columns(mu_wide)
+  # Retrieve the non-summarised category columns from **orig_data** (which still contains them)
+  meta_cols <- c("participant", "trialNum", columns_to_not_summarize, setdiff(categories, c("participant", "trialNum")))
+  meta <- orig_data %>%
+    select(all_of(meta_cols)) %>%
+    distinct()
+  mu_wide <- mu_wide %>%
+    left_join(meta, by = c("participant", "trialNum"))
 
   # Reorder columns
   mu_wide <- mu_wide %>%
@@ -308,10 +313,13 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
 
   # data$slice_index <- as.ordered(data$slice_index)
 
+  # Preserve original for meta retrieval
+  orig_data <- data
+
   # Identify which columns to summarize
   dataTypes <- setdiff(getTypes(data), categories)
 
-  # Remove any columns that should not be summarized
+  # Remove descriptive columns so they are not summarized
   data <- data %>% select(-all_of(columns_to_not_summarize))
   types <- setdiff(dataTypes, columns_to_not_summarize)
 
@@ -346,8 +354,13 @@ summarize_table_sliced <- function(data, allQResults, categories, slice_length, 
   # Note: Questionnaire merging is now handled by merge_mu_with_questionnaire()
   # This function now just returns the summarized sliced gait data
 
-  # Add any category columns (if your pipeline expects them)
-  mu_wide <- add_category_columns(mu_wide)
+  # Retrieve the non-summarised category columns from **orig_data**
+  meta_cols <- c(grouping_cols, columns_to_not_summarize)
+  meta <- orig_data %>%
+    select(all_of(meta_cols)) %>%
+    distinct()
+  mu_wide <- mu_wide %>%
+    left_join(meta, by = grouping_cols)
 
   # Reorder columns so that grouping_cols and any excluded columns appear first
   mu_wide <- mu_wide %>%
