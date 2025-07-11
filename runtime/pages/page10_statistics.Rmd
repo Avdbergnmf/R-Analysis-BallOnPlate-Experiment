@@ -215,6 +215,20 @@ get_stats_data <- reactive({
       baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
     }
     data <- data[baseline_filter, , drop = FALSE]
+  } else {
+    # -------------------------------------------------------------------
+    # If NOT analyzing baseline data, exclude baseline trials from the analysis
+    # to avoid including them in the comparison
+    # -------------------------------------------------------------------
+    baseline_filter <- rep(FALSE, nrow(data))
+    if ("trialNum" %in% names(data)) {
+      baseline_filter <- baseline_filter | (data$trialNum == 5)
+    }
+    if ("phase" %in% names(data)) {
+      baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
+    }
+    # Remove baseline trials from the analysis
+    data <- data[!baseline_filter, , drop = FALSE]
   }
 
   return(data)
@@ -306,6 +320,44 @@ output$stats_results_ui <- renderUI({
 ############
 ############ LMM
 output$lmm_text <- renderPrint({
+  # Get the data used for analysis
+  analysis_data <- get_stats_data()
+  
+  # Print trial count information
+  cat("\n=== TRIAL COUNT INFORMATION ===\n")
+  cat("Total trials (rows) included in analysis:", nrow(analysis_data), "\n")
+  
+  # Show breakdown by participant if available
+  if ("participant" %in% names(analysis_data)) {
+    participant_counts <- table(analysis_data$participant)
+    cat("Trials per participant:\n")
+    print(participant_counts)
+    cat("Number of participants:", length(participant_counts), "\n")
+  }
+  
+  # Show breakdown by condition if available
+  if ("condition" %in% names(analysis_data)) {
+    condition_counts <- table(analysis_data$condition)
+    cat("Trials per condition:\n")
+    print(condition_counts)
+  }
+  
+  # Show breakdown by phase if available
+  if ("phase" %in% names(analysis_data)) {
+    phase_counts <- table(analysis_data$phase)
+    cat("Trials per phase:\n")
+    print(phase_counts)
+  }
+  
+  # Show breakdown by trial number if available
+  if ("trialNum" %in% names(analysis_data)) {
+    trial_counts <- table(analysis_data$trialNum)
+    cat("Trials per trial number:\n")
+    print(trial_counts)
+  }
+  
+  cat("\n=== STATISTICAL ANALYSIS ===\n")
+  
   lmm <- get_lmer()
   results <- summary(lmm)
   
@@ -516,6 +568,41 @@ get_ttest_diff <- reactive({
 
 output$ttest_text <- renderPrint({
   dt <- get_stats_data()
+  
+  # Print trial count information
+  cat("\n=== TRIAL COUNT INFORMATION ===\n")
+  cat("Total trials (rows) included in analysis:", nrow(dt), "\n")
+  
+  # Show breakdown by participant if available
+  if ("participant" %in% names(dt)) {
+    participant_counts <- table(dt$participant)
+    cat("Trials per participant:\n")
+    print(participant_counts)
+    cat("Number of participants:", length(participant_counts), "\n")
+  }
+  
+  # Show breakdown by condition if available
+  if ("condition" %in% names(dt)) {
+    condition_counts <- table(dt$condition)
+    cat("Trials per condition:\n")
+    print(condition_counts)
+  }
+  
+  # Show breakdown by phase if available
+  if ("phase" %in% names(dt)) {
+    phase_counts <- table(dt$phase)
+    cat("Trials per phase:\n")
+    print(phase_counts)
+  }
+  
+  # Show breakdown by trial number if available
+  if ("trialNum" %in% names(dt)) {
+    trial_counts <- table(dt$trialNum)
+    cat("Trials per trial number:\n")
+    print(trial_counts)
+  }
+  
+  cat("\n=== T-TEST ANALYSIS ===\n")
   
   dep_var <- input$depVar
   if (length(input$indepInterVars) > 0) {
