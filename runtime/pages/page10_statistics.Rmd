@@ -198,6 +198,13 @@ get_stats_data <- reactive({
         dplyr::summarise(baseline = first(.data[[input$depVar]]), .groups = "drop")
 
       data <- dplyr::left_join(data, baseline_map, by = "participant")
+
+      # Remove baseline rows from the working dataset unless the user is
+      # explicitly analysing the baseline variable itself. This ensures that
+      # subsequent analyses are performed on non-baseline trials only.
+      if (input$depVar != "baseline") {
+        data <- data[!baseline_filter, , drop = FALSE]
+      }
     }
   }
 
@@ -217,6 +224,11 @@ get_stats_data <- reactive({
     data <- data[baseline_filter, , drop = FALSE]
   }
 
+  # DEBUG -----------------------------------------------------------------
+  # Print the number of observations that will be returned. This will appear
+  # in the R console and can help diagnose unexpected filtering behaviour.
+  cat("[DEBUG] get_stats_data: returning", nrow(data), "rows\n")
+  # -----------------------------------------------------------------------
   return(data)
 })
 
