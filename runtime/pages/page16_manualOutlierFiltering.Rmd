@@ -5,6 +5,9 @@
 library(shinyjs)
 useShinyjs()
 
+# Source utility functions
+source("source/outlier_utils.R", local = FALSE)
+
 # Initialize reactive values at top level
 prepared_changes <- reactiveVal(NULL)
 ```

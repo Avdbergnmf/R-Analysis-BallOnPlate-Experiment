@@ -428,11 +428,16 @@ clean_effect_name <- function(effect_name, input_vars) {
         return(effect_name)
     }
 
-    # Try to match against actual input variables first
-    for (var in input_vars) {
+    # Try to match against actual input variables first (most specific match first)
+    # Sort input_vars by length (longest first) to ensure we match the most specific variable name
+    sorted_vars <- input_vars[order(nchar(input_vars), decreasing = TRUE)]
+
+    for (var in sorted_vars) {
         # Escape special regex characters in the variable name
         escaped_var <- escape_regex_chars(var)
-        if (grepl(paste0("^", escaped_var), effect_name)) {
+        # Use word boundary or end of string to ensure we match the complete variable name
+        pattern <- paste0("^", escaped_var, "(?=", paste(factor_levels, collapse = "|"), "|$)")
+        if (grepl(pattern, effect_name, perl = TRUE)) {
             return(var)
         }
     }
