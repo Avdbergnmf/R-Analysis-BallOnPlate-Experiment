@@ -208,10 +208,9 @@ get_stats_data <- reactive({
 
       data <- dplyr::left_join(data, baseline_map, by = "participant")
 
-      # Remove baseline rows from the working dataset unless the user is
-      # explicitly analysing the baseline variable itself. This ensures that
-      # subsequent analyses are performed on non-baseline trials only.
-      if (input$depVar != "baseline") {
+      # Remove baseline rows from the working dataset if baseline is indep var
+      baseline_in_indep_vars <- "baseline" %in% c(input$indepInterVars, input$indepVars)
+      if (input$depVar != "baseline" && baseline_in_indep_vars) {
         data <- data[!baseline_filter, , drop = FALSE]
       }
     }
