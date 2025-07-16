@@ -187,6 +187,23 @@ get_stats_data <- reactive({
   else {
     data <- filteredParams()
   }
+  
+  # Handle empty data case
+  if (is.null(data) || nrow(data) == 0) {
+    showNotification(
+      "No data available for statistical analysis. Please check your filter settings.",
+      type = "warning",
+      duration = 5
+    )
+    # Return a minimal data frame with the expected structure
+    return(data.frame(
+      participant = character(0),
+      trialNum = numeric(0),
+      condition = character(0),
+      phase = character(0),
+      foot = character(0)
+    ))
+  }
 
   # -------------------------------------------------------------------
   # Add a single numeric column "baseline" (per participant) that contains

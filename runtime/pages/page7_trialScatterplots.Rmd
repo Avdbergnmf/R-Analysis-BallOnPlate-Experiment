@@ -66,6 +66,10 @@ observe({
 
     updateSelectizeInput(session, "muxscatter", choices = numeric_cols, selected = sel_x)
     updateSelectizeInput(session, "muyscatter", choices = numeric_cols, selected = sel_y)
+  } else {
+    # Handle empty data case gracefully
+    updateSelectizeInput(session, "muxscatter", choices = character(0), selected = NULL)
+    updateSelectizeInput(session, "muyscatter", choices = character(0), selected = NULL)
   }
 })
 

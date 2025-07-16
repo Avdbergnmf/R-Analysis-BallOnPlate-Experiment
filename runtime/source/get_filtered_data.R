@@ -44,13 +44,49 @@ get_mu_dyn_long <- reactive({
     return(NULL)
   }
 
+  # Get filtered data and check if it's empty
+  filtered_data <- filteredParams()
+  if (nrow(filtered_data) == 0) {
+    # Show user-friendly error message
+    showNotification(
+      "No data matches the current filter settings. Please adjust your filters in the sidebar.",
+      type = "warning",
+      duration = 5
+    )
+    # Return a minimal data frame with the expected structure to prevent crashes
+    return(data.frame(
+      participant = character(0),
+      trialNum = numeric(0),
+      condition = character(0),
+      phase = character(0),
+      foot = character(0)
+    ))
+  }
+
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
   if (input$do_slicing) {
     # Ensure allQResults exists for sliced version
     qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
-    mu_gait <- get_full_mu_sliced(filteredParams(), qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+    mu_gait <- get_full_mu_sliced(filtered_data, qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
   } else {
-    mu_gait <- get_full_mu(filteredParams(), categories, input$avg_feet, input$add_diff)
+    mu_gait <- get_full_mu(filtered_data, categories, input$avg_feet, input$add_diff)
+  }
+
+  # Check if summarization resulted in empty data
+  if (is.null(mu_gait) || nrow(mu_gait) == 0) {
+    showNotification(
+      "No data available after summarization. Please check your filter settings.",
+      type = "warning",
+      duration = 5
+    )
+    # Return a minimal data frame with the expected structure
+    return(data.frame(
+      participant = character(0),
+      trialNum = numeric(0),
+      condition = character(0),
+      phase = character(0),
+      foot = character(0)
+    ))
   }
 
   # These are all automatically filtered based on gait data availability

@@ -94,6 +94,14 @@ previous_numeric_cols <- reactiveVal()
 observe({
   # Get the latest data and numeric columns
   data <- get_correlation_data()
+  
+  # Handle empty data case gracefully
+  if (is.null(data) || nrow(data) == 0) {
+    updateSelectizeInput(session, "xVar", choices = character(0), selected = NULL)
+    updateSelectizeInput(session, "yVar", choices = character(0), selected = NULL)
+    return()
+  }
+  
   numeric_cols <- names(data)[sapply(data, is.numeric)]
   
   # Retrieve previous numeric columns and update the stored value

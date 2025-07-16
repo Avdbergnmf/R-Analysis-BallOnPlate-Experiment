@@ -1952,7 +1952,9 @@ observeEvent(input$confirm_apply_outliers, {
       allGaitParams,
       current_hs_outliers,
       current_step_outliers_data,
-      tolerance = input$outlier_threshold
+      tolerance = input$outlier_threshold,
+      step_tolerance = input$outlier_threshold,
+      grouping_tolerance = 0.001  # Use 0.001s for grouping close steps
     )
 
     if (exists(".allGaitParams_dt", envir = .GlobalEnv)) {
