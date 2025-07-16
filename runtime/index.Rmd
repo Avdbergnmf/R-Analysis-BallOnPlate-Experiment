@@ -118,6 +118,47 @@ renderSVG <- function(expr) {
     list(src = file, deleteFile = TRUE)
   }, deleteFile = TRUE)
 }
+
+# Handle recompute metrics button
+observeEvent(input$recompute_metrics, {
+  # Show notification that computation is starting
+  showNotification("Starting metrics recomputation with slicing...", type = "info")
+  
+  # Check if slicing is enabled
+  if (!input$do_slicing) {
+    showNotification("Please enable slicing first before recomputing metrics.", type = "warning")
+    return()
+  }
+  
+  # Get current slicing parameters
+  slice_length <- input$slice_length
+  remove_middle_slices <- input$remove_middle_slices
+  
+  # Show progress notification
+  showNotification(paste("Recomputing task and complexity metrics with", slice_length, "second slices..."), type = "info")
+  
+  tryCatch({
+    # Recompute task metrics with slicing
+    if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) {
+      showNotification("Recomputing task metrics...", type = "info")
+      allTaskMetrics <<- get_all_task_metrics_sliced(get_data_from_loop, slice_length = slice_length, remove_middle_slices = remove_middle_slices)
+    }
+    
+    # Recompute complexity metrics with slicing
+    if (exists("allComplexityMetrics") && !is.null(allComplexityMetrics)) {
+      showNotification("Recomputing complexity metrics...", type = "info")
+      allComplexityMetrics <<- get_all_complexity_metrics_sliced(get_data_from_loop, slice_length = slice_length, remove_middle_slices = remove_middle_slices)
+    }
+    
+    # Trigger refresh of filtered data
+    refresh_trigger(refresh_trigger() + 1)
+    
+    showNotification("Metrics recomputation completed successfully!", type = "success")
+    
+  }, error = function(e) {
+    showNotification(paste("Error during recomputation:", e$message), type = "error")
+  })
+})
 ```
 
 Data Dictionary.md {data-orientation=columns}

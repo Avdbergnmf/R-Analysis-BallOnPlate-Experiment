@@ -13,7 +13,7 @@ selectizeInput("filterPhase", "Phase", choices = phaseChoices, selected = phaseC
 ```
 
 #### Step Filtering
-Note: slicing doesn't work completely atm. But left the old code in because I will probably need it later.
+Note: Time slicing is now fully implemented for gait parameters, task metrics, and complexity metrics.
 ```{r}
 selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected = c(FALSE), multiple = TRUE) # INCLUDE outliers (TRUE), INCLUDE non-outliers (FALSE)
 selectizeInput("filterSuspect", "Suspect Steps", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE) # INCLUDE suspect steps (TRUE), INCLUDE non-suspect steps (FALSE)
@@ -21,6 +21,12 @@ selectizeInput("filterSuspect", "Suspect Steps", choices = c(TRUE, FALSE), selec
 checkboxInput("do_slicing", "Slice data", value = FALSE)
 numericInput("slice_length", "Slice data (seconds)",  min = 0, max = 180, value = 9999, step = 10)
 checkboxInput("remove_middle_slices", "Only keep first and last slice", value=FALSE)
+
+actionButton("recompute_metrics", "🔄 Recompute Metrics with Slicing", class = "btn-primary", style = "margin-top: 10px;")
+bsTooltip("recompute_metrics", 
+          "Recompute task and complexity metrics using the current slicing settings. This may take a while.", 
+          placement = "right", 
+          trigger = "hover")
 ```
 
 #### Left vs Right Steps

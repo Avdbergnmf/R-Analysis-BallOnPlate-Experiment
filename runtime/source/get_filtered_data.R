@@ -59,6 +59,18 @@ get_mu_dyn_long <- reactive({
   taskResults <- if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) allTaskMetrics else data.frame()
   complexityResults <- if (exists("allComplexityMetrics") && !is.null(allComplexityMetrics)) allComplexityMetrics else data.frame()
 
+  # Apply time slicing to task and complexity metrics if enabled
+  if (input$do_slicing) {
+    if (nrow(taskResults) > 0) {
+      taskResults <- get_task_metrics_sliced(taskResults, input$filterParticipants, input$filterTrials, 
+                                           input$slice_length, input$remove_middle_slices)
+    }
+    if (nrow(complexityResults) > 0) {
+      complexityResults <- get_complexity_metrics_sliced(complexityResults, input$filterParticipants, input$filterTrials,
+                                                       input$slice_length, input$remove_middle_slices)
+    }
+  }
+
   mu <- merge_mu_with_questionnaire(mu_gait, qResults)
   mu <- merge_mu_with_task(mu, taskResults)
   mu <- merge_mu_with_complexity(mu, complexityResults)
