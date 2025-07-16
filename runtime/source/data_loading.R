@@ -106,7 +106,13 @@ calculate_participant_details <- function(participants) {
   details$education <- sapply(participants, get_p_detail, detail = "education")
   details$vr_experience <- sapply(participants, get_p_detail, detail = "vr_experience")
   details$motion <- sapply(participants, get_p_detail, detail = "motion")
-  details$move_speed <- sapply(participants, get_move_speed, trialNum = 2)
+  details$move_speed <- sapply(participants, get_move_speed, trialNum = 3)
+  avatar_height_m <- 1.85
+  details$height_meters <- as.numeric(sapply(participants, get_p_detail, detail = "height_scale")) * avatar_height_m
+
+  # -------------------------------------------------------------
+  # Calculate summary statistics for each continuous variable
+  # -------------------------------------------------------------
 
   # Calculate statistics for age
   age_stats <- calculate_stats(details$age)
@@ -117,6 +123,11 @@ calculate_participant_details <- function(participants) {
   move_speed_stats <- calculate_stats(details$move_speed)
   move_speed_mean_sd <- sprintf("%.2f, SD: %.2f", move_speed_stats$mean, move_speed_stats$sd)
   move_speed_median_min_max_iqr <- sprintf("%.2f [%.2f, %.2f], IQR=%.2f", move_speed_stats$median, move_speed_stats$min, move_speed_stats$max, move_speed_stats$iqr)
+
+  # Calculate statistics for participant height in meters
+  height_stats <- calculate_stats(details$height_meters)
+  height_mean_sd <- sprintf("%.2f, SD: %.2f", height_stats$mean, height_stats$sd)
+  height_median_min_max_iqr <- sprintf("%.2f [%.2f, %.2f], IQR=%.2f", height_stats$median, height_stats$min, height_stats$max, height_stats$iqr)
 
   # Calculate statistics for weight
   weight_stats <- calculate_stats(details$weight)
@@ -134,6 +145,7 @@ calculate_participant_details <- function(participants) {
     Detail = c(
       "Age (Mean, SD)", "Age (Median [Min, Max], IQR)",
       "Move Speed (Mean, SD)", "Move Speed (Median [Min, Max], IQR)",
+      "Height (Mean, SD)", "Height (Median [Min, Max], IQR)",
       "Weight (Mean, SD)", "Weight (Median [Min, Max], IQR)",
       rep("Gender", length(gender_counts)),
       rep("Education", length(education_counts)),
@@ -143,6 +155,7 @@ calculate_participant_details <- function(participants) {
     Value = c(
       age_mean_sd, age_median_min_max_iqr,
       move_speed_mean_sd, move_speed_median_min_max_iqr,
+      height_mean_sd, height_median_min_max_iqr,
       weight_mean_sd, weight_median_min_max_iqr,
       as.vector(gender_counts),
       as.vector(education_counts),
@@ -153,7 +166,7 @@ calculate_participant_details <- function(participants) {
 
   # Add the names of the counted categories to the details
   result$Category <- c(
-    "", "", "", "", "", "",
+    "", "", "", "", "", "", "", "",
     names(gender_counts),
     names(education_counts),
     names(vr_experience_counts),
