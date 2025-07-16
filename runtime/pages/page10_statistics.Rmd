@@ -350,6 +350,16 @@ output$lmm_text <- renderPrint({
   cat("Marginal R-squared:", r_squared[1], "\n")
   cat("Conditional R-squared:", r_squared[2], "\n")
 
+  # Add interpretation guidance for model fit statistics
+  cat("\nModel Fit Interpretation:\n")
+  cat("- AIC (Akaike Information Criterion): Lower values indicate better model fit\n")
+  cat("- BIC (Bayesian Information Criterion): Lower values indicate better model fit\n")
+  cat("- Log-likelihood: Higher values indicate better model fit\n")
+  cat("- Deviance: Lower values indicate better model fit\n")
+  cat("- R-squared: Higher values indicate more variance explained by the model\n")
+  cat("  * Marginal R-squared: Variance explained by fixed effects only\n")
+  cat("  * Conditional R-squared: Variance explained by both fixed and random effects\n")
+
   # Calculate and print VIF
   cat("\nVariance Inflation Factors (VIF):\n")
   tryCatch({
@@ -382,10 +392,11 @@ output$fixed_effects_table <- renderTable({
   fixed_effects_df <- cbind(Effect = rownames(fixed_effects_df), fixed_effects_df)
   rownames(fixed_effects_df) <- NULL
   
-  fixed_effects_df <- set_digits(fixed_effects_df)
+  # Format numbers and make significant p-values bold
+  fixed_effects_df <- set_digits_with_bold_pvalues(fixed_effects_df, "AdjustedP")
   
   fixed_effects_df
-}, rownames = TRUE)
+}, rownames = TRUE, sanitize.text.function = function(x) x)
 
 
 output$random_effects_table <- renderTable({
@@ -529,20 +540,43 @@ output$post_hoc_table <- renderTable({
     final_df <- do.call(rbind, final_results)
     final_df <- cbind(Effect = rep(names(final_results), sapply(final_results, nrow)), final_df)
     
-    # Format the numbers to display more digits
-    final_df <- set_digits(final_df)
+    # Format the numbers to display more digits and make significant p-values bold
+    final_df <- set_digits_with_bold_pvalues(final_df, "p.value")
     
     return(final_df)
   } else {
     return(data.frame(Message = "No significant main or interaction effects found."))
   }
-}, rownames = TRUE)
+}, rownames = TRUE, sanitize.text.function = function(x) x)
 ###############
 ############## FIGURES
 set_digits <- function(df, digits = 4){
     # Format the numbers to display more digits
   df <- df %>%
     mutate(across(where(is.numeric), ~ format(round(.x, digits = digits), nsmall = digits)))
+  return(df)
+}
+
+set_digits_with_bold_pvalues <- function(df, p_value_column, digits = 4, alpha = 0.05) {
+  # Format all numeric columns
+  df <- df %>%
+    mutate(across(where(is.numeric), ~ format(round(.x, digits = digits), nsmall = digits)))
+  
+  # Make significant p-values bold
+  if (p_value_column %in% names(df)) {
+    df[[p_value_column]] <- sapply(df[[p_value_column]], function(p_val) {
+      if (is.na(p_val) || p_val == "") {
+        return(p_val)
+      }
+      p_num <- as.numeric(p_val)
+      if (!is.na(p_num) && p_num < alpha) {
+        return(paste0("<strong>", p_val, "</strong>"))
+      } else {
+        return(p_val)
+      }
+    })
+  }
+  
   return(df)
 }
 
