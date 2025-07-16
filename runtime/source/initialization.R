@@ -165,6 +165,73 @@ initialize_global_parameters <- function() {
     default_plot_height <<- 4
     default_alpha <<- 0.15
 
+    # =============================================================================
+    # CONDITION MAPPING
+    # =============================================================================
+    # Mapping from condition names to abbreviated labels for plotting and tables
+    condition_map <<- c(
+        "control" = "C",
+        "perturbation" = "P",
+        "perturbation_visualization" = "PV"
+    )
+
+    # =============================================================================
+    # PHASE MAPPING
+    # =============================================================================
+    # Mapping from phase names to abbreviated labels for plotting and tables
+    phase_map <<- c(
+        "baseline" = "BL",
+        "training" = "TR",
+        "retention" = "RE",
+        "transfer" = "TF",
+        "washout" = "WO",
+        "familiarisation_walk" = "FW",
+        "familiarisation_stand" = "FS",
+        "familiarisation_training" = "FT"
+    )
+
+    # =============================================================================
+    # FACTOR LEVEL DEFINITIONS
+    # =============================================================================
+    # Common factor levels that appear in effect names (for cleaning variable names)
+    factor_levels <<- c(
+        # Boolean levels
+        "TRUE", "FALSE",
+        # Polynomial contrasts
+        ".L", ".Q", ".C",
+        # Numeric levels
+        "[0-9.]+",
+        # Condition levels
+        names(condition_map),
+        # Phase levels
+        names(phase_map)
+    )
+
+    # =============================================================================
+    # VARIABLE MAPPING CONFIGURATION
+    # =============================================================================
+    # Define which variables should use which mapping for pretty labels
+    variable_mappings <<- list(
+        "condition" = condition_map,
+        "phase.x" = phase_map
+        # Add more mappings here as needed
+    )
+
+    # =============================================================================
+    # REFERENCE CATEGORY CONFIGURATION
+    # =============================================================================
+    # Define reference levels for factor variables (for statistical models)
+    # These will be used when creating factors in the data
+    reference_levels <<- list(
+        "condition" = "perturbation", # perturbation will be the reference level
+        "phase.x" = "baseline", # retention will be the reference level
+        "gender" = "male", # male will be the reference level
+        "motion" = "False", # low motion sensitivity will be the reference level
+        "education" = "Higher", # bachelor will be the reference level
+        "vr_experience" = "None" # no VR experience will be the reference level
+        # Add more reference levels here as needed
+    )
+
     cat(sprintf("[%s] Global parameters initialized.\n", format(Sys.time(), "%H:%M:%S")))
 }
 
@@ -308,6 +375,13 @@ initialize_global_data <- function() {
     )
 }
 
+#' Escape special regex characters in a string
+#' @param str The string to escape
+#' @return The escaped string
+escape_regex_chars <- function(str) {
+    gsub("([.^$*+?()[\\]|])", "\\\\\\1", str)
+}
+
 #' Efficient version of ensure_global_data_initialized
 #' This version includes cleanup but no memory monitoring
 ensure_global_data_initialized <- function() {
@@ -335,4 +409,119 @@ ensure_global_data_initialized <- function() {
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
+}
+
+#' Clean effect names by extracting base variable names from factor effects
+#' @param effect_name The effect name from the model (e.g., "conditionperturbation")
+#' @param input_vars Vector of input variable names to match against
+#' @return The cleaned base variable name (e.g., "condition")
+clean_effect_name <- function(effect_name, input_vars) {
+    ensure_global_data_initialized()
+
+    # Handle edge cases
+    if (is.null(effect_name) || effect_name == "" || length(effect_name) == 0) {
+        return("")
+    }
+
+    # If effect_name is already in input_vars, return it as is
+    if (effect_name %in% input_vars) {
+        return(effect_name)
+    }
+
+    # Try to match against actual input variables first
+    for (var in input_vars) {
+        # Escape special regex characters in the variable name
+        escaped_var <- escape_regex_chars(var)
+        if (grepl(paste0("^", escaped_var), effect_name)) {
+            return(var)
+        }
+    }
+
+    # If no match found but the effect_name looks like a simple variable name
+    # (no factor levels attached), return it as-is
+    if (!grepl(paste(factor_levels, collapse = "|"), effect_name)) {
+        return(effect_name)
+    }
+
+    # Fallback: try to match common factor patterns
+    factor_pattern <- paste(factor_levels, collapse = "|")
+    base_var_match <- gsub(paste0("^(.*?)(", factor_pattern, ")$"), "\\1", effect_name)
+
+    # If the pattern didn't change anything, return the original name
+    if (base_var_match == effect_name) {
+        return(effect_name)
+    }
+
+    return(base_var_match)
+}
+
+#' Create pretty labels for factor effects using predefined mappings
+#' @param effect_name The effect name from the model
+#' @param input_vars Vector of input variable names
+#' @param data The dataset to check factor levels
+#' @return Pretty formatted effect name
+get_pretty_factor_labels <- function(effect_name, input_vars, data = NULL) {
+    ensure_global_data_initialized()
+
+    # Try to match against actual input variables
+    for (var in input_vars) {
+        # Escape special regex characters in the variable name
+        escaped_var <- escape_regex_chars(var)
+        if (grepl(paste0("^", escaped_var), effect_name)) {
+            # Extract the level part
+            level <- gsub(paste0("^", escaped_var), "", effect_name)
+
+            # For condition variable, use the condition map
+            if (var == "condition" && level %in% names(condition_map)) {
+                return(var) # Just return "condition" instead of "conditionP"
+            }
+
+            # For phase variable, use the phase map
+            if (var == "phase.x" && level %in% names(phase_map)) {
+                return("phase") # Just return "phase" instead of "phase.xTR"
+            }
+
+            # For other variables, check if they're factors and get their levels
+            if (!is.null(data) && var %in% names(data) && is.factor(data[[var]])) {
+                # Get the actual levels from the data
+                var_levels <- levels(data[[var]])
+                if (level %in% var_levels) {
+                    # Return just the base variable name for factor variables
+                    return(var)
+                }
+            }
+
+            # If no special handling, return the original effect name
+            return(effect_name)
+        }
+    }
+
+    # For other variables, return as is
+    return(effect_name)
+}
+
+#' Apply reference levels to factor variables in a dataset
+#' @param data The dataset to modify
+#' @return The dataset with proper reference levels set for factors
+apply_reference_levels <- function(data) {
+    ensure_global_data_initialized()
+
+    # Apply reference levels to each variable that has a defined reference level
+    for (var_name in names(reference_levels)) {
+        if (var_name %in% names(data)) {
+            # Check if the variable exists and has the specified reference level
+            if (reference_levels[[var_name]] %in% unique(data[[var_name]])) {
+                data[[var_name]] <- relevel(factor(data[[var_name]]), ref = reference_levels[[var_name]])
+                cat(sprintf("[INFO] Set reference level for %s to '%s'\n", var_name, reference_levels[[var_name]]))
+            } else {
+                warning(sprintf(
+                    "Reference level '%s' not found in variable '%s'. Available levels: %s",
+                    reference_levels[[var_name]], var_name,
+                    paste(unique(data[[var_name]]), collapse = ", ")
+                ))
+            }
+        }
+    }
+
+    return(data)
 }

@@ -32,6 +32,8 @@ selectizeInput("correctionMethod", "Multiple comparison correction",
 )
 
 checkboxInput("paired_ttest", "Use Paired t-test", value = FALSE)
+
+checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = FALSE)
 ```
 
 
@@ -50,6 +52,13 @@ Further data processing:
 ```{r}
 bsTooltip("averageData_stats", 
           "Make sure to do this when looking at questionnaire data as the dependent variable.", 
+          placement = "right", 
+          trigger = "hover")
+```
+
+```{r}
+bsTooltip("force_posthoc", 
+          "When checked, post-hoc tests will be performed for all effects, not just significant ones.", 
           placement = "right", 
           trigger = "hover")
 ```
@@ -228,6 +237,10 @@ get_stats_data <- reactive({
   # Print the number of observations that will be returned. This will appear
   # in the R console and can help diagnose unexpected filtering behaviour.
   cat("[DEBUG] get_stats_data: returning", nrow(data), "rows\n")
+  
+  # Apply reference levels to factor variables
+  data <- apply_reference_levels(data)
+  
   # -----------------------------------------------------------------------
   return(data)
 })
@@ -403,20 +416,28 @@ output$post_hoc_table <- renderTable({
   lmm <- get_lmer()
   results <- summary(lmm)
   
-  # Extract significant fixed effects (excluding intercept)
+  # Extract fixed effects (excluding intercept)
   fixed_effects <- results$coefficients
-  #effects_to_test <- rownames(fixed_effects)
-  #effects_to_test <- effects_to_test[effects_to_test != "(Intercept)"]
-  significant_effects <- rownames(results$coefficients)[results$coefficients[, "Pr(>|t|)"] < 0.05]
-  significant_effects <- significant_effects[significant_effects != "(Intercept)"]
-  effects_to_test <- significant_effects
+  all_effects <- rownames(results$coefficients)[rownames(results$coefficients) != "(Intercept)"]
   
-  # Function to clean variable names by removing trailing levels (e.g., TRUE, FALSE, numeric values)
-  clean_effect_name <- function(effect_name) {
-    # Remove trailing TRUE, FALSE, or numbers from variable names
-    cleaned_name <- gsub("(TRUE|FALSE|.L|.Q|.C|[0-9.]+)$", "", effect_name)
-    return(cleaned_name)
+  # Determine which effects to test based on force_posthoc setting
+  if (input$force_posthoc) {
+    # If force_posthoc is checked, test all effects
+    effects_to_test <- all_effects
+  } else {
+    # Otherwise, only test significant effects
+    significant_effects <- rownames(results$coefficients)[results$coefficients[, "Pr(>|t|)"] < 0.05]
+    significant_effects <- significant_effects[significant_effects != "(Intercept)"]
+    effects_to_test <- significant_effects
   }
+  
+  # Get the actual independent variables from the input
+  all_indep_vars <- c(input$indepInterVars, input$indepVars)
+  
+  # Debug: show available variables
+  model_data <- get_stats_data()
+  cat("[DEBUG] Available variables in model data:", paste(names(model_data), collapse = ", "), "\n")
+  cat("[DEBUG] Input variables:", paste(all_indep_vars, collapse = ", "), "\n")
   
   # Initialize post-hoc results list
   posthoc_results <- list()
@@ -425,11 +446,33 @@ output$post_hoc_table <- renderTable({
   for (indep_var in effects_to_test) {
     if (grepl(":", indep_var)) {
       # Interaction term detected, perform post-hoc test for interaction
-      interaction_vars <- clean_effect_name(unlist(strsplit(indep_var, ":")))
+      interaction_parts <- unlist(strsplit(indep_var, ":"))
+      interaction_vars <- sapply(interaction_parts, function(part) clean_effect_name(part, all_indep_vars))
+      # Debug: print what we're passing to emmeans
+      cat("[DEBUG] Interaction vars for", indep_var, ":", paste(interaction_vars, collapse = ", "), "\n")
+      
+      # Validate that we have valid variable names
+      if (length(interaction_vars) == 0 || any(interaction_vars == "")) {
+        cat("[WARNING] Skipping", indep_var, "- invalid interaction variables\n")
+        next
+      }
+      
       posthoc_test <- emmeans::emmeans(lmm, specs = interaction_vars)
     } else {
       # Perform post-hoc test for the main effect
-      posthoc_test <- emmeans::emmeans(lmm, specs = clean_effect_name(indep_var))
+      base_var_name <- clean_effect_name(indep_var, all_indep_vars)
+      # Debug: print what we're passing to emmeans
+      cat("[DEBUG] Base var name for", indep_var, ":", base_var_name, "\n")
+      
+      # Validate that we have a valid variable name
+      # Check if the variable exists in the model data
+      model_data <- get_stats_data()
+      if (is.null(base_var_name) || base_var_name == "" || !(base_var_name %in% names(model_data))) {
+        cat("[WARNING] Skipping", indep_var, "- invalid base variable name:", base_var_name, "\n")
+        next
+      }
+      
+      posthoc_test <- emmeans::emmeans(lmm, specs = base_var_name)
     }
     pairwise_comparisons <- emmeans::contrast(posthoc_test, method = "pairwise")
     
@@ -441,12 +484,48 @@ output$post_hoc_table <- renderTable({
   # Combine posthoc results into a single data frame
   if (length(posthoc_results) > 0) {
     posthoc_df <- do.call(rbind, lapply(posthoc_results, as.data.frame))
-    posthoc_df <- cbind(Effect = rep(names(posthoc_results), sapply(posthoc_results, nrow)), posthoc_df)
+    
+    # Create pretty effect names for display
+    data <- get_stats_data()
+    pretty_effect_names <- sapply(names(posthoc_results), function(effect) {
+      if (grepl(":", effect)) {
+        # For interactions, clean each part
+        parts <- unlist(strsplit(effect, ":"))
+        pretty_parts <- sapply(parts, function(part) get_pretty_factor_labels(part, all_indep_vars, data))
+        return(paste(pretty_parts, collapse = " × "))
+      } else {
+        return(get_pretty_factor_labels(effect, all_indep_vars, data))
+      }
+    })
+    
+    # Deduplicate effects by creating a mapping from original to cleaned names
+    effect_mapping <- data.frame(
+      original = names(posthoc_results),
+      cleaned = pretty_effect_names,
+      stringsAsFactors = FALSE
+    )
+    
+    # Group by cleaned effect names to deduplicate
+    unique_effects <- unique(effect_mapping$cleaned)
+    final_results <- list()
+    
+    for (effect in unique_effects) {
+      # Get all original effects that map to this cleaned effect
+      original_effects <- effect_mapping$original[effect_mapping$cleaned == effect]
+      
+      # Combine results from all original effects
+      combined_results <- do.call(rbind, posthoc_results[original_effects])
+      final_results[[effect]] <- combined_results
+    }
+    
+    # Create final data frame
+    final_df <- do.call(rbind, final_results)
+    final_df <- cbind(Effect = rep(names(final_results), sapply(final_results, nrow)), final_df)
     
     # Format the numbers to display more digits
-    posthoc_df <- set_digits(posthoc_df)
+    final_df <- set_digits(final_df)
     
-    return(posthoc_df)
+    return(final_df)
   } else {
     return(data.frame(Message = "No significant main or interaction effects found."))
   }
