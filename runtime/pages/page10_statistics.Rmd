@@ -233,11 +233,6 @@ get_stats_data <- reactive({
     data <- data[baseline_filter, , drop = FALSE]
   }
 
-  # DEBUG -----------------------------------------------------------------
-  # Print the number of observations that will be returned. This will appear
-  # in the R console and can help diagnose unexpected filtering behaviour.
-  cat("[DEBUG] get_stats_data: returning", nrow(data), "rows\n")
-  
   # Apply reference levels to factor variables
   data <- apply_reference_levels(data)
   
@@ -431,13 +426,37 @@ output$post_hoc_table <- renderTable({
     effects_to_test <- significant_effects
   }
   
+  # Remove duplicates from effects_to_test to prevent processing the same effect multiple times
+  effects_to_test <- unique(effects_to_test)
+  
   # Get the actual independent variables from the input
   all_indep_vars <- c(input$indepInterVars, input$indepVars)
   
-  # Debug: show available variables
-  model_data <- get_stats_data()
-  cat("[DEBUG] Available variables in model data:", paste(names(model_data), collapse = ", "), "\n")
-  cat("[DEBUG] Input variables:", paste(all_indep_vars, collapse = ", "), "\n")
+  # Further deduplicate by base variable name to prevent processing the same variable multiple times
+  data <- get_stats_data()
+  processed_vars <- c()
+  unique_effects_to_test <- c()
+  
+  for (effect in effects_to_test) {
+    if (grepl(":", effect)) {
+      # For interactions, check each part
+      parts <- unlist(strsplit(effect, ":"))
+      base_vars <- sapply(parts, function(part) clean_effect_name(part, all_indep_vars))
+      effect_key <- paste(sort(base_vars), collapse = " × ")
+    } else {
+      # For main effects, get the base variable
+      base_var <- clean_effect_name(effect, all_indep_vars)
+      effect_key <- base_var
+    }
+    
+    # Only add if we haven't processed this variable combination before
+    if (!(effect_key %in% processed_vars)) {
+      processed_vars <- c(processed_vars, effect_key)
+      unique_effects_to_test <- c(unique_effects_to_test, effect)
+    }
+  }
+  
+  effects_to_test <- unique_effects_to_test
   
   # Initialize post-hoc results list
   posthoc_results <- list()
@@ -448,12 +467,9 @@ output$post_hoc_table <- renderTable({
       # Interaction term detected, perform post-hoc test for interaction
       interaction_parts <- unlist(strsplit(indep_var, ":"))
       interaction_vars <- sapply(interaction_parts, function(part) clean_effect_name(part, all_indep_vars))
-      # Debug: print what we're passing to emmeans
-      cat("[DEBUG] Interaction vars for", indep_var, ":", paste(interaction_vars, collapse = ", "), "\n")
       
       # Validate that we have valid variable names
       if (length(interaction_vars) == 0 || any(interaction_vars == "")) {
-        cat("[WARNING] Skipping", indep_var, "- invalid interaction variables\n")
         next
       }
       
@@ -461,14 +477,11 @@ output$post_hoc_table <- renderTable({
     } else {
       # Perform post-hoc test for the main effect
       base_var_name <- clean_effect_name(indep_var, all_indep_vars)
-      # Debug: print what we're passing to emmeans
-      cat("[DEBUG] Base var name for", indep_var, ":", base_var_name, "\n")
       
       # Validate that we have a valid variable name
       # Check if the variable exists in the model data
       model_data <- get_stats_data()
       if (is.null(base_var_name) || base_var_name == "" || !(base_var_name %in% names(model_data))) {
-        cat("[WARNING] Skipping", indep_var, "- invalid base variable name:", base_var_name, "\n")
         next
       }
       
@@ -498,24 +511,18 @@ output$post_hoc_table <- renderTable({
       }
     })
     
-    # Deduplicate effects by creating a mapping from original to cleaned names
-    effect_mapping <- data.frame(
-      original = names(posthoc_results),
-      cleaned = pretty_effect_names,
-      stringsAsFactors = FALSE
-    )
-    
-    # Group by cleaned effect names to deduplicate
-    unique_effects <- unique(effect_mapping$cleaned)
+    # Deduplicate based on cleaned effect names
+    unique_cleaned_names <- unique(pretty_effect_names)
     final_results <- list()
     
-    for (effect in unique_effects) {
-      # Get all original effects that map to this cleaned effect
-      original_effects <- effect_mapping$original[effect_mapping$cleaned == effect]
+    for (cleaned_name in unique_cleaned_names) {
+      # Find all original effects that map to this cleaned name
+      matching_indices <- which(pretty_effect_names == cleaned_name)
+      matching_effects <- names(posthoc_results)[matching_indices]
       
-      # Combine results from all original effects
-      combined_results <- do.call(rbind, posthoc_results[original_effects])
-      final_results[[effect]] <- combined_results
+      # Combine results from all matching effects
+      combined_results <- do.call(rbind, posthoc_results[matching_effects])
+      final_results[[cleaned_name]] <- combined_results
     }
     
     # Create final data frame
