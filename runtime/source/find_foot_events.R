@@ -424,37 +424,85 @@ find_foot_events <- function(participant, trialNum) {
     combinedHeelStrikes$suspect_alt <- NULL
   }
 
-  ensure_alternation <- function(data1, data2) {
-    # mark suspect for same-foot consecutive strikes instead of removing
-    data1$suspect_alt <- FALSE
-    incorrect_seq <- which(diff(as.numeric(data1$foot == "Left")) == 0)
-    if (length(incorrect_seq) > 0) {
-      data1$suspect_alt[incorrect_seq + 1] <- TRUE # mark the second of the two as suspect
-      message("Marked ", length(incorrect_seq), " steps as suspect due to alternation violation.")
-    }
-    return(list(data1 = data1, data2 = data2))
-  }
-
-  # Apply alternation marking (no removal)
-  results <- ensure_alternation(combinedHeelStrikes, combinedToeOffs)
-  combinedHeelStrikes <- results$data1
-  combinedToeOffs <- results$data2
-
-  # Merge suspect_alt into suspect column (again, after alternation check)
-  if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
-    combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_alt
-    combinedHeelStrikes$suspect_alt <- NULL
-  }
-
-  # Note: Heel strike removal is now handled in the UI (page16_manualOutlierFiltering.Rmd)
-
-  # Mark outlier steps and remove false heel-strikes based on global CSV data
+  # Mark outlier steps and remove false heel-strikes based on global CSV data FIRST
   combinedHeelStrikes <- apply_outliers(
     combinedHeelStrikes,
     heel_outliers  = outliers_heel_data,
     step_outliers  = outliers_steps_data,
     tolerance      = 0.03
   )
+
+  ensure_alternation <- function(data1, data2) {
+    # mark suspect for same-foot consecutive strikes instead of removing
+    # BUT exclude outliers from alternation analysis since they're already marked
+    data1$suspect_alt <- FALSE
+
+    # Filter out outliers for alternation analysis
+    non_outlier_data <- data1[!data1$outlierSteps, ]
+
+    if (nrow(non_outlier_data) > 1) {
+      # Check alternation only on non-outlier data
+      incorrect_seq <- which(diff(as.numeric(non_outlier_data$foot == "Left")) == 0)
+      if (length(incorrect_seq) > 0) {
+        # Map back to original indices
+        non_outlier_indices <- which(!data1$outlierSteps)
+        original_indices <- non_outlier_indices[incorrect_seq + 1]
+        data1$suspect_alt[original_indices] <- TRUE # mark the second of the two as suspect
+        message("Marked ", length(incorrect_seq), " steps as suspect due to alternation violation (excluding outliers).")
+      }
+    }
+    return(list(data1 = data1, data2 = data2))
+  }
+
+  detect_long_step_times <- function(data1, data2) {
+    # mark suspect for steps with unusually long intervals (more than 2x median)
+    # exclude outliers from analysis since they're already marked
+    data1$suspect_long_time <- FALSE
+
+    # Filter out outliers for analysis
+    non_outlier_data <- data1[!data1$outlierSteps, ]
+
+    if (nrow(non_outlier_data) > 2) {
+      # Calculate time differences between consecutive steps
+      step_times <- diff(non_outlier_data$time)
+      median_step_time <- median(step_times, na.rm = TRUE)
+      threshold <- 2 * median_step_time
+
+      # Find steps with unusually long intervals
+      long_interval_indices <- which(step_times > threshold)
+      if (length(long_interval_indices) > 0) {
+        # Map back to original indices (mark the second step of each long interval)
+        non_outlier_indices <- which(!data1$outlierSteps)
+        original_indices <- non_outlier_indices[long_interval_indices + 1]
+        data1$suspect_long_time[original_indices] <- TRUE
+        message(
+          "Marked ", length(long_interval_indices), " steps as suspect due to unusually long step time (>2x median of ",
+          round(median_step_time, 3), "s, threshold: ", round(threshold, 3), "s) (excluding outliers)."
+        )
+      }
+    }
+    return(list(data1 = data1, data2 = data2))
+  }
+
+  # Apply alternation marking (no removal) AFTER outlier marking
+  results <- ensure_alternation(combinedHeelStrikes, combinedToeOffs)
+  combinedHeelStrikes <- results$data1
+  combinedToeOffs <- results$data2
+
+  # Apply long step time detection
+  results <- detect_long_step_times(combinedHeelStrikes, combinedToeOffs)
+  combinedHeelStrikes <- results$data1
+  combinedToeOffs <- results$data2
+
+  # Merge all suspect flags into suspect column
+  if ("suspect_alt" %in% colnames(combinedHeelStrikes)) {
+    combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_alt
+    combinedHeelStrikes$suspect_alt <- NULL
+  }
+  if ("suspect_long_time" %in% colnames(combinedHeelStrikes)) {
+    combinedHeelStrikes$suspect <- combinedHeelStrikes$suspect | combinedHeelStrikes$suspect_long_time
+    combinedHeelStrikes$suspect_long_time <- NULL
+  }
 
   # Label step numbers. Assuming each heel strike represents a new step
   combinedHeelStrikes$step <- seq_len(nrow(combinedHeelStrikes))

@@ -65,7 +65,7 @@ calculate_gait_parameters <- function(participant, trialNum) {
   toeOffsData <- gaitData$toeOffs
 
   relHeelStrikesData <- gaitData$heelStrikes %>%
-    dplyr::group_by(foot) %>%
+    dplyr::arrange(time) %>% # Ensure data is ordered by time across all heel strikes
     dplyr::mutate(across(where(is.numeric), ~ c(0, diff(.x)))) %>%
     dplyr::ungroup()
 
