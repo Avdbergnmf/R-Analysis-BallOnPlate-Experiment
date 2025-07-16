@@ -4,12 +4,8 @@
 #' @param conditions Vector of condition names
 #' @return Vector of pretty condition labels
 get_pretty_condition_labels <- function(conditions) {
-  # Create a mapping from long names to short labels
-  condition_map <- c(
-    "control" = "C",
-    "perturbation" = "P",
-    "perturbation_visualization" = "PV"
-  )
+  # Use the global condition mapping from initialization.R
+  ensure_global_data_initialized()
 
   # Apply the mapping, keeping original names if not found in map
   pretty_labels <- ifelse(conditions %in% names(condition_map),
