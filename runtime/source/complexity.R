@@ -224,6 +224,103 @@ lyapunov <- function(x, emb.dim = 3, delay = 1, fit.range = c(0, 0.8)) {
   return(lambda)
 }
 
+#' Power Spectral Density Analysis
+#' @param x numeric vector of time series data
+#' @param fs sampling frequency (default 30 Hz)
+#' @return List with frequency metrics
+psd_analysis <- function(x, fs = 30) {
+  if (length(x) < 50) {
+    return(list(
+      peak_freq = NA,
+      mean_freq = NA,
+      spectral_entropy = NA,
+      spectral_centroid = NA,
+      spectral_bandwidth = NA,
+      power_low = NA,
+      power_mid = NA,
+      power_high = NA
+    ))
+  }
+
+  tryCatch(
+    {
+      # Remove linear trend
+      x_detrended <- x - mean(x)
+
+      # Apply window to reduce spectral leakage
+      window_length <- length(x_detrended)
+      window <- 0.54 - 0.46 * cos(2 * pi * (0:(window_length - 1)) / (window_length - 1)) # Hamming window
+      x_windowed <- x_detrended * window
+
+      # Compute FFT
+      fft_result <- fft(x_windowed)
+      power_spectrum <- abs(fft_result)^2
+
+      # Frequency vector
+      freqs <- seq(0, fs / 2, length.out = length(power_spectrum))
+
+      # Only use positive frequencies (first half)
+      n_half <- ceiling(length(power_spectrum) / 2)
+      freqs <- freqs[1:n_half]
+      power_spectrum <- power_spectrum[1:n_half]
+
+      # Normalize power spectrum
+      power_spectrum <- power_spectrum / sum(power_spectrum)
+
+      # Peak frequency (frequency with maximum power)
+      peak_idx <- which.max(power_spectrum)
+      peak_freq <- freqs[peak_idx]
+
+      # Mean frequency (weighted average)
+      mean_freq <- sum(freqs * power_spectrum)
+
+      # Spectral entropy (measure of spectral complexity)
+      spectral_entropy <- -sum(power_spectrum * log(power_spectrum + .Machine$double.eps))
+
+      # Spectral centroid (center of mass of the spectrum)
+      spectral_centroid <- sum(freqs * power_spectrum) / sum(power_spectrum)
+
+      # Spectral bandwidth (spread around centroid)
+      spectral_bandwidth <- sqrt(sum(((freqs - spectral_centroid)^2) * power_spectrum))
+
+      # Power in different frequency bands
+      # Low frequency: 0.05-0.5 Hz (typical perturbation range)
+      # Mid frequency: 0.5-2 Hz (walking-related)
+      # High frequency: 2-15 Hz (noise and fast movements)
+      low_mask <- freqs >= 0.05 & freqs <= 0.5
+      mid_mask <- freqs > 0.5 & freqs <= 2
+      high_mask <- freqs > 2 & freqs <= 15
+
+      power_low <- sum(power_spectrum[low_mask])
+      power_mid <- sum(power_spectrum[mid_mask])
+      power_high <- sum(power_spectrum[high_mask])
+
+      return(list(
+        peak_freq = peak_freq,
+        mean_freq = mean_freq,
+        spectral_entropy = spectral_entropy,
+        spectral_centroid = spectral_centroid,
+        spectral_bandwidth = spectral_bandwidth,
+        power_low = power_low,
+        power_mid = power_mid,
+        power_high = power_high
+      ))
+    },
+    error = function(e) {
+      return(list(
+        peak_freq = NA,
+        mean_freq = NA,
+        spectral_entropy = NA,
+        spectral_centroid = NA,
+        spectral_bandwidth = NA,
+        power_low = NA,
+        power_mid = NA,
+        power_high = NA
+      ))
+    }
+  )
+}
+
 #' Helper function to add discrete complexity metrics to result
 #' @param result Result data frame to modify
 #' @param dataType Type of data (e.g., "stepTimes", "stepWidths")
@@ -327,6 +424,10 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             }
           )
 
+          # Add frequency domain analysis
+          psd_metrics <- psd_analysis(values, fs = 30)
+          metrics <- c(metrics, psd_metrics)
+
           # Add to result with proper naming
           for (metric in names(metrics)) {
             result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- metrics[[metric]]
@@ -337,7 +438,11 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
         error = function(e) {
           warning(paste("Error in continuous", var_name, "complexity calculation:", e$message))
           # Add NAs for failed metrics
-          na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
+          na_metrics <- c(
+            "sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio",
+            "peak_freq", "mean_freq", "spectral_entropy", "spectral_centroid",
+            "spectral_bandwidth", "power_low", "power_mid", "power_high"
+          )
           for (metric in na_metrics) {
             result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
           }
@@ -345,7 +450,11 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       )
     } else {
       # Insufficient variability - add NAs
-      na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
+      na_metrics <- c(
+        "sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio",
+        "peak_freq", "mean_freq", "spectral_entropy", "spectral_centroid",
+        "spectral_bandwidth", "power_low", "power_mid", "power_high"
+      )
       for (metric in na_metrics) {
         result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
       }
@@ -393,7 +502,11 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
     }
   } else {
     # Insufficient data - add NAs for continuous metrics
-    na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio")
+    na_metrics <- c(
+      "sampen", "mse_index", "dfa_alpha", "lyapunov", "sd_ratio",
+      "peak_freq", "mean_freq", "spectral_entropy", "spectral_centroid",
+      "spectral_bandwidth", "power_low", "power_mid", "power_high"
+    )
     for (metric in na_metrics) {
       result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
     }
