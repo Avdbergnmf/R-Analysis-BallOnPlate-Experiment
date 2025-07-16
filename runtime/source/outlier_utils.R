@@ -1,12 +1,13 @@
 # Utility functions for handling outliers
 
-#' Find the closest heel strikes in a dataset efficiently using data.table
+#' Find heel strikes with two-stage tolerance system
 #'
 #' @param outliers Data frame with outlier information
 #' @param data_source Data frame containing heel strike data
-#' @param max_distance Maximum time difference allowed
-#' @return Data table with matched rows
-find_closest_heel_strikes <- function(outliers, data_source, max_distance = 0.03) {
+#' @param search_tolerance Maximum time difference to search for potential matches (default 0.03s)
+#' @param grouping_tolerance Maximum time difference to group steps together (default 0.001s)
+#' @return Data table with all matched rows (including grouped steps)
+find_closest_heel_strikes <- function(outliers, data_source, search_tolerance = 0.03, grouping_tolerance = 0.001) {
     if (is.null(outliers) || nrow(outliers) == 0) {
         return(NULL)
     }
@@ -25,7 +26,7 @@ find_closest_heel_strikes <- function(outliers, data_source, max_distance = 0.03
         trialNum = as.numeric(as.character(trialNum))
     )]
 
-    # Find matches within time window
+    # Find matches using two-stage tolerance system
     matches <- data.table::rbindlist(lapply(seq_len(nrow(outliers_dt)), function(i) {
         outlier <- outliers_dt[i]
 
@@ -37,15 +38,46 @@ find_closest_heel_strikes <- function(outliers, data_source, max_distance = 0.03
             return(NULL)
         }
 
-        # Find closest time within tolerance
+        # STAGE 1: Find ALL potential matches within search tolerance
         time_diffs <- abs(trial_data$time - outlier$time)
-        closest_idx <- which.min(time_diffs)
+        within_search_idx <- which(time_diffs <= search_tolerance)
 
-        if (time_diffs[closest_idx] > max_distance) {
+        if (length(within_search_idx) == 0) {
             return(NULL)
         }
 
-        trial_data[closest_idx]
+        # Get the potential matches
+        potential_matches <- trial_data[within_search_idx]
+
+        # STAGE 2: Group steps that are very close together
+        if (nrow(potential_matches) > 1) {
+            # Sort by time to ensure proper grouping
+            potential_matches <- potential_matches[order(time)]
+
+            # Find groups of steps that are within grouping_tolerance of each other
+            groups <- list()
+            current_group <- 1
+            groups[[current_group]] <- 1 # Start with first step
+
+            for (j in 2:nrow(potential_matches)) {
+                time_diff <- potential_matches$time[j] - potential_matches$time[j - 1]
+                if (time_diff <= grouping_tolerance) {
+                    # Add to current group
+                    groups[[current_group]] <- c(groups[[current_group]], j)
+                } else {
+                    # Start new group
+                    current_group <- current_group + 1
+                    groups[[current_group]] <- j
+                }
+            }
+
+            # Return ALL steps from ALL groups (since they're all close to the outlier)
+            all_grouped_indices <- unlist(groups)
+            return(potential_matches[all_grouped_indices])
+        } else {
+            # Only one match found, return it
+            return(potential_matches)
+        }
     }))
 
     matches
@@ -56,9 +88,10 @@ find_closest_heel_strikes <- function(outliers, data_source, max_distance = 0.03
 #' @param participant Participant identifier
 #' @param trialNum   Trial number
 #' @param time       Time of the heel strike
-#' @param tolerance  Maximum time difference to consider a match
+#' @param search_tolerance Maximum time difference to search for matches (default 0.03s)
+#' @param grouping_tolerance Maximum time difference to group steps together (default 0.001s)
 #' @return TRUE if the heel strike is marked as an outlier, FALSE otherwise
-check_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0.03) {
+check_outlier_heel_strike <- function(participant, trialNum, time, search_tolerance = 0.03, grouping_tolerance = 0.001) {
     if (!exists("outliers_steps_data", envir = .GlobalEnv)) {
         return(FALSE)
     }
@@ -74,8 +107,28 @@ check_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0
         return(FALSE)
     }
 
+    # Use the two-stage tolerance system
     diffs <- abs(participant_outliers$time - time)
-    return(min(diffs) <= tolerance)
+    within_search <- diffs <= search_tolerance
+
+    if (!any(within_search)) {
+        return(FALSE)
+    }
+
+    # If multiple matches found, check if they're within grouping tolerance
+    search_matches <- participant_outliers[within_search, ]
+    if (nrow(search_matches) > 1) {
+        # Sort by time and check if any are within grouping tolerance
+        search_matches <- search_matches[order(time)]
+        for (i in 1:(nrow(search_matches) - 1)) {
+            if (abs(search_matches$time[i + 1] - search_matches$time[i]) <= grouping_tolerance) {
+                return(TRUE) # Found grouped steps
+            }
+        }
+    }
+
+    # Single match or no grouping found
+    return(min(diffs) <= search_tolerance)
 }
 
 #' Mark outlier steps in heel strike data
@@ -83,9 +136,10 @@ check_outlier_heel_strike <- function(participant, trialNum, time, tolerance = 0
 #' @param heel_strikes_data Data frame containing heel strike data
 #' @param participant       Participant identifier
 #' @param trialNum         Trial number
-#' @param tolerance        Maximum time difference to consider a match
+#' @param search_tolerance Maximum time difference to search for matches (default 0.03s)
+#' @param grouping_tolerance Maximum time difference to group steps together (default 0.001s)
 #' @return Modified heel_strikes_data with outlierSteps column updated
-mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, tolerance = 0.03) {
+mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, search_tolerance = 0.03, grouping_tolerance = 0.001) {
     # Initialize columns if they don't exist
     if (!"outlierSteps" %in% colnames(heel_strikes_data)) {
         heel_strikes_data$outlierSteps <- FALSE
@@ -94,7 +148,7 @@ mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, toleran
     # Check each heel strike against outlier data
     num_step_outliers <- 0
     for (i in seq_len(nrow(heel_strikes_data))) {
-        if (check_outlier_heel_strike(participant, trialNum, heel_strikes_data$time[i], tolerance)) {
+        if (check_outlier_heel_strike(participant, trialNum, heel_strikes_data$time[i], search_tolerance, grouping_tolerance)) {
             heel_strikes_data$outlierSteps[i] <- TRUE
             num_step_outliers <- num_step_outliers + 1
         }
@@ -123,12 +177,16 @@ mark_outlier_steps <- function(heel_strikes_data, participant, trialNum, toleran
 #' @param data           A data.frame or data.table with heel-strike level rows
 #' @param heel_outliers  Data frame with heel-strike outliers (to REMOVE)
 #' @param step_outliers  Data frame with step outliers      (to MARK)
-#' @param tolerance      Maximum absolute time difference (seconds) to consider a match
+#' @param tolerance      Maximum absolute time difference (seconds) to search for heel strike removal matches
+#' @param step_tolerance Maximum absolute time difference (seconds) to search for step outlier marking matches
+#' @param grouping_tolerance Maximum absolute time difference (seconds) to group steps together (default 0.001s)
 #' @return A **data.frame** with the requested removals / markings applied
 apply_outliers <- function(data,
                            heel_outliers = NULL,
                            step_outliers = NULL,
-                           tolerance = 0.03) {
+                           tolerance = 0.03,
+                           step_tolerance = 0.03,
+                           grouping_tolerance = 0.001) {
     dt <- data.table::as.data.table(data)
 
     # Ensure consistent types for reliable joins
@@ -146,7 +204,7 @@ apply_outliers <- function(data,
     # 1) Permanently DELETE heel strikes flagged as false
     # --------------------------------------------------
     if (!is.null(heel_outliers) && nrow(heel_outliers) > 0) {
-        matches <- find_closest_heel_strikes(heel_outliers, dt, tolerance)
+        matches <- find_closest_heel_strikes(heel_outliers, dt, tolerance, grouping_tolerance)
         if (!is.null(matches) && nrow(matches) > 0) {
             matches <- data.table::as.data.table(matches)
             rows_to_remove <- dt[matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
@@ -160,7 +218,7 @@ apply_outliers <- function(data,
     # 2) MARK step outliers for exclusion in analysis
     # --------------------------------------------------
     if (!is.null(step_outliers) && nrow(step_outliers) > 0) {
-        matches <- find_closest_heel_strikes(step_outliers, dt, tolerance)
+        matches <- find_closest_heel_strikes(step_outliers, dt, step_tolerance, grouping_tolerance)
         if (!is.null(matches) && nrow(matches) > 0) {
             rows_to_mark <- dt[matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
             if (length(rows_to_mark)) {
