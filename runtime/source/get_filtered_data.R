@@ -38,6 +38,118 @@ filteredParams <- reactive({
   return(as.data.frame(dt_filtered))
 })
 
+# New function to collect simulation data based on sidebar filters
+filteredSimulationData <- reactive({
+  # Force dependency on `refresh_trigger()`
+  refresh_trigger()
+
+  # Check if required inputs exist
+  if (is.null(input$filterParticipants) || is.null(input$filterTrials)) {
+    return(data.frame())
+  }
+
+  # Check if simulation data has been explicitly requested via the update button
+  # We'll use a reactive value to track if the update button has been clicked
+  if (!exists("simulation_data_requested", envir = .GlobalEnv) || !get("simulation_data_requested", envir = .GlobalEnv)) {
+    return(data.frame())
+  }
+
+  # Show progress notification
+  showNotification(
+    "Loading simulation data... This may take a while for large datasets.",
+    type = "message",
+    duration = 3
+  )
+
+  # Create all participant-trial combinations that match filters
+  combinations <- expand.grid(
+    participant = input$filterParticipants,
+    trial = input$filterTrials,
+    stringsAsFactors = FALSE
+  )
+
+  # Vectorized check for simulation data existence
+  has_data <- mapply(has_simulation_data, combinations$participant, combinations$trial)
+  valid_combinations <- combinations[has_data, ]
+
+  if (nrow(valid_combinations) == 0) {
+    showNotification("No simulation data found for the selected filters.", type = "warning", duration = 5)
+    return(data.frame())
+  }
+
+  # Load all simulation data in parallel using lapply
+  sim_data_list <- lapply(seq_len(nrow(valid_combinations)), function(i) {
+    participant <- valid_combinations$participant[i]
+    trial <- valid_combinations$trial[i]
+
+    tryCatch(
+      {
+        sim_data <- get_simulation_data(participant, trial)
+        if (!is.null(sim_data) && nrow(sim_data) > 0) {
+          # Add condition information (assuming condition_number function exists)
+          sim_data$condition <- condition_number(participant)
+          sim_data$participant <- participant
+          sim_data$trialNum <- trial
+          return(sim_data)
+        }
+        return(NULL)
+      },
+      error = function(e) {
+        warning(sprintf(
+          "Error loading simulation data for participant %s, trial %s: %s",
+          participant, trial, e$message
+        ))
+        return(NULL)
+      }
+    )
+  })
+
+  # Remove NULL entries and combine
+  sim_data_list <- sim_data_list[!sapply(sim_data_list, is.null)]
+
+  if (length(sim_data_list) == 0) {
+    showNotification("No valid simulation data found.", type = "warning", duration = 5)
+    return(data.frame())
+  }
+
+  # Combine all data
+  combined_data <- do.call(rbind, sim_data_list)
+
+  # Filter by condition (vectorized)
+  if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
+    combined_data <- combined_data[combined_data$condition %in% input$filterCondition, ]
+  }
+
+  if (nrow(combined_data) == 0) {
+    showNotification("No simulation data matches the condition filter.", type = "warning", duration = 5)
+    return(data.frame())
+  }
+
+  # Show success notification
+  showNotification(
+    sprintf(
+      "Loaded simulation data: %d participants, %d trials, %d total samples",
+      length(unique(combined_data$participant)),
+      length(unique(combined_data$trialNum)),
+      nrow(combined_data)
+    ),
+    type = "message",
+    duration = 5
+  )
+
+  return(combined_data)
+})
+
+# Function to request simulation data loading (called when update button is clicked)
+request_simulation_data <- function() {
+  assign("simulation_data_requested", TRUE, envir = .GlobalEnv)
+}
+
+# Function to reset simulation data request flag
+reset_simulation_data_request <- function() {
+  assign("simulation_data_requested", FALSE, envir = .GlobalEnv)
+}
+
 get_mu_dyn_long <- reactive({
   # Check if required global data objects are available
   if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {

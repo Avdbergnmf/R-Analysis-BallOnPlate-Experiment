@@ -1,17 +1,33 @@
 ### Options
 
 ```{r}
+# Data type selection
+selectizeInput("dataType", "Data Type",
+  choices = c("Gait Data" = "gait", "Simulation Data" = "simulation"), 
+  selected = "gait", multiple = FALSE
+)
+
+# Update button for simulation data
+conditionalPanel(
+  condition = "input.dataType == 'simulation'",
+  div(
+    actionButton("updateSimulationData", "Update Simulation Data", 
+                 class = "btn-primary", style = "margin-bottom: 10px;"),
+    div(id = "simulationStatus", style = "margin-top: 5px; font-size: 12px; color: #666;")
+  )
+)
+
 selectizeInput("plot", "Plot",
-  choices = dataTypes, selected = dataTypes[4], multiple = FALSE
+  choices = NULL, selected = NULL, multiple = FALSE
 )
 selectizeInput("group", "Group by",
-  choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE
+  choices = NULL, selected = NULL, multiple = FALSE
 )
 selectizeInput("position", "Bar positions",
   choices = c("stack", "identity", "dodge"), selected = "identity", multiple = FALSE
 )
 selectizeInput("split", "Split by",
-  choices = categoriesExtraInputs, selected = "None", multiple = FALSE
+  choices = NULL, selected = NULL, multiple = FALSE
 )
 #checkboxInput("means", "Show means",
 #  value = TRUE
@@ -42,9 +58,157 @@ tableOutput("overallMeanTable")
 
 
 ```{r, context="server"}
+# Reactive data source based on data type selection
+currentData <- reactive({
+  if (input$dataType == "simulation") {
+    # Use simulation data if available
+    sim_data <- filteredSimulationData()
+    if (nrow(sim_data) > 0) {
+      return(sim_data)
+    } else {
+      # Return empty data frame with expected structure
+      return(data.frame(
+        participant = character(0),
+        trialNum = numeric(0),
+        condition = character(0),
+        phase = character(0)
+      ))
+    }
+  } else {
+    # Reset simulation data request when switching to gait data
+    reset_simulation_data_request()
+    # Use regular gait data
+    return(filteredParams())
+  }
+})
+
+# Create dynamic observers for variable selection
+create_dynamic_variable_observer(
+  data_reactive = currentData,
+  input_id = "plot",
+  column_filter = function(x) TRUE, # All columns for now, will filter in the observer
+  exclude_patterns = NULL,
+  default_choice = "stepWidths",
+  fallback_choices = c("task_max_q", "stepLengths", "q", "e"),
+  multiple = FALSE,
+  input = input
+)
+
+# Custom observer for variable selection that handles both gait and simulation data
+observe({
+  data <- currentData()
+  
+  if (is.null(data) || nrow(data) == 0) {
+    updateSelectizeInput(session, "plot", choices = character(0), selected = NULL)
+    return()
+  }
+  
+  # Get variables based on data type
+  if (input$dataType == "simulation") {
+    available_vars <- get_simulation_variables(data)
+    default_var <- if ("q" %in% available_vars) "q" else
+                   if ("e" %in% available_vars) "e" else
+                   if (length(available_vars) > 0) available_vars[1] else NULL
+    fallback_vars <- c("q", "e", "vx", "vy", "score")
+  } else {
+    # Gait data
+    available_vars <- get_numeric_variables(data, c("heelStrikes\\.", "toeOffs\\."))
+    default_var <- if ("stepWidths" %in% available_vars) "stepWidths" else
+                   if ("task_max_q" %in% available_vars) "task_max_q" else
+                   if (length(available_vars) > 0) available_vars[1] else NULL
+    fallback_vars <- c("task_max_q", "stepLengths")
+  }
+  
+  # Get current selection
+  current_selection <- isolate(input$plot)
+  
+  # Update the input
+  update_selectize_smart(session, "plot", available_vars, current_selection,
+                        default_var, fallback_vars, FALSE)
+})
+
+# Create dynamic observers for category selection
+create_dynamic_category_observer(
+  data_reactive = currentData,
+  input_id = "group",
+  category_choices = c("participant", "condition", "trialNum", "phase", "arcDeg"),
+  default_selection = "participant",
+  multiple = FALSE,
+  input = input
+)
+
+# Custom observer for category selection that handles both data types
+observe({
+  data <- currentData()
+  
+  if (is.null(data) || nrow(data) == 0) {
+    # Use default categories
+    default_categories <- if (input$dataType == "simulation") {
+      c("participant", "condition", "trialNum", "phase", "arcDeg")
+    } else {
+      categoriesExtraInputs
+    }
+    updateSelectizeInput(session, "group", choices = default_categories, selected = "participant")
+    updateSelectizeInput(session, "split", choices = c("None", default_categories), selected = "None")
+    return()
+  }
+  
+  # Get categories based on data type
+  if (input$dataType == "simulation") {
+    available_categories <- get_simulation_categories(data)
+  } else {
+    available_categories <- categoriesExtraInputs
+  }
+  
+  # Get current selections
+  current_group <- isolate(input$group)
+  current_split <- isolate(input$split)
+  
+  # Update group input
+  update_selectize_smart(session, "group", available_categories, current_group,
+                        "participant", NULL, FALSE)
+  
+  # Update split input
+  split_choices <- c("None", available_categories)
+  update_selectize_smart(session, "split", split_choices, current_split,
+                        "None", NULL, FALSE)
+})
+
+# Trigger simulation data update when button is clicked
+observeEvent(input$updateSimulationData, {
+  # Request simulation data loading
+  request_simulation_data()
+  # Force refresh of simulation data
+  refresh_trigger()
+})
+
+# Status display for simulation data
+output$simulationStatus <- renderText({
+  if (input$dataType == "simulation") {
+    data <- filteredSimulationData()
+    if (nrow(data) > 0) {
+      sprintf("Ready: %d participants, %d trials, %d samples", 
+              length(unique(data$participant)),
+              length(unique(data$trialNum)),
+              nrow(data))
+    } else {
+      "No simulation data available. Click 'Update Simulation Data' to load."
+    }
+  } else {
+    ""
+  }
+})
+
 plotCount <- reactive({
   colName <- as.character(input$split)
-  return(uniqueN(allGaitParams[[colName]]))
+  if (colName == "None" || colName == "") {
+    return(1)
+  }
+  data <- currentData()
+  if (nrow(data) == 0 || !colName %in% colnames(data)) {
+    return(1)
+  }
+  return(length(unique(data[[colName]])))
 })
 
 plotHeight <- reactive(
@@ -56,26 +220,55 @@ plotHeight <- reactive(
 )
 
 output$hist <- renderSVG({ reactive({
-    make_histogram(filteredParams(), get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
+    # Use current data source
+    data <- currentData()
+    
+    # Check if we have data
+    if (nrow(data) == 0) {
+      # Create empty plot with message
+      message <- if (input$dataType == "simulation") {
+        "No simulation data available. Please check your filters and click 'Update Simulation Data'."
+      } else {
+        "No data available for the selected filters and data type"
+      }
+      ggplot() + 
+        annotate("text", x = 0.5, y = 0.5, 
+                label = message, 
+                hjust = 0.5, vjust = 0.5, size = 4, color = "red") +
+        xlim(0, 1) + ylim(0, 1) +
+        theme_void() +
+        ggtitle("No Data Available")
+    } else {
+      # Create histogram with available data
+      make_histogram(data, get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
+    }
   })
 })
 
 # Add mean tables
 output$splitMeanTable <- renderTable({
   req(input$plot, input$split)
+  data <- currentData()
+  if (nrow(data) == 0) return(NULL)
+  
   plotVar <- input$plot
   splitVar <- input$split
-  if (splitVar != "None") {
-    aggregate(filteredParams()[[plotVar]], by = list(filteredParams()[[splitVar]]), FUN = mean, na.rm = TRUE)
+  if (splitVar != "None" && splitVar %in% colnames(data)) {
+    aggregate(data[[plotVar]], by = list(data[[splitVar]]), FUN = mean, na.rm = TRUE)
   }
 })
 
 output$overallMeanTable <- renderTable({
   req(input$plot)
+  data <- currentData()
+  if (nrow(data) == 0) return(NULL)
+  
   plotVar <- input$plot
-  overallMean <- mean(filteredParams()[[plotVar]], na.rm = TRUE)
-  overallSD <- sd(filteredParams()[[plotVar]], na.rm = TRUE)
-  data.frame(Statistic = c("Mean", "SD"), Value = c(overallMean, overallSD))
+  if (plotVar %in% colnames(data)) {
+    overallMean <- mean(data[[plotVar]], na.rm = TRUE)
+    overallSD <- sd(data[[plotVar]], na.rm = TRUE)
+    data.frame(Statistic = c("Mean", "SD"), Value = c(overallMean, overallSD))
+  }
 })
 ```
 

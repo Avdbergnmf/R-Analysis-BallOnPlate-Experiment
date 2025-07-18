@@ -264,28 +264,39 @@ get_stats_data <- reactive({
   return(data)
 })
 
-# Update the selectizeInput choices based on the filtered data for correlation plot
-observe({
-  data <- get_stats_data()
-  cols <- colnames(data)#[sapply(data, is.numeric)]
+# Create dynamic observers for variable selection
+create_dynamic_variable_observer(
+  data_reactive = get_stats_data,
+  input_id = "depVar",
+  column_filter = function(x) TRUE, # All columns
+  exclude_patterns = NULL,
+  default_choice = "stepWidths.sd",
+  fallback_choices = c("task_max_q", "stepLengths.sd"),
+  multiple = FALSE,
+  input = input
+)
 
-  # Preserve previously selected values where possible
-  cur_dep <- isolate(input$depVar)
-  cur_inter <- isolate(input$indepInterVars)
-  cur_vars <- isolate(input$indepVars)
+create_dynamic_variable_observer(
+  data_reactive = get_stats_data,
+  input_id = "indepInterVars",
+  column_filter = function(x) TRUE, # All columns
+  exclude_patterns = NULL,
+  default_choice = "condition",
+  fallback_choices = c("trialNum", "phase"),
+  multiple = TRUE,
+  input = input
+)
 
-  sel_dep <- if(!is.null(cur_dep) && cur_dep %in% cols) cur_dep else
-               if("stepWidths.sd" %in% cols) "stepWidths.sd" else cols[1]
-
-  sel_inter <- intersect(cur_inter, cols)
-  if(length(sel_inter) == 0 && "condition" %in% cols) sel_inter <- "condition"
-
-  sel_vars <- intersect(cur_vars, cols)
-
-  updateSelectizeInput(session, "depVar", choices = cols , selected = sel_dep)
-  updateSelectizeInput(session, "indepInterVars", choices = cols, selected = sel_inter)
-  updateSelectizeInput(session, "indepVars", choices = cols, selected = sel_vars)
-})
+create_dynamic_variable_observer(
+  data_reactive = get_stats_data,
+  input_id = "indepVars",
+  column_filter = function(x) TRUE, # All columns
+  exclude_patterns = NULL,
+  default_choice = NULL,
+  fallback_choices = c("participant", "trialNum"),
+  multiple = TRUE,
+  input = input
+)
 
 # Automatically enable "averageData_stats" if paired_ttest is selected
 observe({

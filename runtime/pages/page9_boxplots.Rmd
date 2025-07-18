@@ -3,11 +3,12 @@
 ```{r}
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 #selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
-selectizeInput("varCategory", "Category", choices = categoriesExtraInputs, selected = c("trialNum", "condition"), multiple = TRUE)
-selectizeInput("colorCategory", "Color", choices = categoriesExtraInputs, selected = "participant", multiple = FALSE)
-selectizeInput("shapeCategory", "Shape", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
+selectizeInput("varCategory", "Category", choices = NULL, selected = NULL, multiple = TRUE)
+selectizeInput("colorCategory", "Color", choices = NULL, selected = NULL, multiple = FALSE)
+selectizeInput("shapeCategory", "Shape", choices = NULL, selected = NULL, multiple = FALSE)
 checkboxInput("doPaired", "Make it a paired plot",value=FALSE)
-selectizeInput("pairedCategory", "Paired Category", choices = categoriesExtraInputs, selected = "None", multiple = FALSE)
+selectizeInput("pairedCategory", "Paired Category", choices = NULL, selected = NULL, multiple = FALSE)
+checkboxInput("useSVG", "Make SVG for saving", value=FALSE)
 ```
 
 Column
@@ -16,102 +17,117 @@ Column
 ### Step Variability Plot  {data-height=2500}
 Generate boxplots of the selected data that are split up according to different categories.
 ```{r}
-imageOutput("var")
+uiOutput("plotOutput")
 ```
 
 ```{r, context="server"}
-# Update variable choices dynamically based on the actual data
-observe({
+# Create dynamic observers for variable selection
+create_dynamic_variable_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "plotVar",
+  column_filter = function(x) TRUE, # All columns
+  exclude_patterns = NULL,
+  default_choice = "stepWidths.sd",
+  fallback_choices = c("task_max_q", "stepLengths.sd"),
+  multiple = FALSE,
+  input = input
+)
+
+# Create dynamic observers for category selection
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "varCategory",
+  category_choices = categoriesExtraInputs,
+  default_selection = c("trialNum", "condition"),
+  multiple = TRUE,
+  input = input
+)
+
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "colorCategory",
+  category_choices = categoriesExtraInputs,
+  default_selection = "participant",
+  multiple = FALSE,
+  input = input
+)
+
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "shapeCategory",
+  category_choices = c("None", categoriesExtraInputs),
+  default_selection = "None",
+  multiple = FALSE,
+  input = input
+)
+
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "pairedCategory",
+  category_choices = c("None", categoriesExtraInputs),
+  default_selection = "None",
+  multiple = FALSE,
+  input = input
+)
+
+# Shared function to generate the plot
+generate_boxplot <- function() {
   tryCatch({
     mu <- get_mu_dyn_long()
-    if (!is.null(mu) && is.data.frame(mu) && nrow(mu) > 0 && ncol(mu) > 0) {
-      vars <- colnames(mu)
-      
-      # Validate that we have meaningful variables (not just metadata columns)
-      meaningful_vars <- vars[!vars %in% c("participant", "condition", "trialNum", "foot")]
-      
-      if (length(meaningful_vars) > 0) {
-        # Set a good default if available
-        default_var <- if ("stepWidths.sd" %in% meaningful_vars) "stepWidths.sd" else
-                       if ("task_max_q" %in% meaningful_vars) "task_max_q" else 
-                       if (length(meaningful_vars) > 0) meaningful_vars[1] else vars[1]
-
-        current <- isolate(input$plotVar)
-        selected <- if (!is.null(current) && current %in% vars) current else default_var
-
-        updateSelectizeInput(session, "plotVar",
-                            choices = vars,
-                            selected = selected)
-      } else {
-        # No meaningful variables available
-        updateSelectizeInput(session, "plotVar",
-                            choices = c("No variables available" = ""),
-                            selected = "")
-      }
-    } else {
-      # No data available
-      updateSelectizeInput(session, "plotVar",
-                          choices = c("No data available" = ""),
-                          selected = "")
+    
+    # Validate data and inputs
+    if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
+      stop("No data available for plotting")
     }
-  }, error = function(e) {
-    warning("Error updating plot variable choices: ", e$message)
-    # Fallback to empty choices
-    updateSelectizeInput(session, "plotVar",
-                        choices = c("Error loading data" = ""),
-                        selected = "")
-  })
-})
-
-output$var <- renderSVG({ reactive({
-    tryCatch({
-      mu <- get_mu_dyn_long()
-      
-      # Validate data and inputs
-      if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
-        stop("No data available for plotting")
+    
+    if (is.null(input$plotVar) || input$plotVar == "" || 
+        !input$plotVar %in% colnames(mu)) {
+      stop("Invalid or missing plot variable")
+    }
+    
+    # Validate categories exist in data
+    available_cols <- colnames(mu)
+    if (!is.null(input$varCategory) && length(input$varCategory) > 0) {
+      invalid_cats <- input$varCategory[!input$varCategory %in% c(available_cols, "None")]
+      if (length(invalid_cats) > 0) {
+        warning("Invalid category variables: ", paste(invalid_cats, collapse = ", "))
       }
-      
-      if (is.null(input$plotVar) || input$plotVar == "" || 
-          !input$plotVar %in% colnames(mu)) {
-        stop("Invalid or missing plot variable")
-      }
-      
-      # Validate categories exist in data
-      available_cols <- colnames(mu)
-      if (!is.null(input$varCategory) && length(input$varCategory) > 0) {
-        invalid_cats <- input$varCategory[!input$varCategory %in% c(available_cols, "None")]
-        if (length(invalid_cats) > 0) {
-          warning("Invalid category variables: ", paste(invalid_cats, collapse = ", "))
-        }
-      }
-      
-      # Generate the plot
-      if (!input$doPaired) {
+    }
+    
+    # Generate the plot
+    if (!input$doPaired) {
+      plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
+    } else {
+      if (is.null(input$pairedCategory) || input$pairedCategory == "None" || 
+          !input$pairedCategory %in% available_cols) {
+        warning("Invalid paired category, switching to regular boxplot")
         plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
       } else {
-        if (is.null(input$pairedCategory) || input$pairedCategory == "None" || 
-            !input$pairedCategory %in% available_cols) {
-          warning("Invalid paired category, switching to regular boxplot")
-          plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-        } else {
-          plot_paired(mu, input$plotVar, input$pairedCategory, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-        }
+        plot_paired(mu, input$plotVar, input$pairedCategory, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
       }
-    }, error = function(e) {
-      # Return a simple error plot instead of crashing
-      warning("Error generating boxplot: ", e$message)
-      
-      # Create a simple error message plot
-      library(ggplot2)
-      ggplot() + 
-        annotate("text", x = 0.5, y = 0.5, 
-                label = paste("Error generating plot:\n", e$message), 
-                hjust = 0.5, vjust = 0.5, size = 4, color = "red") +
-        xlim(0, 1) + ylim(0, 1) +
-        theme_void() +
-        ggtitle("Plot Generation Error")
-    })
+    }
+  }, error = function(e) {
+    # Return a simple error plot instead of crashing
+    warning("Error generating boxplot: ", e$message)
+    
+    # Create a simple error message plot
+    library(ggplot2)
+    ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+              label = paste("Error generating plot:\n", e$message), 
+              hjust = 0.5, vjust = 0.5, size = 4, color = "red") +
+      xlim(0, 1) + ylim(0, 1) +
+      theme_void() +
+      ggtitle("Plot Generation Error")
   })
+}
+
+# Render the plot based on SVG setting
+output$plotOutput <- renderUI({
+  if (input$useSVG) {
+    renderSVG({ reactive({ generate_boxplot() }) })
+  } else {
+    renderPlot({ generate_boxplot() })
+  }
 })
 ```

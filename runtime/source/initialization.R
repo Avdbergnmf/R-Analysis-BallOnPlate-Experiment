@@ -223,8 +223,8 @@ initialize_global_parameters <- function() {
     # Define reference levels for factor variables (for statistical models)
     # These will be used when creating factors in the data
     reference_levels <<- list(
-        "condition" = "control", # perturbation will be the reference level
-        "phase.x" = "baseline", # retention will be the reference level
+        "condition" = "control", # control will be the reference level
+        "phase.x" = "baseline_task", # baseline_task will be the reference level
         "gender" = "male", # male will be the reference level
         "motion" = "False", # low motion sensitivity will be the reference level
         "education" = "Higher", # bachelor will be the reference level

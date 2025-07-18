@@ -80,6 +80,9 @@ allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complex
 ## Plotting code
 source('source/plotting.R', local = FALSE)
 
+# Dynamic input utilities (loaded once for all pages)
+source('source/dynamic_input_utils.R', local = FALSE)
+
 # for testing combining of tables
 #mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
 #mu_combined <- merge_mu_with_questionnaire(mu_gait, allQResults)
