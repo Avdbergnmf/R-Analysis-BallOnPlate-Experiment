@@ -27,11 +27,11 @@
 #' - lyapunov() - Largest Lyapunov Exponent
 
 #' Helper function to create metric column names
-#' @param variable Variable number
-#' @param metric Metric number
-#' @return Column name as integer
+#' @param variable Variable name (e.g., "stepTimes")
+#' @param metric Metric name (e.g., "sampen")
+#' @return Column name as character, e.g., "stepTimes_sampen"
 get_metric_name <- function(variable, metric) {
-  as.integer(variable) # Just use the number directly
+  paste0(variable, "_", metric)
 }
 
 #' Sample Entropy (Richman & Moorman 2000)

@@ -85,7 +85,7 @@ source('source/dynamic_input_utils.R', local = FALSE)
 
 
 
-# for testing combining of tables - NEW REFACTORED APPROACH
+# for testing combining of tables
 #mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
 #prepped_q <- prep_questionnaire_for_merge(allQResults)
 #mu_combined <- merge_mu_with_data(mu_gait, prepped_q,                 data_type_name = "questionnaire")

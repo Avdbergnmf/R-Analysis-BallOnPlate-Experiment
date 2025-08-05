@@ -122,15 +122,18 @@ generate_boxplot <- function() {
   })
 }
 
+# Create a reactive plot generator
+plot_reactive <- reactive({
+  generate_boxplot()
+})
+
 # Render the plot based on SVG setting
 output$plotOutput <- renderUI({
   if (input$useSVG) {
-    renderSVG({ 
-      reactive({ generate_boxplot() })
-    })
+    renderSVG(plot_reactive)
   } else {
     renderPlotly({
-      p <- generate_boxplot()
+      p <- plot_reactive()
       # Convert to plotly with hover text
       ggplotly(p, tooltip = "text", width = input$plotwidth, height = input$plotheight, source = "boxplot_page") %>%
         layout(dragmode = "pan") %>%
