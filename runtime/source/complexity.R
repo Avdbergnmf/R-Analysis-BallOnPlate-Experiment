@@ -26,6 +26,14 @@
 #' - dfa_alpha() - Detrended Fluctuation Analysis Alpha
 #' - lyapunov() - Largest Lyapunov Exponent
 
+#' Helper function to create metric column names
+#' @param variable Variable number
+#' @param metric Metric number
+#' @return Column name as integer
+get_metric_name <- function(variable, metric) {
+  as.integer(variable) # Just use the number directly
+}
+
 #' Sample Entropy (Richman & Moorman 2000)
 #' @param x numeric vector of time series data
 #' @param m pattern length (default 2)
@@ -351,7 +359,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
 
           # Add to result with proper naming
           for (metric in names(metrics)) {
-            result[[paste0(dataType, "_complexity.", metric)]] <- metrics[[metric]]
+            result[[get_metric_name(dataType, metric)]] <- metrics[[metric]]
           }
 
           debug_log("    Computed", length(metrics), "discrete complexity metrics")
@@ -361,7 +369,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
           # Add NAs for failed metrics
           na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov")
           for (metric in na_metrics) {
-            result[[paste0(dataType, "_complexity.", metric)]] <- NA
+            result[[get_metric_name(dataType, metric)]] <- NA
           }
         }
       )
@@ -369,7 +377,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
       # Insufficient variability - add NAs
       na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov")
       for (metric in na_metrics) {
-        result[[paste0(dataType, "_complexity.", metric)]] <- NA
+        result[[get_metric_name(dataType, metric)]] <- NA
       }
       debug_log("    Insufficient variability for complexity calculation")
     }
@@ -377,7 +385,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
     # Insufficient data - add NAs
     na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov")
     for (metric in na_metrics) {
-      result[[paste0(dataType, "_complexity.", metric)]] <- NA
+      result[[get_metric_name(dataType, metric)]] <- NA
     }
     debug_log("    Insufficient data for complexity calculation (", length(values), "valid values)")
   }
@@ -430,7 +438,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
 
           # Add to result with proper naming
           for (metric in names(metrics)) {
-            result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- metrics[[metric]]
+            result[[get_metric_name(var_name, metric)]] <- metrics[[metric]]
           }
 
           debug_log("      Computed", length(metrics), "continuous complexity metrics")
@@ -444,7 +452,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             "spectral_bandwidth", "power_low", "power_mid", "power_high"
           )
           for (metric in na_metrics) {
-            result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
+            result[[get_metric_name(var_name, metric)]] <- NA
           }
         }
       )
@@ -456,7 +464,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
         "spectral_bandwidth", "power_low", "power_mid", "power_high"
       )
       for (metric in na_metrics) {
-        result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
+        result[[get_metric_name(var_name, metric)]] <- NA
       }
       debug_log("      Insufficient variability for continuous complexity calculation")
     }
@@ -478,7 +486,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
 
           # Add to result with proper naming
           for (metric in names(metrics)) {
-            result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- metrics[[metric]]
+            result[[get_metric_name(var_name, metric)]] <- metrics[[metric]]
           }
 
           debug_log("      Computed", length(metrics), "standard complexity metrics")
@@ -488,7 +496,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
           # Add NAs for failed metrics
           na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov")
           for (metric in na_metrics) {
-            result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
+            result[[get_metric_name(var_name, metric)]] <- NA
           }
         }
       )
@@ -496,7 +504,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       # Insufficient variability - add NAs
       na_metrics <- c("sampen", "mse_index", "dfa_alpha", "lyapunov")
       for (metric in na_metrics) {
-        result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
+        result[[get_metric_name(var_name, metric)]] <- NA
       }
       debug_log("      Insufficient variability for standard complexity calculation")
     }
@@ -508,7 +516,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       "spectral_bandwidth", "power_low", "power_mid", "power_high"
     )
     for (metric in na_metrics) {
-      result[[paste0("continuous_", var_name, "_complexity.", metric)]] <- NA
+      result[[get_metric_name(var_name, metric)]] <- NA
     }
     debug_log("      Insufficient data for complexity calculation (", length(values), "valid values)")
   }
@@ -761,37 +769,4 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   }
 
   return(result)
-}
-
-#' Merge summarized gait data with complexity metrics
-#' @param mu_gait Summarized gait data
-#' @param complexity_data Precomputed complexity metrics
-#' @return Combined data frame
-merge_mu_with_complexity <- function(mu_gait, complexity_data) {
-  if (is.null(complexity_data) || nrow(complexity_data) == 0) {
-    message("No complexity data available for merging")
-    return(mu_gait)
-  }
-  if (is.null(mu_gait) || nrow(mu_gait) == 0) {
-    message("No gait data available for merging")
-    return(complexity_data)
-  }
-  mu_gait_copy <- mu_gait
-  complexity_copy <- complexity_data
-
-  mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
-  complexity_copy$trialNum <- as.numeric(as.character(complexity_copy$trialNum))
-
-  # Filter complexity data using the common helper function
-  complexity_filtered <- filter_by_gait_combinations(mu_gait_copy, complexity_copy, "complexity") # defined in summarize_simulation.R
-
-  # Remove condition column from complexity data if it exists (gait data is authoritative for conditions)
-  if ("condition" %in% colnames(complexity_filtered)) {
-    complexity_filtered <- complexity_filtered %>% select(-condition)
-  }
-
-  # Merge based on participant and trialNum (using left_join to preserve all gait data)
-  merged_data <- left_join(mu_gait_copy, complexity_filtered, by = c("participant", "trialNum"))
-
-  return(merged_data)
 }

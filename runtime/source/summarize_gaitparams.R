@@ -148,120 +148,6 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
   return(mu_wide)
 }
 
-#' Filter dataset to only include participant/trial combinations that exist in gait data
-#' @param mu_gait Gait data containing the reference participant/trial combinations
-#' @param data_to_filter Dataset to filter (task, complexity, etc.)
-#' @param data_type_name Descriptive name for logging (e.g., "task", "complexity")
-#' @param debug Logical, whether to print informative messages (default FALSE)
-#' @return Filtered dataset
-filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data", debug = FALSE) {
-  # Handle empty or NULL input data
-  if (is.null(data_to_filter) || nrow(data_to_filter) == 0) {
-    if (debug) {
-      message(sprintf("No %s data to filter", data_type_name))
-    }
-    return(data_to_filter)
-  }
-
-  # Get unique participant/trial combinations from gait data
-  gait_combinations <- mu_gait %>%
-    dplyr::select(participant, trialNum) %>%
-    dplyr::distinct()
-
-  # Filter the dataset to only keep matching combinations
-  filtered_data <- data_to_filter %>%
-    dplyr::semi_join(gait_combinations, by = c("participant", "trialNum"))
-
-  # Provide informative feedback only if debug is enabled
-  if (debug) {
-    message(sprintf(
-      "Filtered %s data from %d to %d rows based on gait data availability",
-      data_type_name, nrow(data_to_filter), nrow(filtered_data)
-    ))
-  }
-
-  return(filtered_data)
-}
-
-
-#' Merge summarized gait data with questionnaire results
-#' @param mu_gait Summarized gait data
-#' @param allQResults Questionnaire results data
-#' @return Combined data frame
-merge_mu_with_questionnaire <- function(mu_gait, allQResults, debug = FALSE) {
-  if (is.null(allQResults) || nrow(allQResults) == 0) {
-    message("No questionnaire data available for merging")
-    return(mu_gait)
-  }
-  if (is.null(mu_gait) || nrow(mu_gait) == 0) {
-    message("No gait data available for merging")
-    return(allQResults)
-  }
-
-  mu_gait_copy <- mu_gait
-  q_results_copy <- allQResults
-
-  # Handle questionnaire results based on available columns
-  if ("answer_type" %in% colnames(q_results_copy)) {
-    # Create trial mapping for questionnaire results
-    q_results_mapped <- q_results_copy %>%
-      dplyr::mutate(
-        trialNum = dplyr::case_when(
-          answer_type == "baseline_task" ~ 5,
-          answer_type == "retention" ~ 10,
-          answer_type == "training2" ~ 8,
-          answer_type == "transfer" ~ 11,
-          TRUE ~ NA_real_
-        )
-      ) %>%
-      dplyr::filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
-
-    # Convert trialNum to numeric in both datasets to ensure compatibility
-    mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
-    q_results_mapped$trialNum <- as.numeric(q_results_mapped$trialNum)
-
-    # Filter questionnaire data using the common helper function
-    q_results_filtered <- filter_by_gait_combinations(mu_gait_copy, q_results_mapped, "questionnaire")
-
-    # Merge based on participant and trialNum (using left_join to preserve all gait data)
-    merged_data <- left_join(mu_gait_copy, q_results_filtered, by = c("participant", "trialNum"))
-  } else {
-    # Fallback for questionnaire data without answer_type mapping
-    # Still apply filtering based on participant combinations
-    if ("participant" %in% colnames(q_results_copy)) {
-      if ("trialNum" %in% colnames(q_results_copy)) {
-        # If trialNum exists, use the full filtering approach
-        q_results_filtered <- filter_by_gait_combinations(mu_gait_copy, q_results_copy, "questionnaire")
-        # Merge based on participant and trialNum
-        merged_data <- left_join(mu_gait_copy, q_results_filtered, by = c("participant", "trialNum"))
-      } else {
-        # If no trialNum, filter by participant only
-        gait_participants <- mu_gait_copy %>%
-          dplyr::select(participant) %>%
-          dplyr::distinct()
-
-        q_results_filtered <- q_results_copy %>%
-          dplyr::semi_join(gait_participants, by = "participant")
-
-        if (debug) {
-          message(sprintf(
-            "Filtered questionnaire data from %d to %d rows based on gait data availability (participant only)",
-            nrow(q_results_copy), nrow(q_results_filtered)
-          ))
-        }
-
-        # Merge based on participant only
-        merged_data <- left_join(mu_gait_copy, q_results_filtered, by = "participant")
-      }
-    } else {
-      message("No common identifier found between gait and questionnaire data")
-      merged_data <- mu_gait_copy
-    }
-  }
-
-  return(merged_data)
-}
-
 get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
   # Get the summarized gait data (without questionnaire merging)
   muGait <- summarize_table(allGaitParams, c(categories, "foot"), avg_feet, add_diff) ##### Note that we add foot here as a category, to make sure we summarize each foot individually
@@ -269,23 +155,124 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
   return(muGait)
 }
 
-### SUMMARIZE AGAIN AND CALCULATE DIFF, SO WE CAN USE FOR CORRELATIONN PLOT
+#' Generic function to merge gait data with any other dataset
+#' @param mu_gait Gait data (authoritative source for conditions)
+#' @param other_data Other dataset to merge (questionnaire, task, complexity, etc.)
+#' @param data_type_name Descriptive name for logging (e.g., "questionnaire", "task", "complexity")
+#' @param merge_by Vector of column names to merge by (default: c("participant", "trialNum"))
+#' @return Merged data frame with gait data preserved
+merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", merge_by = c("participant", "trialNum")) {
+  # Create copies to avoid modifying originals
+  mu_gait_copy <- mu_gait
+  other_data_copy <- other_data
 
+  # Convert trialNum to numeric in both datasets for compatibility
+  if ("trialNum" %in% merge_by) {
+    mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
+    other_data_copy$trialNum <- as.numeric(as.character(other_data_copy$trialNum))
+  }
+
+  # Filter other data using the common helper function
+  other_data_filtered <- filter_by_gait_combinations(mu_gait_copy, other_data_copy, data_type_name)
+
+  # Remove condition column from other data (gait data is authoritative for conditions)
+  if ("condition" %in% colnames(other_data_filtered)) {
+    other_data_filtered <- select(other_data_filtered, -condition)
+  }
+
+  # Check for column conflicts and remove duplicates from new dataset (keeping original gait data)
+  non_merge_cols <- setdiff(colnames(other_data_filtered), merge_by)
+  conflicting_cols <- intersect(non_merge_cols, colnames(mu_gait_copy))
+
+  if (length(conflicting_cols) > 0) {
+    cat(sprintf(
+      "Removing conflicting columns from %s data (keeping original gait data): %s\n",
+      data_type_name, paste(conflicting_cols, collapse = ", ")
+    ))
+    other_data_filtered <- select(other_data_filtered, -all_of(conflicting_cols))
+  }
+
+  # Add prefix to column names based on data type (except for merge_by columns)
+  columns_to_prefix <- setdiff(colnames(other_data_filtered), merge_by)
+  if (length(columns_to_prefix) > 0) {
+    other_data_filtered <- other_data_filtered %>%
+      rename_with(~ paste0(data_type_name, ".", .), all_of(columns_to_prefix))
+  }
+
+  # Merge based on specified columns (using left_join to preserve all gait data)
+  return(left_join(mu_gait_copy, other_data_filtered, by = merge_by))
+}
+
+#' Prepare questionnaire data for merging with gait data
+#' @param questionnaire_data Raw questionnaire data
+#' @return List with prepared_data and merge_by columns
+prep_questionnaire_for_merge <- function(questionnaire_data) {
+  if (!"answer_type" %in% colnames(questionnaire_data)) {
+    stop("Questionnaire data must have 'answer_type' column")
+  }
+
+  # Create trial mapping for questionnaire results
+  q_results_mapped <- questionnaire_data %>%
+    mutate(
+      trialNum = case_when(
+        answer_type == "baseline_task" ~ 5L,
+        answer_type == "retention" ~ 10L,
+        answer_type == "training2" ~ 8L,
+        answer_type == "transfer" ~ 11L,
+        TRUE ~ as.integer(NA)
+      )
+    ) %>%
+    dplyr::filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
+
+  return(q_results_mapped)
+}
+
+#' Filter dataset to only include participant/trial combinations that exist in gait data
+#' @param mu_gait Gait data containing the reference participant/trial combinations
+#' @param data_to_filter Dataset to filter (task, complexity, etc.)
+#' @param data_type_name Descriptive name for error messages
+#' @return Filtered dataset
+filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data") {
+  # Handle empty or NULL input data
+  if (is.null(data_to_filter) || nrow(data_to_filter) == 0) {
+    stop(sprintf("No %s data to filter", data_type_name))
+  }
+
+  # Get unique participant/trial combinations from gait data
+  gait_combinations <- mu_gait %>%
+    select(participant, trialNum) %>%
+    distinct()
+
+  # Filter the dataset to only keep matching combinations
+  filtered_data <- data_to_filter %>%
+    semi_join(gait_combinations, by = c("participant", "trialNum"))
+
+  return(filtered_data)
+}
+
+#' Summarize data across conditions
+#' @param data Data frame to summarize
+#' @return Summarized data frame
 summarize_across_conditions <- function(data) {
+  # Check that condition column exists - if not, something went wrong upstream
+  if (!"condition" %in% colnames(data)) {
+    stop("ERROR: 'condition' column is missing from data. This suggests an issue in the data merging process. Available columns: ", paste(colnames(data), collapse = ", "))
+  }
+
   # Determine base grouping columns based on data type
-  base_groups <- if ("answer_type" %in% colnames(data)) {
+  base_cols <- if ("answer_type" %in% colnames(data)) {
     # Questionnaire data
     c("participant", "answer_type", "condition")
   } else {
-    # Gait data - use existing condition column (no hardcoded filtering!)
+    # Gait data - use existing condition column
     c("participant", "condition")
   }
 
   # Add foot to grouping if it exists
   grouping_cols <- if ("foot" %in% colnames(data)) {
-    c(base_groups, "foot")
+    c(base_cols, "foot")
   } else {
-    base_groups
+    base_cols
   }
 
   # Single summarization step
@@ -296,214 +283,37 @@ summarize_across_conditions <- function(data) {
   return(summarized_data)
 }
 
-############ Added later to answer question of reviewer
-
-summarize_table_sliced <- function(data, allQResults, categories, slice_length, time_col = "time", avg_feet = TRUE, add_diff = FALSE) {
-  # Split the data into time slices
-  data <- data %>%
+#' Summarize data across conditions with time slicing
+#' @param data Data frame to summarize
+#' @param slice_length Length of each time slice in seconds
+#' @param remove_middle_slices Whether to keep only first and last slices
+#' @return Summarized data frame
+summarize_across_conditions_sliced <- function(data, slice_length = 30, remove_middle_slices = TRUE) {
+  # Add time slices to data
+  data_sliced <- data %>%
     group_by(participant, trialNum) %>%
     mutate(
-      slice_index = floor((.data[[time_col]] - min(.data[[time_col]], na.rm = TRUE)) / slice_length) + 1
+      slice_index = ceiling(.data$simulation_time / slice_length)
     ) %>%
     ungroup()
 
-  # data$slice_index <- as.ordered(data$slice_index)
-
-  # Preserve original for meta retrieval
-  orig_data <- data
-
-  # Identify which columns to summarize
-  dataTypes <- setdiff(getTypes(data), categories)
-
-  # Remove descriptive columns so they are not summarized
-  data <- data %>% select(-all_of(columns_to_not_summarize))
-  types <- setdiff(dataTypes, columns_to_not_summarize)
-
-  # Summarize parameters within each slice
-  # (Reuse existing functions; just add slice_index to the grouping)
-  grouping_cols <- c(categories, "slice_index")
-
-  if (avg_feet) {
-    mu <- average_over_feet(data, types, grouping_cols, add_diff = add_diff)
-    grouping_cols <- setdiff(grouping_cols, "foot")
-  } else {
-    mu <- lapply(types, get_summ_by_foot, grouping_cols, data, avg_feet = FALSE)
-    mu <- setNames(mu, types)
-  }
-
-  # Combine summaries into long format
-  mu_long <- bind_rows(mu, .id = "dataType") %>%
-    pivot_longer(
-      cols      = -c(all_of(grouping_cols), dataType),
-      names_to  = "statistic",
-      values_to = "value"
-    )
-
-  # Pivot to wide format with dataType.statistic columns
-  mu_wide <- mu_long %>%
-    unite("new_col_name", dataType, statistic, sep = ".") %>%
-    pivot_wider(
-      names_from  = new_col_name,
-      values_from = value
-    )
-
-  # Note: Questionnaire merging is now handled by merge_mu_with_questionnaire()
-  # This function now just returns the summarized sliced gait data
-
-  # Retrieve the non-summarised category columns from **orig_data**
-  meta_cols <- c(grouping_cols, columns_to_not_summarize)
-  meta <- orig_data %>%
-    select(all_of(meta_cols)) %>%
-    distinct()
-  mu_wide <- mu_wide %>%
-    left_join(meta, by = grouping_cols)
-
-  # Reorder columns so that grouping_cols and any excluded columns appear first
-  mu_wide <- mu_wide %>%
-    select(all_of(grouping_cols), all_of(columns_to_not_summarize), everything())
-
-  return(mu_wide)
-}
-
-
-get_full_mu_sliced <- function(allGaitParams, allQResults, categories,
-                               slice_length = 180, avg_feet = TRUE, add_diff = FALSE, remove_middle_slices = FALSE) {
-  # Summarize gait parameters in time slices (without questionnaire merging)
-  # Note we include foot in categories so that per-foot summaries are computed if needed
-  muGait <- summarize_table_sliced(
-    data = allGaitParams,
-    allQResults = allQResults,
-    categories = c(categories, "foot"),
-    slice_length = slice_length,
-    time_col = "time",
-    avg_feet = avg_feet,
-    add_diff = add_diff
-  )
-
-
+  # Optionally remove middle slices
   if (remove_middle_slices) {
-    # remove all but the first and the last slice.
-    muGait <- muGait %>%
+    data_sliced <- data_sliced %>%
       group_by(trialNum) %>%
-      filter(slice_index == min(slice_index, na.rm = TRUE) | slice_index == max(slice_index, na.rm = TRUE)) %>%
+      filter(slice_index == min(slice_index) | slice_index == max(slice_index)) %>%
       ungroup()
   }
 
-  # Merge with questionnaire data using the new consistent approach
-  muGait_with_questionnaire <- merge_mu_with_questionnaire(muGait, allQResults)
-
-  return(muGait_with_questionnaire)
-}
-
-filter_incomplete_slices <- function(data_sliced) { # sometimes for whatever reason another slice might be detected for some of the participants, we filter those out here.
-  # Count how many rows appear in each trialNum/slice_index
-  slice_counts <- data_sliced %>%
+  # Get number of samples per slice
+  slice_samples <- data_sliced %>%
     group_by(trialNum, slice_index) %>%
-    summarise(n_rows = n(), .groups = "drop")
+    summarise(n_samples = n(), .groups = "drop")
 
-  # For each trial, find the maximum number of rows among all slices
-  # and compare each slice's n_rows to that maximum.
-  slice_counts <- slice_counts %>%
-    group_by(trialNum) %>%
-    mutate(max_n_rows_in_trial = max(n_rows)) %>%
-    ungroup() %>%
-    mutate(ratio_of_max = n_rows / max_n_rows_in_trial)
+  # Summarize data across conditions with time slices
+  summarized_data <- data_sliced %>%
+    group_by(across(all_of(c("participant", "condition", "trialNum", "slice_index")))) %>%
+    summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
 
-  # Define "bad" slices as those whose ratio_of_max < 1
-  # (or pick a smaller threshold if you only consider < 0.5 etc. "too few")
-  bad_slices <- slice_counts %>%
-    filter(ratio_of_max < 1)
-
-  # If there are any "bad" slices, print them and remove them
-  if (nrow(bad_slices) > 0) {
-    message("Debug: The following trialNum/slice_index combos have fewer rows than the max for that trial; removing them now:")
-    print(bad_slices)
-
-    # Remove those slices from your data_sliced
-    data_sliced <- data_sliced %>%
-      anti_join(bad_slices %>% select(trialNum, slice_index),
-        by = c("trialNum", "slice_index")
-      )
-  }
-
-  return(data_sliced)
-}
-
-###### To reply to reviewer
-
-calculate_phase_differences <- function(data) {
-  return(data) # TODO: Implement this
-
-  # Calculate differences between specific phases for questionnaire data
-  # This function creates difference variables comparing phases (e.g., training - baseline)
-
-  if (!"answer_type" %in% colnames(data)) {
-    warning("answer_type column not found - returning data unchanged")
-    return(data)
-  }
-
-  # Split data by phase
-  phases <- unique(data$answer_type)
-
-  # Check if we have baseline as a reference
-  if (!"baseline" %in% phases) {
-    warning("No baseline phase found - returning data unchanged")
-    return(data)
-  }
-
-  # Get baseline data
-  baseline_data <- data %>% dplyr::filter(answer_type == "baseline")
-
-  # Initialize result list
-  diff_results <- list()
-
-  # Calculate differences for each non-baseline phase
-  for (phase in setdiff(phases, "baseline")) {
-    phase_data <- data %>% dplyr::filter(answer_type == !!phase)
-
-    # Check if both datasets have the same participants
-    common_participants <- intersect(baseline_data$participant, phase_data$participant)
-
-    if (length(common_participants) == 0) {
-      next
-    }
-
-    # Filter to common participants and align
-    baseline_subset <- baseline_data %>%
-      dplyr::filter(participant %in% common_participants) %>%
-      dplyr::arrange(participant)
-
-    phase_subset <- phase_data %>%
-      dplyr::filter(participant %in% common_participants) %>%
-      dplyr::arrange(participant)
-
-    # Calculate differences for numeric columns
-    numeric_cols <- names(phase_subset)[sapply(phase_subset, is.numeric)]
-
-    if (length(numeric_cols) > 0) {
-      diff_data <- phase_subset %>%
-        dplyr::select(participant, condition) %>%
-        dplyr::mutate(comparison = paste0(phase, "_vs_baseline"))
-
-      # Add difference columns
-      for (col in numeric_cols) {
-        diff_col_name <- paste0("diff_", col)
-        mean_col_name <- paste0("mean_", col)
-
-        diff_data[[diff_col_name]] <- phase_subset[[col]] - baseline_subset[[col]]
-        diff_data[[mean_col_name]] <- (phase_subset[[col]] + baseline_subset[[col]]) / 2
-      }
-
-      diff_results[[phase]] <- diff_data
-    }
-  }
-
-  # Combine all difference results
-  if (length(diff_results) > 0) {
-    final_result <- do.call(rbind, diff_results)
-    return(final_result)
-  } else {
-    warning("No phase differences could be calculated")
-    return(data)
-  }
+  return(summarized_data)
 }

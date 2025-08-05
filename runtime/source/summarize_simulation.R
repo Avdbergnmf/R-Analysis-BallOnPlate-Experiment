@@ -221,54 +221,6 @@ get_all_attempt_metrics <- function(loop_function, min_attempt_duration = 0) {
     return(loop_function(attempt_fun, datasets_to_verify = c("task", "level")))
 }
 
-#' Merge mu gait data with mu_task simulation data
-#'
-#' @param mu_gait Existing mu gait data
-#' @param mu_task Task simulation metrics data
-#' @return Combined data with both gait and task metrics
-#' @export
-merge_mu_with_task <- function(mu_gait, mu_task) {
-    if (is.null(mu_task) || nrow(mu_task) == 0) {
-        message("No task data available for merging")
-        return(mu_gait)
-    }
-
-    if (is.null(mu_gait) || nrow(mu_gait) == 0) {
-        message("No gait data available for merging")
-        return(mu_task)
-    }
-
-    # Create copies of the data frames to avoid modifying the originals
-    mu_gait_copy <- mu_gait
-    mu_task_copy <- mu_task
-
-    # Convert trialNum to numeric in both datasets
-    mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
-    mu_task_copy$trialNum <- as.numeric(as.character(mu_task_copy$trialNum))
-
-    # Filter task data using the common helper function
-    mu_task_filtered <- filter_by_gait_combinations(mu_gait_copy, mu_task_copy, "task")
-
-    # Remove condition column from task data if it exists (gait data is authoritative for conditions)
-    if ("condition" %in% colnames(mu_task_filtered)) {
-        mu_task_filtered <- mu_task_filtered %>% select(-condition)
-    }
-
-    # Add task. prefix to all task metric columns (except participant and trialNum)
-    task_metrics_cols <- setdiff(colnames(mu_task_filtered), c("participant", "trialNum"))
-    mu_task_renamed <- mu_task_filtered %>%
-        rename_with(~ paste0("task.", .x), all_of(task_metrics_cols))
-
-    # Merge based on participant and trialNum (using left_join to preserve all gait data)
-    merged_data <- left_join(
-        mu_gait_copy,
-        mu_task_renamed,
-        by = c("participant", "trialNum")
-    )
-
-    return(merged_data)
-}
-
 #' Process task metrics data with time slicing
 #'
 #' @param task_data The task metrics data frame

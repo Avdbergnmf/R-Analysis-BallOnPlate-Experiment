@@ -83,11 +83,14 @@ source('source/plotting.R', local = FALSE)
 # Dynamic input utilities (loaded once for all pages)
 source('source/dynamic_input_utils.R', local = FALSE)
 
-# for testing combining of tables
+
+
+# for testing combining of tables - NEW REFACTORED APPROACH
 #mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
-#mu_combined <- merge_mu_with_questionnaire(mu_gait, allQResults)
-#mu_combined <- merge_mu_with_task(mu_gait, allTaskMetrics)
-#mu_combined <- merge_mu_with_complexity(mu_combined, allComplexityMetrics)
+#prepped_q <- prep_questionnaire_for_merge(allQResults)
+#mu_combined <- merge_mu_with_data(mu_gait, prepped_q,                 data_type_name = "questionnaire")
+#mu_combined <- merge_mu_with_data(mu_combined, allTaskMetrics,        data_type_name = "task")
+#mu_combined <- merge_mu_with_data(mu_combined, allComplexityMetrics,  data_type_name = "complexity")
 ```
 
 Sidebar {.sidebar}

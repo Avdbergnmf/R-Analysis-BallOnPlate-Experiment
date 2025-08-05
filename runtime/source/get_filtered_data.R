@@ -201,15 +201,17 @@ get_mu_dyn_long <- reactive({
     ))
   }
 
-  # These are all automatically filtered based on gait data availability
-  # Use safe versions that handle NULL/missing data
-  qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
-  taskResults <- if (exists("allTaskMetrics") && !is.null(allTaskMetrics)) allTaskMetrics else data.frame()
-  complexityResults <- if (exists("allComplexityMetrics") && !is.null(allComplexityMetrics)) allComplexityMetrics else data.frame()
+  # Verify all required data is available
+  if (!exists("allQResults") || !exists("allTaskMetrics") || !exists("allComplexityMetrics")) {
+    stop("Missing required data: allQResults, allTaskMetrics, and allComplexityMetrics must all be present")
+  }
 
-  mu <- merge_mu_with_questionnaire(mu_gait, qResults)
-  mu <- merge_mu_with_task(mu, taskResults)
-  mu <- merge_mu_with_complexity(mu, complexityResults)
+  # Use new unified merge approach - prefix naming handled automatically by merge_mu_with_data
+  mu <- mu_gait
+  q_prepped <- prep_questionnaire_for_merge(allQResults)
+  mu <- merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
+  mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
+  mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
 
   return(mu)
 })
