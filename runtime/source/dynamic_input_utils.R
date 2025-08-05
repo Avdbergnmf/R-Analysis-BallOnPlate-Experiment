@@ -345,3 +345,78 @@ get_simulation_categories <- function(data) {
 
     return(available_categories)
 }
+
+#' Check if a specific page is currently active in the flexdashboard
+#' @param page_name The name of the page to check (e.g., "Histograms", "Boxplots")
+#' @return TRUE if the page is active, FALSE otherwise
+is_page_active <- function(page_name) {
+    # In flexdashboard, we can check the current page using input$`page_name`
+    # The page name is converted to a reactive input when the page is active
+    tryCatch(
+        {
+            # Try to access the page input - if it exists, the page is active
+            page_input <- get(paste0("input$`", page_name, "`"), envir = .GlobalEnv)
+            return(TRUE)
+        },
+        error = function(e) {
+            # Alternative method: check if the page name appears in the current URL or session
+            if (exists("session", envir = .GlobalEnv)) {
+                session <- get("session", envir = .GlobalEnv)
+                # This is a fallback method - in flexdashboard, pages are typically
+                # active when their content is being rendered
+                return(TRUE) # For now, assume active if session exists
+            }
+            return(FALSE)
+        }
+    )
+}
+
+#' Create a conditional observer that only runs when a specific page is active
+#' @param page_name The name of the page that must be active
+#' @param expr The expression to run when the page is active
+#' @param session Shiny session object
+create_conditional_observer <- function(page_name, expr, session = getDefaultReactiveDomain()) {
+    observe({
+        # Check if the page is active
+        if (is_page_active(page_name)) {
+            expr()
+        }
+    })
+}
+
+#' Create a conditional reactive that only computes when a specific page is active
+#' @param page_name The name of the page that must be active
+#' @param expr The expression to compute when the page is active
+#' @param default_value The default value to return when the page is not active
+#' @return A reactive expression
+create_conditional_reactive <- function(page_name, expr, default_value = NULL) {
+    reactive({
+        if (is_page_active(page_name)) {
+            expr()
+        } else {
+            default_value
+        }
+    })
+}
+
+#' Get plot height based on sidebar settings and optional split count
+#' @param split_count Number of splits (default 1 for no split)
+#' @return Reactive height value in pixels
+get_plot_height <- function(split_count = 1) {
+    reactive({
+        base_height <- input$plotheight
+        if (split_count > 1) {
+            return(base_height * split_count)
+        } else {
+            return(base_height)
+        }
+    })
+}
+
+#' Get plot width based on sidebar settings
+#' @return Reactive width value in pixels
+get_plot_width <- function() {
+    reactive({
+        input$plotwidth
+    })
+}

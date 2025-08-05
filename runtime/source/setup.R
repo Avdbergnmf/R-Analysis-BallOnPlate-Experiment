@@ -7,6 +7,13 @@ library(dplyr) # Data manipulation verbs
 library(plyr) # Data manipulation functions
 library(purrr) # Functional programming tools
 library(tidyr) # Data reshaping and tidying
+library(rlang) # Programming interface
+library(methods) # Object-oriented programming
+library(tibble) # Modern data frames
+library(magrittr) # Pipe operator
+library(stats) # Statistical functions
+library(utils) # Utility functions
+library(base) # Base functions
 
 # Statistical analysis and modeling
 library(lme4) # Linear mixed-effects models

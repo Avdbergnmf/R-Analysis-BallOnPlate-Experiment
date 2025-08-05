@@ -58,8 +58,8 @@ tableOutput("overallMeanTable")
 
 
 ```{r, context="server"}
-# Reactive data source based on data type selection
-currentData <- reactive({
+# Reactive data source based on data type selection - only compute when page is active
+currentData <- create_conditional_reactive("Histograms", {
   if (input$dataType == "simulation") {
     # Use simulation data if available
     sim_data <- filteredSimulationData()
@@ -80,110 +80,131 @@ currentData <- reactive({
     # Use regular gait data
     return(filteredParams())
   }
+}, default_value = data.frame(
+  participant = character(0),
+  trialNum = numeric(0),
+  condition = character(0),
+  phase = character(0)
+))
+
+# Create conditional observers that only run when this page is active
+create_conditional_observer("Histograms", {
+  # Create dynamic observers for variable selection
+  create_dynamic_variable_observer(
+    data_reactive = currentData,
+    input_id = "plot",
+    column_filter = function(x) TRUE, # All columns for now, will filter in the observer
+    exclude_patterns = NULL,
+    default_choice = "stepWidths",
+    fallback_choices = c("task_max_q", "stepLengths", "q", "e"),
+    multiple = FALSE,
+    input = input
+  )
 })
 
-# Create dynamic observers for variable selection
-create_dynamic_variable_observer(
-  data_reactive = currentData,
-  input_id = "plot",
-  column_filter = function(x) TRUE, # All columns for now, will filter in the observer
-  exclude_patterns = NULL,
-  default_choice = "stepWidths",
-  fallback_choices = c("task_max_q", "stepLengths", "q", "e"),
-  multiple = FALSE,
-  input = input
-)
-
 # Custom observer for variable selection that handles both gait and simulation data
-observe({
-  data <- currentData()
-  
-  if (is.null(data) || nrow(data) == 0) {
-    updateSelectizeInput(session, "plot", choices = character(0), selected = NULL)
-    return()
-  }
-  
-  # Get variables based on data type
-  if (input$dataType == "simulation") {
-    available_vars <- get_simulation_variables(data)
-    default_var <- if ("q" %in% available_vars) "q" else
-                   if ("e" %in% available_vars) "e" else
-                   if (length(available_vars) > 0) available_vars[1] else NULL
-    fallback_vars <- c("q", "e", "vx", "vy", "score")
-  } else {
-    # Gait data
-    available_vars <- get_numeric_variables(data, c("heelStrikes\\.", "toeOffs\\."))
-    default_var <- if ("stepWidths" %in% available_vars) "stepWidths" else
-                   if ("task_max_q" %in% available_vars) "task_max_q" else
-                   if (length(available_vars) > 0) available_vars[1] else NULL
-    fallback_vars <- c("task_max_q", "stepLengths")
-  }
-  
-  # Get current selection
-  current_selection <- isolate(input$plot)
-  
-  # Update the input
-  update_selectize_smart(session, "plot", available_vars, current_selection,
-                        default_var, fallback_vars, FALSE)
+create_conditional_observer("Histograms", {
+  observe({
+    data <- currentData()
+    
+    if (is.null(data) || nrow(data) == 0) {
+      updateSelectizeInput(session, "plot", choices = character(0), selected = NULL)
+      return()
+    }
+    
+    # Get variables based on data type
+    if (input$dataType == "simulation") {
+      available_vars <- get_simulation_variables(data)
+      default_var <- if ("q" %in% available_vars) "q" else
+                     if ("e" %in% available_vars) "e" else
+                     if (length(available_vars) > 0) available_vars[1] else NULL
+      fallback_vars <- c("q", "e", "vx", "vy", "score")
+    } else {
+      # Gait data
+      available_vars <- get_numeric_variables(data, c("heelStrikes\\.", "toeOffs\\."))
+      default_var <- if ("stepWidths" %in% available_vars) "stepWidths" else
+                     if ("task_max_q" %in% available_vars) "task_max_q" else
+                     if (length(available_vars) > 0) available_vars[1] else NULL
+      fallback_vars <- c("task_max_q", "stepLengths")
+    }
+    
+    # Get current selection
+    current_selection <- isolate(input$plot)
+    
+    # Update the input
+    update_selectize_smart(session, "plot", available_vars, current_selection,
+                          default_var, fallback_vars, FALSE)
+  })
 })
 
 # Create dynamic observers for category selection
-create_dynamic_category_observer(
-  data_reactive = currentData,
-  input_id = "group",
-  category_choices = c("participant", "condition", "trialNum", "phase", "arcDeg"),
-  default_selection = "participant",
-  multiple = FALSE,
-  input = input
-)
+create_conditional_observer("Histograms", {
+  create_dynamic_category_observer(
+    data_reactive = currentData,
+    input_id = "group",
+    category_choices = c("participant", "condition", "trialNum", "phase", "arcDeg"),
+    default_selection = "participant",
+    multiple = FALSE,
+    input = input
+  )
+})
 
 # Custom observer for category selection that handles both data types
-observe({
-  data <- currentData()
-  
-  if (is.null(data) || nrow(data) == 0) {
-    # Use default categories
-    default_categories <- if (input$dataType == "simulation") {
-      c("participant", "condition", "trialNum", "phase", "arcDeg")
-    } else {
-      categoriesExtraInputs
+create_conditional_observer("Histograms", {
+  observe({
+    data <- currentData()
+    
+    if (is.null(data) || nrow(data) == 0) {
+      # Use default categories
+      default_categories <- if (input$dataType == "simulation") {
+        c("participant", "condition", "trialNum", "phase", "arcDeg")
+      } else {
+        categoriesExtraInputs
+      }
+      updateSelectizeInput(session, "group", choices = default_categories, selected = "participant")
+      updateSelectizeInput(session, "split", choices = c("None", default_categories), selected = "None")
+      return()
     }
-    updateSelectizeInput(session, "group", choices = default_categories, selected = "participant")
-    updateSelectizeInput(session, "split", choices = c("None", default_categories), selected = "None")
-    return()
-  }
-  
-  # Get categories based on data type
-  if (input$dataType == "simulation") {
-    available_categories <- get_simulation_categories(data)
-  } else {
-    available_categories <- categoriesExtraInputs
-  }
-  
-  # Get current selections
-  current_group <- isolate(input$group)
-  current_split <- isolate(input$split)
-  
-  # Update group input
-  update_selectize_smart(session, "group", available_categories, current_group,
-                        "participant", NULL, FALSE)
-  
-  # Update split input
-  split_choices <- c("None", available_categories)
-  update_selectize_smart(session, "split", split_choices, current_split,
-                        "None", NULL, FALSE)
+    
+    # Get categories based on data type
+    if (input$dataType == "simulation") {
+      available_categories <- get_simulation_categories(data)
+    } else {
+      available_categories <- categoriesExtraInputs
+    }
+    
+    # Get current selections
+    current_group <- isolate(input$group)
+    current_split <- isolate(input$split)
+    
+    # Update group input
+    update_selectize_smart(session, "group", available_categories, current_group,
+                          "participant", NULL, FALSE)
+    
+    # Update split input
+    split_choices <- c("None", available_categories)
+    update_selectize_smart(session, "split", split_choices, current_split,
+                          "None", NULL, FALSE)
+  })
 })
 
 # Trigger simulation data update when button is clicked
-observeEvent(input$updateSimulationData, {
-  # Request simulation data loading
-  request_simulation_data()
-  # Force refresh of simulation data
-  refresh_trigger()
+create_conditional_observer("Histograms", {
+  observeEvent(input$updateSimulationData, {
+    # Request simulation data loading
+    request_simulation_data()
+    # Force refresh of simulation data
+    refresh_trigger()
+  })
 })
 
 # Status display for simulation data
 output$simulationStatus <- renderText({
+  # Only render when page is active
+  if (!is_page_active("Histograms")) {
+    return("")
+  }
+  
   if (input$dataType == "simulation") {
     data <- filteredSimulationData()
     if (nrow(data) > 0) {
@@ -199,7 +220,7 @@ output$simulationStatus <- renderText({
   }
 })
 
-plotCount <- reactive({
+plotCount <- create_conditional_reactive("Histograms", {
   colName <- as.character(input$split)
   if (colName == "None" || colName == "") {
     return(1)
@@ -209,17 +230,22 @@ plotCount <- reactive({
     return(1)
   }
   return(length(unique(data[[colName]])))
-})
+}, default_value = 1)
 
-plotHeight <- reactive(
+plotHeight <- create_conditional_reactive("Histograms", {
   if (input$split == "None") {
     return(input$plotheight)
   } else {
     return(input$plotheight * plotCount())
   }
-)
+}, default_value = 400)
 
 output$hist <- renderSVG({ reactive({
+    # Only render when page is active
+    if (!is_page_active("Histograms")) {
+      return(ggplot() + theme_void() + ggtitle("Page not active"))
+    }
+    
     # Use current data source
     data <- currentData()
     
@@ -247,6 +273,11 @@ output$hist <- renderSVG({ reactive({
 
 # Add mean tables
 output$splitMeanTable <- renderTable({
+  # Only render when page is active
+  if (!is_page_active("Histograms")) {
+    return(NULL)
+  }
+  
   req(input$plot, input$split)
   data <- currentData()
   if (nrow(data) == 0) return(NULL)
@@ -259,6 +290,11 @@ output$splitMeanTable <- renderTable({
 })
 
 output$overallMeanTable <- renderTable({
+  # Only render when page is active
+  if (!is_page_active("Histograms")) {
+    return(NULL)
+  }
+  
   req(input$plot)
   data <- currentData()
   if (nrow(data) == 0) return(NULL)

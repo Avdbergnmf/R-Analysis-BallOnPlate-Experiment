@@ -218,7 +218,7 @@ observeEvent(input$load_manual_outliers, {
   }
 })
 
-# Plot click handler - much simpler logic!
+# Plot click handler
 observeEvent(event_data("plotly_click"), {
   click_data <- event_data("plotly_click")
   req(click_data, click_data$x)

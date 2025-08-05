@@ -249,6 +249,11 @@ merge_mu_with_task <- function(mu_gait, mu_task) {
     # Filter task data using the common helper function
     mu_task_filtered <- filter_by_gait_combinations(mu_gait_copy, mu_task_copy, "task")
 
+    # Remove condition column from task data if it exists (gait data is authoritative for conditions)
+    if ("condition" %in% colnames(mu_task_filtered)) {
+        mu_task_filtered <- mu_task_filtered %>% select(-condition)
+    }
+
     # Add task. prefix to all task metric columns (except participant and trialNum)
     task_metrics_cols <- setdiff(colnames(mu_task_filtered), c("participant", "trialNum"))
     mu_task_renamed <- mu_task_filtered %>%

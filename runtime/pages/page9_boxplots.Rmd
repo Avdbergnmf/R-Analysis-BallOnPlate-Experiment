@@ -127,7 +127,13 @@ output$plotOutput <- renderUI({
   if (input$useSVG) {
     renderSVG({ reactive({ generate_boxplot() }) })
   } else {
-    renderPlot({ generate_boxplot() })
+    renderPlotly({
+      p <- generate_boxplot()
+      # Convert to plotly with hover text
+      ggplotly(p, tooltip = "text", width = input$plotwidth, height = input$plotheight, source = "boxplot_page") %>%
+        layout(dragmode = "pan") %>%
+        event_register("plotly_click")
+    })
   }
 })
 ```

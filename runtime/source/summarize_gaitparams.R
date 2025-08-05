@@ -69,10 +69,6 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
       df_wide <- df %>%
         pivot_wider(names_from = foot, values_from = c(mean, sd, cv))
 
-      # Ensure both left and right foot data are available
-      # df_wide <- df_wide %>%
-      #  filter(!is.na(mean_Left) & !is.na(mean_Right))
-
       # Calculate the difference between left and right foot measurements
       df_wide <- df_wide %>%
         mutate(

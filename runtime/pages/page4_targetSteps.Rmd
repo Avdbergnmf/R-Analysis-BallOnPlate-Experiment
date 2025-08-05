@@ -44,6 +44,7 @@ output$histTargets <- renderPlot(
   {
     make_target_histogram(filteredTargetParams(), input$targetPlotGroup, input$targetPlotSplit, input$targetPlotPlot, input$targetPlotBin, input$targetPlotPosition, baseSize = input$baseSize)
   },
-  height = reactive(plotHeight())
+  height = reactive(input$plotheight),
+  width = reactive(input$plotwidth)
 )
 ```

@@ -778,12 +778,20 @@ merge_mu_with_complexity <- function(mu_gait, complexity_data) {
   }
   mu_gait_copy <- mu_gait
   complexity_copy <- complexity_data
+
   mu_gait_copy$trialNum <- as.numeric(as.character(mu_gait_copy$trialNum))
   complexity_copy$trialNum <- as.numeric(as.character(complexity_copy$trialNum))
 
   # Filter complexity data using the common helper function
   complexity_filtered <- filter_by_gait_combinations(mu_gait_copy, complexity_copy, "complexity") # defined in summarize_simulation.R
 
+  # Remove condition column from complexity data if it exists (gait data is authoritative for conditions)
+  if ("condition" %in% colnames(complexity_filtered)) {
+    complexity_filtered <- complexity_filtered %>% select(-condition)
+  }
+
   # Merge based on participant and trialNum (using left_join to preserve all gait data)
-  return(left_join(mu_gait_copy, complexity_filtered, by = c("participant", "trialNum")))
+  merged_data <- left_join(mu_gait_copy, complexity_filtered, by = c("participant", "trialNum"))
+
+  return(merged_data)
 }

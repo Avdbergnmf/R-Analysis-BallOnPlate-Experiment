@@ -181,6 +181,37 @@ create_error_plot <- function(message, baseSize = 10) {
     theme(axis.text = element_blank(), axis.ticks = element_blank())
 }
 
+# Helper function to create hover text for plotly plots
+create_plotly_hover_text <- function(data, datatype, x_value = NULL, x_label = "Category") {
+  # Base hover text
+  hover_text <- paste0(
+    "<b>", datatype, "</b><br>",
+    "Value: ", round(data$value, 3)
+  )
+
+  # Add x-axis information if provided
+  if (!is.null(x_value)) {
+    hover_text <- paste0(hover_text, "<br>", x_label, ": ", x_value)
+  }
+
+  # Add participant info if available
+  if ("participant" %in% colnames(data)) {
+    hover_text <- paste0(hover_text, "<br>Participant: ", data$participant)
+  }
+
+  # Add trial info if available
+  if ("trialNum" %in% colnames(data)) {
+    hover_text <- paste0(hover_text, "<br>Trial: ", data$trialNum)
+  }
+
+  # Add condition info if available
+  if ("condition" %in% colnames(data)) {
+    hover_text <- paste0(hover_text, "<br>Condition: ", data$condition)
+  }
+
+  return(hover_text)
+}
+
 # Helper function to validate data and columns
 validate_data_and_columns <- function(xData, yData, xtracker, ytracker, x_axis, y_axis, participant, trialNum, baseSize) {
   # Check if data is NULL
@@ -329,6 +360,9 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
   # Create a combined x-axis variable
   data_long$xaxis_combined <- apply(data_long[, xaxis], 1, paste, collapse = "_")
 
+  # Create hover text for points
+  data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long$xaxis_combined, "Category")
+
   if (is.null(color_var) || color_var == "None") { #
     aesString <- aes_string()
   } else {
@@ -341,7 +375,7 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
   }
 
   # Create the plot
-  p <- ggplot(data_long, aes(x = xaxis_combined, y = value)) +
+  p <- ggplot(data_long, aes(x = xaxis_combined, y = value, text = hover_text)) +
     geom_boxplot() +
     geom_jitter(aesString, width = 0.2, size = baseSize / 4, alpha = 0.7) + # << make this point?
     labs(x = paste(xaxis, collapse = " + "), y = datatype, title = datatype) +
@@ -373,6 +407,9 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
   data_long$condition <- get_pretty_condition_labels(data_long$condition)
 
+  # Create hover text for points
+  data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long[[xPaired]], "X-axis")
+
   if (is.null(color_var) || color_var == "None") { #
     aesString <- aes_string()
   } else {
@@ -385,7 +422,7 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
   }
 
   # Create the plot using ggplot
-  p <- ggplot(data_long, aes_string(x = xPaired, y = "value", group = "participant")) +
+  p <- ggplot(data_long, aes_string(x = xPaired, y = "value", group = "participant", text = "hover_text")) +
     geom_line(aes(group = participant), color = "gray", size = 0.4) +
     geom_point(aesString, size = baseSize / 4) +
     labs(x = xPaired, y = datatype, title = datatype) +
