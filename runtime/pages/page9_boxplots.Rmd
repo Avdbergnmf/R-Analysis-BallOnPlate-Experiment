@@ -126,7 +126,7 @@ generate_boxplot <- function() {
 output$plotOutput <- renderUI({
   if (input$useSVG) {
     renderSVG({ 
-      generate_boxplot()
+      reactive({ generate_boxplot() })
     })
   } else {
     renderPlotly({

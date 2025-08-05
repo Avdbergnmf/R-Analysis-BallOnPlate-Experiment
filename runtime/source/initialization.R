@@ -517,7 +517,7 @@ apply_reference_levels <- function(data) {
             # Check if the variable exists and has the specified reference level
             if (reference_levels[[var_name]] %in% unique(data[[var_name]])) {
                 data[[var_name]] <- relevel(factor(data[[var_name]]), ref = reference_levels[[var_name]])
-                cat(sprintf("[INFO] Set reference level for %s to '%s'\n", var_name, reference_levels[[var_name]]))
+                # cat(sprintf("[INFO] Set reference level for %s to '%s'\n", var_name, reference_levels[[var_name]]))
             } else {
                 warning(sprintf(
                     "Reference level '%s' not found in variable '%s'. Available levels: %s",
