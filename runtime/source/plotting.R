@@ -212,6 +212,13 @@ create_plotly_hover_text <- function(data, datatype, x_value = NULL, x_label = "
   return(hover_text)
 }
 
+# Helper function to convert trial numbers (possibly character) into a factor whose levels are ordered numerically
+factor_trialnum <- function(x) {
+  numeric_vec <- as.numeric(as.character(x))
+  factor(numeric_vec, levels = sort(unique(numeric_vec)))
+}
+
+
 # Helper function to validate data and columns
 validate_data_and_columns <- function(xData, yData, xtracker, ytracker, x_axis, y_axis, participant, trialNum, baseSize) {
   # Check if data is NULL
@@ -356,9 +363,18 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
     )
 
   data_long$condition <- get_pretty_condition_labels(data_long$condition)
+  # Ensure trial numbers are treated as ordered factors so 2 comes before 11
+  if ("trialNum" %in% names(data_long)) {
+    data_long$trialNum <- factor_trialnum(data_long$trialNum)
+  }
 
   # Create a combined x-axis variable
   data_long$xaxis_combined <- apply(data_long[, xaxis], 1, paste, collapse = "_")
+
+  # If the only x-axis variable is trialNum, order the x labels numerically
+  if (length(xaxis) == 1 && xaxis == "trialNum") {
+    data_long$xaxis_combined <- factor_trialnum(data_long$xaxis_combined)
+  }
 
   # Create hover text for points
   data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long$xaxis_combined, "Category")
@@ -376,7 +392,8 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
 
   # Create the plot
   p <- ggplot(data_long, aes(x = xaxis_combined, y = value, text = hover_text)) +
-    geom_boxplot() +
+    # Draw one box for every x-axis combination, regardless of colour/shape mappings on the points
+    geom_boxplot(aes(group = xaxis_combined)) +
     geom_jitter(aesString, width = 0.2, size = baseSize / 4, alpha = 0.7) + # << make this point?
     labs(x = paste(xaxis, collapse = " + "), y = datatype, title = datatype) +
     theme(plot.title = element_text(hjust = 0.5)) +
@@ -406,6 +423,10 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
     )
 
   data_long$condition <- get_pretty_condition_labels(data_long$condition)
+  # Ensure trial numbers are treated as ordered factors so 2 comes before 11
+  if ("trialNum" %in% names(data_long)) {
+    data_long$trialNum <- factor_trialnum(data_long$trialNum)
+  }
 
   # Create hover text for points
   data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long[[xPaired]], "X-axis")
