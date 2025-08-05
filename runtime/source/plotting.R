@@ -324,6 +324,35 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
 
 
 make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize) {
+  # ------------------------------------------------------------------
+  # Safety check: avoid generating an excessive number of bins which
+  # would lock up the dashboard. If the estimated number of bins
+  # exceeds MAX_BINS, we return a placeholder plot with a warning.
+  # ------------------------------------------------------------------
+  MAX_BINS <- 5000
+  if (is.numeric(binwidth) && binwidth > 0 && xinput %in% names(data)) {
+    rng <- range(data[[xinput]], na.rm = TRUE)
+    if (is.finite(rng[1]) && is.finite(rng[2])) {
+      n_bins_est <- ceiling((rng[2] - rng[1]) / binwidth)
+      if (n_bins_est > MAX_BINS) {
+        warning(sprintf("Requested ~%d bins (> %d). Histogram skipped.", n_bins_est, MAX_BINS))
+        return(
+          ggplot() +
+            annotate(
+              "text",
+              x = 0.5, y = 0.5,
+              label = sprintf("Bin width too small: ~%d bins. Increase bin width.", n_bins_est),
+              hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+            ) +
+            xlim(0, 1) +
+            ylim(0, 1) +
+            theme_void() +
+            ggtitle("Histogram Skipped")
+        )
+      }
+    }
+  }
+
   aes <- aes_string(x = xinput)
   a <- 1
   fill <- "grey"
