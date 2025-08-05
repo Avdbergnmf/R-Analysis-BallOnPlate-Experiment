@@ -33,8 +33,8 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
         return(default_choice)
     }
 
-    # Fall back to first available choice
-    return(new_choices[1])
+    # Current value was invalid and no fallbacks worked - return NULL
+    return(NULL)
 }
 
 #' Position-based selection that tries to maintain the same position in the list
@@ -70,8 +70,8 @@ position_based_select <- function(current_value, previous_choices, new_choices, 
         }
     }
 
-    # Fall back to first available choice
-    return(new_choices[1])
+    # Current value was invalid and no fallbacks worked - return NULL
+    return(NULL)
 }
 
 #' Update a selectizeInput with smart state preservation
@@ -95,7 +95,7 @@ update_selectize_smart <- function(session, input_id, choices, selected = NULL,
             if (length(valid_selections) == 0 && !is.null(default_choice)) {
                 valid_selections <- default_choice
             }
-            final_selection <- if (length(valid_selections) > 0) valid_selections else list(choices[1])
+            final_selection <- valid_selections
         } else {
             # Handle default choice for multiple selection
             if (!is.null(default_choice) && all(default_choice %in% choices)) {
@@ -105,11 +105,21 @@ update_selectize_smart <- function(session, input_id, choices, selected = NULL,
             }
         }
     } else {
-        # For single selection, use smart selection
         final_selection <- smart_select(selected, choices, default_choice, fallback_choices)
     }
 
-    updateSelectizeInput(session, input_id, choices = choices, selected = final_selection)
+    # ------------------------------------------------------------------
+    # EARLY-EXIT: skip update if both choices and selection are unchanged
+    # ------------------------------------------------------------------
+    current_sel <- isolate(session$input[[input_id]])
+    if (setequal(choices, isolate(session$input[[input_id]] %||% choices)) &&
+        setequal(current_sel, final_selection)) {
+        return(invisible(NULL))
+    }
+
+    # Explicitly pass character(0) when we want an empty selection.
+    selected_value <- if (is.null(final_selection)) character(0) else final_selection
+    updateSelectizeInput(session, input_id, choices = choices, selected = selected_value)
 }
 
 #' Update selectizeInput with position-based state preservation
@@ -130,16 +140,28 @@ update_selectize_position <- function(session, input_id, choices, selected = NUL
             if (length(valid_selections) == 0 && !is.null(fallback_choices)) {
                 valid_selections <- intersect(fallback_choices, choices)
             }
-            final_selection <- if (length(valid_selections) > 0) valid_selections else list(choices[1])
+            final_selection <- valid_selections
         } else {
-            final_selection <- list(choices[1])
+            # No selection - keep it empty (don't auto-select fallback)
+            final_selection <- character(0)
         }
     } else {
         # For single selection, use position-based selection
         final_selection <- position_based_select(selected, previous_choices, choices, fallback_choices)
     }
 
-    updateSelectizeInput(session, input_id, choices = choices, selected = final_selection)
+    # ------------------------------------------------------------------
+    # EARLY-EXIT: skip update if nothing actually changes
+    # ------------------------------------------------------------------
+    current_sel <- isolate(session$input[[input_id]])
+    if (setequal(choices, previous_choices %||% character(0)) &&
+        setequal(current_sel, final_selection)) {
+        return(invisible(NULL))
+    }
+
+    # Explicitly pass character(0) when we want an empty selection.
+    selected_value <- if (is.null(final_selection)) character(0) else final_selection
+    updateSelectizeInput(session, input_id, choices = choices, selected = selected_value)
 }
 
 #' Create a reactive observer for dynamic variable selection

@@ -20,7 +20,7 @@ checkboxInput("getSummarizedData_stats", "Use summarized data", value = TRUE)
 checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
 checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
 
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase.x + (1 | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = FALSE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
@@ -176,6 +176,12 @@ imageOutput("diff_boxplot")
 
 
 ```{r, context="server"}
+# Helper that tells whether a dependent variable is selected AND exists in data
+dep_var_selected <- reactive({
+  dep <- input$depVar
+  !is.null(dep) && nzchar(dep) && dep %in% names(get_stats_data())
+})
+
 ############ Getting and setting data
 get_stats_data <- reactive({
   if (input$getSummarizedData_stats) {
@@ -212,7 +218,7 @@ get_stats_data <- reactive({
   # This column will automatically show up in the selectize inputs and can
   # be added as an independent variable.
   # -------------------------------------------------------------------
-  if (!is.null(input$depVar) && input$depVar %in% names(data) &&
+  if (!is.null(input$depVar) && input$depVar != "" && input$depVar %in% names(data) &&
       "participant" %in% names(data) && nrow(data) > 0) {
 
     # Identify baseline rows
@@ -224,13 +230,20 @@ get_stats_data <- reactive({
       baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
     }
 
-    baseline_rows <- data[baseline_filter, c("participant", input$depVar), drop = FALSE]
+    # Create column selection, avoiding duplicates if depVar is "participant"
+    cols_to_select <- unique(c("participant", input$depVar))
+    baseline_rows <- data[baseline_filter, cols_to_select, drop = FALSE]
 
     if (nrow(baseline_rows) > 0) {
       baseline_map <- baseline_rows %>%
         dplyr::group_by(participant) %>%
         dplyr::summarise(baseline = first(.data[[input$depVar]]), .groups = "drop")
 
+      # Remove existing baseline column if it exists to prevent duplicates
+      if ("baseline" %in% names(data)) {
+        data <- data[, !names(data) %in% "baseline", drop = FALSE]
+      }
+      
       data <- dplyr::left_join(data, baseline_map, by = "participant")
 
       # Remove baseline rows from the working dataset if baseline is indep var
@@ -246,7 +259,7 @@ get_stats_data <- reactive({
   # dataset to baseline rows (trial 5 or phase == "baseline") so that each
   # participant contributes a single observation.
   # -------------------------------------------------------------------
-  if (!is.null(input$depVar) && input$depVar == "baseline") {
+  if (!is.null(input$depVar) && input$depVar != "" && input$depVar == "baseline") {
     baseline_filter <- rep(FALSE, nrow(data))
     if ("trialNum" %in% names(data)) {
       baseline_filter <- baseline_filter | (data$trialNum == 5)
@@ -270,8 +283,8 @@ create_dynamic_variable_observer(
   input_id = "depVar",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = "stepWidths.sd",
-  fallback_choices = c("task_max_q", "stepLengths.sd"),
+  default_choice = NULL,#"task.q_sd",
+  fallback_choices = NULL,
   multiple = FALSE,
   input = input
 )
@@ -281,8 +294,8 @@ create_dynamic_variable_observer(
   input_id = "indepInterVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = "condition",
-  fallback_choices = c("trialNum", "phase"),
+  default_choice = NULL,          # ← was "condition"
+  fallback_choices = NULL,
   multiple = TRUE,
   input = input
 )
@@ -292,8 +305,8 @@ create_dynamic_variable_observer(
   input_id = "indepVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = NULL,
-  fallback_choices = c("participant", "trialNum"),
+  default_choice = NULL,           # ← was "condition"
+  fallback_choices = NULL,
   multiple = TRUE,
   input = input
 )
@@ -305,15 +318,31 @@ observe({
   }
 })
 
+# ----------------  MODEL  ----------------
 get_lmer <- reactive({
-  dt <- get_stats_data()#get_mu_dyn_long()
+  req(dep_var_selected())           # ← stop early but quietly if no dep-var
+  dt <- get_stats_data()
+  
+  # Ensure a dependent variable is selected
+  if (is.null(input$depVar) || input$depVar == "" || !(input$depVar %in% names(dt))) {
+    stop("ERROR: Please select a dependent variable before running the analysis.")
+  }
+
+  # Check if we have the problematic case: each participant has only 1 observation
+  obs_per_participant <- dt %>% 
+    dplyr::group_by(participant) %>% 
+    dplyr::summarise(n_obs = n(), .groups = "drop")
+  
+  max_obs_per_participant <- max(obs_per_participant$n_obs, na.rm = TRUE)
+  
+  if (max_obs_per_participant <= 1) {
+    stop("ERROR: Each participant has only 1 observation. Mixed-effects models require multiple observations per participant.")
+  }
   
   # Construct the formula dynamically using inputs
   dep_var <- input$depVar
   if (input$useCustomModel && input$customModel != "") {
-    # Use custom model formula if checkbox is selected and text input is not empty
-    formula_text <-  paste(dep_var, "~", input$customModel)
-    #formula_text <- input$customModel
+    formula_text <- paste(dep_var, "~", input$customModel)
   } else {
     interVars <- paste(input$indepInterVars, collapse = "*")
     otherVars <- paste(input$indepVars, collapse = "+")
@@ -410,6 +439,7 @@ output$lmm_text <- renderPrint({
 })
 
 output$fixed_effects_table <- renderTable({
+  req(dep_var_selected())            # skip rendering until ready
   lmm <- get_lmer()
   results <- summary(lmm)
   fixed_effects <- results$coefficients
@@ -435,6 +465,7 @@ output$fixed_effects_table <- renderTable({
 
 
 output$random_effects_table <- renderTable({
+  req(dep_var_selected())
   lmm <- get_lmer()
   random_effects <- as.data.frame(VarCorr(lmm))
   
@@ -454,6 +485,7 @@ output$random_effects_table <- renderTable({
 }, rownames = TRUE)
 
 output$post_hoc_table <- renderTable({
+  req(dep_var_selected())
   lmm <- get_lmer()
   results <- summary(lmm)
   
@@ -664,12 +696,14 @@ set_digits_with_bold_pvalues <- function(df, p_value_column, digits = 4, alpha =
 }
 
 output$qq <- renderSVG({ reactive({
+  req(dep_var_selected())
   lmm <- get_lmer()
   qqnorm(resid(lmm))
   qqline(resid(lmm))
 })})
 
 output$residuals_vs_fitted <- renderSVG({ reactive({
+  req(dep_var_selected())
   lmm <- get_lmer()
   plot(fitted(lmm), resid(lmm), 
        xlab = "Fitted values", 
@@ -679,6 +713,7 @@ output$residuals_vs_fitted <- renderSVG({ reactive({
 }) })
 
 output$scale_location <- renderSVG({ reactive({
+  req(dep_var_selected())
   lmm <- get_lmer()
   sqrt_resid <- sqrt(abs(resid(lmm)))
   plot(fitted(lmm), sqrt_resid,
@@ -689,6 +724,7 @@ output$scale_location <- renderSVG({ reactive({
 }) })
 
 output$residuals_vs_leverage <- renderSVG({ reactive({
+  req(dep_var_selected())
   lmm <- get_lmer()
   leverage <- hatvalues(lmm)
   cooksd <- cooks.distance(lmm)
@@ -707,6 +743,7 @@ output$residuals_vs_leverage <- renderSVG({ reactive({
 ############
 ########## T-Test
 get_ttest_diff <- reactive({
+  req(dep_var_selected(), input$paired_ttest)
   dt <- get_stats_data()
   
   dep_var <- input$depVar
@@ -730,6 +767,7 @@ get_ttest_diff <- reactive({
 })
 
 output$ttest_text <- renderPrint({
+  req(dep_var_selected(), input$paired_ttest)
   dt <- get_stats_data()
   
   dep_var <- input$depVar
@@ -793,6 +831,7 @@ output$ttest_text <- renderPrint({
 
 # Output for histogram of differences
 output$diff_histogram <- renderSVG({ reactive({
+  req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
   
   # Create histogram
@@ -802,6 +841,7 @@ output$diff_histogram <- renderSVG({ reactive({
 
 # Output for Q-Q plot of differences
 output$diff_qqplot <- renderSVG({ reactive({
+  req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
   
   # Create Q-Q plot
@@ -811,6 +851,7 @@ output$diff_qqplot <- renderSVG({ reactive({
 
 # Output for boxplot of differences
 output$diff_boxplot <- renderSVG({ reactive({
+  req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
   
   # Create boxplot
