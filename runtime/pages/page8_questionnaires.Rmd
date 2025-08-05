@@ -15,7 +15,7 @@ imageOutput("q")
 
 ```{r, context="server"}
 output$q <- renderSVG({ reactive({
-  plot_questionnaire_data(filteredQResults_new(), input$plotQ, baseSize = input$baseSize)
+  plot_questionnaire_data(filteredQResults(), input$plotQ, baseSize = input$baseSize)
   })
 })
 ```

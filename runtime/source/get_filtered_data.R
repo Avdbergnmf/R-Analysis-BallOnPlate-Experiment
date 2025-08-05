@@ -215,3 +215,42 @@ get_mu_dyn_long <- reactive({
 
   return(mu)
 })
+
+# Reactive: filtered questionnaire results based on sidebar filters
+filteredQResults <- reactive({
+  # Force dependency on refresh_trigger()
+  refresh_trigger()
+
+  # Validate availability of allQResults
+  if (!exists("allQResults") || is.null(allQResults) || nrow(allQResults) == 0) {
+    return(data.frame())
+  }
+
+  df <- allQResults
+
+  # Apply participant filter
+  if (!is.null(input$filterParticipants) && length(input$filterParticipants) > 0) {
+    df <- df[df$participant %in% input$filterParticipants, ]
+  }
+
+  # Apply condition filter
+  if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
+    df <- df[df$condition %in% input$filterCondition, ]
+  }
+
+  # Apply phase filter (mapped to questionnaire answer_type)
+  if (!is.null(input$filterPhase) && length(input$filterPhase) > 0) {
+    df <- df[df$answer_type %in% input$filterPhase, ]
+  }
+
+  # Notify if result empty
+  if (nrow(df) == 0) {
+    showNotification(
+      "No questionnaire data matches the current filter settings.",
+      type = "warning",
+      duration = 5
+    )
+  }
+
+  return(df)
+})
