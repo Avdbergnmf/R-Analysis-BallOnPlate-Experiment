@@ -19,6 +19,11 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
         return(current_value)
     }
 
+    # Use default choice if specified and available
+    if (!is.null(default_choice) && default_choice %in% new_choices) {
+        return(default_choice)
+    }
+
     # Try fallback choices in order
     if (!is.null(fallback_choices)) {
         for (fallback in fallback_choices) {
@@ -26,11 +31,6 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
                 return(fallback)
             }
         }
-    }
-
-    # Use default choice if specified and available
-    if (!is.null(default_choice) && default_choice %in% new_choices) {
-        return(default_choice)
     }
 
     # Current value was invalid and no fallbacks worked - return NULL
@@ -43,7 +43,7 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
 #' @param new_choices Vector of new available choices
 #' @param fallback_choices Vector of preferred choices to try
 #' @return The selected value to use
-position_based_select <- function(current_value, previous_choices, new_choices, fallback_choices = NULL) {
+position_based_select <- function(current_value, previous_choices, new_choices, fallback_choices = NULL, default_choice = NULL) {
     if (is.null(new_choices) || length(new_choices) == 0) {
         return(NULL)
     }
@@ -61,6 +61,11 @@ position_based_select <- function(current_value, previous_choices, new_choices, 
         }
     }
 
+    # Use default choice if specified and available
+    if (!is.null(default_choice) && default_choice %in% new_choices) {
+        return(default_choice)
+    }
+
     # Try fallback choices
     if (!is.null(fallback_choices)) {
         for (fallback in fallback_choices) {
@@ -70,7 +75,7 @@ position_based_select <- function(current_value, previous_choices, new_choices, 
         }
     }
 
-    # Current value was invalid and no fallbacks worked - return NULL
+    # Current value was invalid and no fallbacks or default worked - return NULL
     return(NULL)
 }
 
@@ -87,7 +92,7 @@ update_selectize_smart <- function(session, input_id, choices, selected = NULL,
                                    multiple = FALSE) {
     if (multiple) {
         # For multiple selection, preserve all valid selections
-        if (!is.null(selected)) {
+        if (!is.null(selected) && length(selected) > 0) {
             valid_selections <- intersect(selected, choices)
             if (length(valid_selections) == 0 && !is.null(fallback_choices)) {
                 valid_selections <- intersect(fallback_choices, choices)
@@ -132,22 +137,35 @@ update_selectize_smart <- function(session, input_id, choices, selected = NULL,
 #' @param multiple Whether the input supports multiple selection
 update_selectize_position <- function(session, input_id, choices, selected = NULL,
                                       previous_choices = NULL, fallback_choices = NULL,
+                                      default_choice = NULL,
                                       multiple = FALSE) {
     if (multiple) {
         # For multiple selection, preserve all valid selections
-        if (!is.null(selected)) {
+        if (!is.null(selected) && length(selected) > 0) {
             valid_selections <- intersect(selected, choices)
             if (length(valid_selections) == 0 && !is.null(fallback_choices)) {
                 valid_selections <- intersect(fallback_choices, choices)
             }
             final_selection <- valid_selections
         } else {
-            # No selection - keep it empty (don't auto-select fallback)
-            final_selection <- character(0)
+            # selected is NULL or empty
+            if (is.null(previous_choices)) {
+                # First load: apply default, then fallbacks
+                if (!is.null(default_choice) && length(intersect(default_choice, choices)) > 0) {
+                    final_selection <- intersect(default_choice, choices)
+                } else if (!is.null(fallback_choices) && length(intersect(fallback_choices, choices)) > 0) {
+                    final_selection <- intersect(fallback_choices, choices)
+                } else {
+                    final_selection <- character(0)
+                }
+            } else {
+                # Subsequent loads: allow empty selection
+                final_selection <- character(0)
+            }
         }
     } else {
         # For single selection, use position-based selection
-        final_selection <- position_based_select(selected, previous_choices, choices, fallback_choices)
+        final_selection <- position_based_select(selected, previous_choices, choices, fallback_choices, default_choice)
     }
 
     # ------------------------------------------------------------------
@@ -224,7 +242,7 @@ create_dynamic_variable_observer <- function(data_reactive, input_id,
         # Update the input
         update_selectize_position(
             session, input_id, available_cols, current_selection,
-            prev_choices, fallback_choices, multiple
+            prev_choices, fallback_choices, default_choice, multiple
         )
 
         # Store current choices for next update
@@ -246,34 +264,38 @@ create_dynamic_category_observer <- function(data_reactive, input_id,
                                              multiple = FALSE,
                                              session = getDefaultReactiveDomain(),
                                              input = NULL) {
+    # Track previous category choices to know first load vs subsequent updates
+    previous_choices <- reactiveVal(NULL)
+
     observe({
         data <- data_reactive()
 
+        # Always use the full list when data is unavailable
         if (is.null(data) || nrow(data) == 0) {
-            updateSelectizeInput(session, input_id, choices = category_choices, selected = NULL)
+            updateSelectizeInput(session, input_id,
+                choices = category_choices, selected = NULL
+            )
             return()
         }
 
-        # Get current selection - use input parameter if provided, otherwise try to get from session
+        # Determine current selection (could be NULL/character(0))
         current_selection <- if (!is.null(input)) {
             isolate(input[[input_id]])
         } else {
-            # Try to get from the current reactive domain
-            tryCatch(
-                {
-                    isolate(getDefaultReactiveDomain()$input[[input_id]])
-                },
-                error = function(e) {
-                    NULL
-                }
+            tryCatch(isolate(getDefaultReactiveDomain()$input[[input_id]]),
+                error = function(e) NULL
             )
         }
 
-        # Update the input
-        update_selectize_smart(
-            session, input_id, category_choices, current_selection,
-            default_selection, NULL, multiple
+        # Update with position-aware helper (handles first-load default logic)
+        update_selectize_position(
+            session, input_id,
+            category_choices, current_selection,
+            previous_choices(), NULL, default_selection, multiple
         )
+
+        # Remember for next round
+        previous_choices(category_choices)
     })
 }
 

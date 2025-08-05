@@ -283,7 +283,7 @@ create_dynamic_variable_observer(
   input_id = "depVar",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = NULL,#"task.q_sd",
+  default_choice = "stepWidths.sd",
   fallback_choices = NULL,
   multiple = FALSE,
   input = input
@@ -294,7 +294,7 @@ create_dynamic_variable_observer(
   input_id = "indepInterVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = NULL,          # ← was "condition"
+  default_choice = "condition",
   fallback_choices = NULL,
   multiple = TRUE,
   input = input
@@ -305,7 +305,7 @@ create_dynamic_variable_observer(
   input_id = "indepVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = NULL,           # ← was "condition"
+  default_choice = NULL,
   fallback_choices = NULL,
   multiple = TRUE,
   input = input
