@@ -225,10 +225,10 @@ initialize_global_parameters <- function() {
     reference_levels <<- list(
         "condition" = "control", # control will be the reference level
         "phase.x" = "baseline_task", # baseline_task will be the reference level
-        "gender" = "male", # male will be the reference level
-        "motion" = "False", # low motion sensitivity will be the reference level
-        "education" = "Higher", # bachelor will be the reference level
-        "vr_experience" = "None" # no VR experience will be the reference level
+        "gender" = "Male", # male will be the reference level
+        "motion" = "FALSE", # low motion sensitivity will be the reference level
+        "education" = "Higher", # bachelor+ will be the reference level
+        "vr_experience" = "Never" # no VR experience will be the reference level
         # Add more reference levels here as needed
     )
 
