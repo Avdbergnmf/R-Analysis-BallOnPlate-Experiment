@@ -176,6 +176,21 @@ imageOutput("diff_boxplot")
 
 
 ```{r, context="server"}
+# Base data that does NOT depend on the chosen dependent variable
+base_stats_data <- reactive({
+  if (input$getSummarizedData_stats) {
+    dt <- get_mu_dyn_long()
+    if (input$averageData_stats) {
+      dt <- summarize_across_conditions(dt)
+    }
+  } else {
+    dt <- filteredParams()
+  }
+  # Apply reference levels so the column names match what the selectors expect
+  dt <- apply_reference_levels(dt)
+  dt
+})
+
 # Helper that tells whether a dependent variable is selected AND exists in data
 dep_var_selected <- reactive({
   dep <- input$depVar
@@ -279,7 +294,7 @@ get_stats_data <- reactive({
 
 # Create dynamic observers for variable selection
 create_dynamic_variable_observer(
-  data_reactive = get_stats_data,
+  data_reactive = base_stats_data,
   input_id = "depVar",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,

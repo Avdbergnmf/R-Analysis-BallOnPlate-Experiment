@@ -8,8 +8,12 @@
 #' @param new_choices Vector of new available choices
 #' @param default_choice Default choice if no previous selection exists
 #' @param fallback_choices Vector of preferred choices to try if current not available
+#' @param previous_choices Vector of previous choices for position matching (optional)
+#' @param use_position_fallback Whether to try position-based fallback if value not found
 #' @return The selected value to use
-smart_select <- function(current_value, new_choices, default_choice = NULL, fallback_choices = NULL) {
+smart_select <- function(current_value, new_choices, default_choice = NULL,
+                         fallback_choices = NULL, previous_choices = NULL,
+                         use_position_fallback = FALSE) {
     if (is.null(new_choices) || length(new_choices) == 0) {
         return(NULL)
     }
@@ -17,6 +21,15 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
     # If current value exists in new choices, keep it
     if (!is.null(current_value) && current_value %in% new_choices) {
         return(current_value)
+    }
+
+    # Try position-based selection if enabled and we have previous choices
+    if (use_position_fallback && !is.null(previous_choices) &&
+        !is.null(current_value) && current_value %in% previous_choices) {
+        index <- match(current_value, previous_choices)
+        if (index <= length(new_choices)) {
+            return(new_choices[index])
+        }
     }
 
     # Use default choice if specified and available
@@ -37,47 +50,7 @@ smart_select <- function(current_value, new_choices, default_choice = NULL, fall
     return(NULL)
 }
 
-#' Position-based selection that tries to maintain the same position in the list
-#' @param current_value The currently selected value
-#' @param previous_choices Vector of previous choices
-#' @param new_choices Vector of new available choices
-#' @param fallback_choices Vector of preferred choices to try
-#' @return The selected value to use
-position_based_select <- function(current_value, previous_choices, new_choices, fallback_choices = NULL, default_choice = NULL) {
-    if (is.null(new_choices) || length(new_choices) == 0) {
-        return(NULL)
-    }
 
-    # If current value exists in new choices, keep it
-    if (!is.null(current_value) && current_value %in% new_choices) {
-        return(current_value)
-    }
-
-    # Try position-based selection if we have previous choices
-    if (!is.null(previous_choices) && current_value %in% previous_choices) {
-        index <- match(current_value, previous_choices)
-        if (index <= length(new_choices)) {
-            return(new_choices[index])
-        }
-    }
-
-    # Use default choice if specified and available
-    if (!is.null(default_choice) && default_choice %in% new_choices) {
-        return(default_choice)
-    }
-
-    # Try fallback choices
-    if (!is.null(fallback_choices)) {
-        for (fallback in fallback_choices) {
-            if (fallback %in% new_choices) {
-                return(fallback)
-            }
-        }
-    }
-
-    # Current value was invalid and no fallbacks or default worked - return NULL
-    return(NULL)
-}
 
 #' Update a selectizeInput with smart state preservation
 #' @param session Shiny session object
@@ -86,10 +59,12 @@ position_based_select <- function(current_value, previous_choices, new_choices, 
 #' @param selected Currently selected value (will be preserved if possible)
 #' @param default_choice Default choice if no previous selection
 #' @param fallback_choices Vector of preferred choices to try
+#' @param previous_choices Vector of previous choices for first-load detection
 #' @param multiple Whether the input supports multiple selection
 update_selectize_smart <- function(session, input_id, choices, selected = NULL,
                                    default_choice = NULL, fallback_choices = NULL,
-                                   multiple = FALSE) {
+                                   multiple = FALSE, previous_choices = NULL,
+                                   use_position_fallback = FALSE) {
     if (multiple) {
         # For multiple selection, preserve all valid selections
         if (!is.null(selected) && length(selected) > 0) {
@@ -102,54 +77,9 @@ update_selectize_smart <- function(session, input_id, choices, selected = NULL,
             }
             final_selection <- valid_selections
         } else {
-            # Handle default choice for multiple selection
-            if (!is.null(default_choice) && all(default_choice %in% choices)) {
-                final_selection <- list(default_choice)
-            } else {
-                final_selection <- list(choices[1])
-            }
-        }
-    } else {
-        final_selection <- smart_select(selected, choices, default_choice, fallback_choices)
-    }
-
-    # ------------------------------------------------------------------
-    # EARLY-EXIT: skip update if both choices and selection are unchanged
-    # ------------------------------------------------------------------
-    current_sel <- isolate(session$input[[input_id]])
-    if (setequal(choices, isolate(session$input[[input_id]] %||% choices)) &&
-        setequal(current_sel, final_selection)) {
-        return(invisible(NULL))
-    }
-
-    # Explicitly pass character(0) when we want an empty selection.
-    selected_value <- if (is.null(final_selection)) character(0) else final_selection
-    updateSelectizeInput(session, input_id, choices = choices, selected = selected_value)
-}
-
-#' Update selectizeInput with position-based state preservation
-#' @param session Shiny session object
-#' @param input_id The input ID to update
-#' @param choices New choices vector
-#' @param selected Currently selected value
-#' @param previous_choices Vector of previous choices for position matching
-#' @param fallback_choices Vector of preferred choices to try
-#' @param multiple Whether the input supports multiple selection
-update_selectize_position <- function(session, input_id, choices, selected = NULL,
-                                      previous_choices = NULL, fallback_choices = NULL,
-                                      default_choice = NULL,
-                                      multiple = FALSE) {
-    if (multiple) {
-        # For multiple selection, preserve all valid selections
-        if (!is.null(selected) && length(selected) > 0) {
-            valid_selections <- intersect(selected, choices)
-            if (length(valid_selections) == 0 && !is.null(fallback_choices)) {
-                valid_selections <- intersect(fallback_choices, choices)
-            }
-            final_selection <- valid_selections
-        } else {
-            # selected is NULL or empty
-            if (is.null(previous_choices)) {
+            # Handle default choice for multiple selection - use same logic as position function
+            first_load <- is.null(previous_choices)
+            if (first_load) {
                 # First load: apply default, then fallbacks
                 if (!is.null(default_choice) && length(intersect(default_choice, choices)) > 0) {
                     final_selection <- intersect(default_choice, choices)
@@ -164,15 +94,14 @@ update_selectize_position <- function(session, input_id, choices, selected = NUL
             }
         }
     } else {
-        # For single selection, use position-based selection
-        final_selection <- position_based_select(selected, previous_choices, choices, fallback_choices, default_choice)
+        final_selection <- smart_select(selected, choices, default_choice, fallback_choices, previous_choices, use_position_fallback)
     }
 
     # ------------------------------------------------------------------
-    # EARLY-EXIT: skip update if nothing actually changes
+    # EARLY-EXIT: skip update if both choices and selection are unchanged
     # ------------------------------------------------------------------
     current_sel <- isolate(session$input[[input_id]])
-    if (setequal(choices, previous_choices %||% character(0)) &&
+    if (setequal(choices, isolate(session$input[[input_id]] %||% choices)) &&
         setequal(current_sel, final_selection)) {
         return(invisible(NULL))
     }
@@ -240,9 +169,11 @@ create_dynamic_variable_observer <- function(data_reactive, input_id,
         prev_choices <- previous_choices()
 
         # Update the input
-        update_selectize_position(
+        update_selectize_smart(
             session, input_id, available_cols, current_selection,
-            prev_choices, fallback_choices, default_choice, multiple
+            default_choice, fallback_choices, multiple,
+            prev_choices,
+            use_position_fallback = TRUE
         )
 
         # Store current choices for next update
@@ -288,10 +219,12 @@ create_dynamic_category_observer <- function(data_reactive, input_id,
         }
 
         # Update with position-aware helper (handles first-load default logic)
-        update_selectize_position(
+        update_selectize_smart(
             session, input_id,
             category_choices, current_selection,
-            previous_choices(), NULL, default_selection, multiple
+            default_selection, NULL, multiple,
+            previous_choices(),
+            use_position_fallback = TRUE
         )
 
         # Remember for next round
