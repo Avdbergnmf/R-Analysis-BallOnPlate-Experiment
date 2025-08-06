@@ -608,7 +608,7 @@ apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "
     percent_kept <- (nrow(filtered_data) / nrow(data)) * 100
 
     # Only print if less than 99.99% of data is kept
-    if (percent_kept < 99.99) {
+    if (FALSE && percent_kept < 99) { # removed this for now.
       cat(sprintf(
         "UDP TRIM APPLIED: %s T%03d | %d → %d rows (%.1f%% kept) | Final time range: %s\n",
         participant, sanitize_trial_num(trialNum), nrow(data), nrow(filtered_data),

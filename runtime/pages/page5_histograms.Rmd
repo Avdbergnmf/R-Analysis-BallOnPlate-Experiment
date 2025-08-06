@@ -12,8 +12,12 @@ conditionalPanel(
   condition = "input.dataType == 'simulation'",
   div(
     actionButton("updateSimulationData", "Update Simulation Data", 
-                 class = "btn-primary", style = "margin-bottom: 10px;"),
-    div(id = "simulationStatus", style = "margin-top: 5px; font-size: 12px; color: #666;")
+                 class = "btn-primary", style = "margin-bottom: 10px; margin-right: 10px;"),
+    actionButton("cancelSimulationData", "Cancel Loading", 
+                 class = "btn-warning", style = "margin-bottom: 10px;"),
+    div(id = "simulationStatus", style = "margin-top: 5px; font-size: 12px; color: #666;"),
+    div(style = "margin-top: 5px; font-size: 11px; color: #888;",
+        "Note: Progress bar shows during loading. Use Cancel button or press Esc to stop.")
   )
 )
 
@@ -79,8 +83,8 @@ currentData <- reactive({
       ))
     }
   } else {
-    # Reset simulation data request when switching to gait data
-    reset_simulation_data_request()
+    # Reset simulation data when switching to gait data
+    reset_simulation_data()
     # Use regular gait data
     return(filteredParams())
   }
@@ -185,6 +189,20 @@ observeEvent(input$updateSimulationData, {
   # Bump the reactive trigger so all downstream reactives recompute
   refresh_trigger(refresh_trigger() + 1)
 })
+
+# Handle cancel button for simulation data loading
+observeEvent(input$cancelSimulationData, {
+  cancel_simulation_data()
+}, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+# Alternative cancellation when switching away from simulation data
+observeEvent(input$dataType, {
+  if (input$dataType != "simulation") {
+    cancel_simulation_data()
+  }
+}, ignoreNULL = TRUE, ignoreInit = TRUE)
+
+# Note: withProgress() shows progress bar, custom cancel button provides explicit cancellation
 
 # Status display for simulation data
 output$simulationStatus <- renderText({
