@@ -180,10 +180,10 @@ observe({
 
 # Trigger simulation data update when button is clicked
 observeEvent(input$updateSimulationData, {
-  # Request simulation data loading
+  # Flag that simulation data should be (re)loaded
   request_simulation_data()
-  # Force refresh of simulation data
-  refresh_trigger()
+  # Bump the reactive trigger so all downstream reactives recompute
+  refresh_trigger(refresh_trigger() + 1)
 })
 
 # Status display for simulation data
