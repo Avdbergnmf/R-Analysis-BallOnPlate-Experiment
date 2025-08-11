@@ -2,8 +2,8 @@
 ```{r}
 selectizeInput("filterParticipants", "Participants", choices = participants, selected = participants, multiple = TRUE)
 div(style = "margin-top: 5px;",
-  actionButton("selectAllParticipants", "Select All", class = "btn-xs btn-success"),
-  actionButton("clearAllParticipants", "Clear All", class = "btn-xs btn-danger", style = "margin-left: 6px;")
+  actionButton("selectAllParticipants", "all", class = "btn-xs btn-success", style = "padding:2px 6px; font-size:10px; line-height:1.2;"),
+  actionButton("clearAllParticipants", "clear", class = "btn-xs btn-danger", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;")
 )
 ```
 
@@ -22,9 +22,9 @@ observeEvent(input$clearAllParticipants, {
 defaultTrials <- c(5,10,11)
 selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
 div(style = "margin-top: 5px;",
-  actionButton("selectAllTrials", "Select All", class = "btn-xs btn-success"),
-  actionButton("selectDefaultTrials", "Select Default", class = "btn-xs btn-info", style = "margin-left: 6px;"),
-  actionButton("clearAllTrials", "Clear All", class = "btn-xs btn-danger", style = "margin-left: 6px;")
+  actionButton("selectAllTrials", "all", class = "btn-xs btn-success", style = "padding:2px 6px; font-size:10px; line-height:1.2;"),
+  actionButton("selectDefaultTrials", "default", class = "btn-xs btn-info", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;"),
+  actionButton("clearAllTrials", "clear", class = "btn-xs btn-danger", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;")
 )
 selectizeInput("filterCondition", "Condition", choices = c("control", "perturbation", "perturbation_visualization"), selected = c("control", "perturbation", "perturbation_visualization"), multiple = TRUE)
 phaseChoices <- unique(unlist(default_phases))
