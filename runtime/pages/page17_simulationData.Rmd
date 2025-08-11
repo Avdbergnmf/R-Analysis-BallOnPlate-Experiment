@@ -102,6 +102,10 @@ observe({
   
   # Get data
   data <- get_simulation_data(participant, trial)
+  if (is.null(data) || nrow(data) == 0) {
+    updateSelectizeInput(session, "sim_vars", choices = NULL, selected = NULL)
+    return()
+  }
   
   # Update available variables
   available_vars <- get_simulation_variable_choices(data)
@@ -110,7 +114,7 @@ observe({
     prev <- isolate(input$sim_vars)
     keep <- intersect(prev, available_vars)
     if (length(keep) == 0) {
-      keep <- intersect(c("q", "x", "e", "e_total_needed"), available_vars)
+      keep <- intersect(c("q", "x", "dist_to_escape"), available_vars)
       if (length(keep) == 0) keep <- available_vars[1]
     }
     updateSelectizeInput(session, "sim_vars",
@@ -123,7 +127,9 @@ observe({
 # Trajectory plot
 output$sim_trajPlot <- renderPlotly({
   data <- sim_data()
-  req(data, nrow(data) > 0)
+  if (is.null(data) || nrow(data) == 0) {
+    return(plotly::plot_ly() %>% layout(title = "No simulation data available for this trial"))
+  }
   
   # Prepare axis limits
   xlim <- if (!is.na(input$sim_xlim_min) && !is.na(input$sim_xlim_max)) 
@@ -154,7 +160,9 @@ output$sim_trajPlot <- renderPlotly({
 output$sim_tsPlot <- renderPlotly({
   data <- sim_data()
   vars <- input$sim_vars
-  req(data, nrow(data) > 0, length(vars) > 0)
+  if (is.null(data) || nrow(data) == 0 || length(vars) == 0) {
+    return(plotly::plot_ly() %>% layout(title = "No data/variables selected"))
+  }
   
   # Use the plotting function
   tryCatch({
