@@ -774,9 +774,17 @@ plot_simulation_timeseries <- function(data, vars, downsampling = 1,
       var_name <- var_name_map[var]
       if (is.na(var_name)) var_name <- var
 
+      # Coerce logical/factor to numeric so they can plot alongside continuous data
+      y_values <- data[[var]]
+      if (is.logical(y_values)) {
+        y_values <- as.integer(y_values) # TRUE->1, FALSE->0
+      } else if (is.factor(y_values)) {
+        y_values <- as.numeric(y_values)
+      }
+
       p <- p %>% add_trace(
         x = data$simulation_time, # Use simulation time instead of Unity time
-        y = data[[var]],
+        y = y_values,
         type = "scatter",
         mode = "lines",
         name = var_name,
