@@ -272,7 +272,7 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
 get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE) {
   # Check if file exists
   if (!check_file_exists(participant, trackerType, trialNum)) {
-    message(sprintf("File does not exist for participant %s, tracker %s, trial %d", participant, trackerType, trialNum))
+    message(sprintf("File does not exist for participant %s, tracker %s, trial %s", participant, trackerType, as.character(trialNum)))
     return(NULL)
   }
 

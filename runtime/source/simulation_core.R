@@ -87,6 +87,16 @@ compute_velocities_from_qd <- function(df) {
 }
 
 post_process_df <- function(df) {
+  # Drop invalid samples with non-positive or missing dt to avoid divide-by-zero
+  if ("dt" %in% colnames(df)) {
+    remove_mask <- is.na(df$dt) | df$dt == 0 | df$dt < 0
+    removed_n <- sum(remove_mask, na.rm = TRUE)
+    if (removed_n > 0) {
+      cat(sprintf("[INFO] post_process_df: removed %d samples with non-positive/NA dt.\n", removed_n))
+      df <- df[!remove_mask, , drop = FALSE]
+    }
+  }
+
   # First compute velocities from qd (cleaner signal)
   df <- compute_velocities_from_qd(df)
 
@@ -106,18 +116,16 @@ post_process_df <- function(df) {
   vy <- df$vy_from_qd
 
   # For world velocities, we still need to add plate motion
-  # dx_world/dt = dx/dt + dp/dt = vx + plate_velocity
-  # We can get plate velocity from the plate position differences
-  dp <- c(diff(df$p), NA)
-  plate_velocity <- dp / dt
-  plate_velocity[length(plate_velocity)] <- 0 # Set last element to 0
+  plate_velocity <- df$pVel
 
   vx_world <- vx + plate_velocity
 
   # Accelerations from the cleaner velocities
   ax <- c(diff(vx), NA) / dt
-  ax_world <- c(diff(vx_world), NA) / dt
   ay <- c(diff(vy), NA) / dt
+
+  plate_acc <- df$pAcc
+  ax_world <- ax + plate_acc
 
   # replace the NA's in the last row with zeros
   ax[length(ax)] <- ax_world[length(ax_world)] <- ay[length(ay)] <- 0

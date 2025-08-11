@@ -17,6 +17,8 @@ get_simulation_parameters <- function() {
         q = "Arc-length Position",
         p = "Plate Position",
         pInput = "Input Plate Position",
+        pVel = "Plate Velocity",
+        pAcc = "Plate Acceleration",
 
         # Velocity parameters
         vx = "X Velocity (plate-relative)",
@@ -45,6 +47,7 @@ get_simulation_parameters <- function() {
         # Safety parameters
         margin_E = "Energy Margin",
         danger = "Danger Level",
+        dist_to_escape = "Distance to Escape",
         e_total_needed = "Total Energy Needed to Escape",
 
         # Coordinate parameters
@@ -71,6 +74,8 @@ get_simulation_variable_names <- function() {
         `simulation_time` = "Simulation Time",
         `p` = "Plate Position",
         `pInput` = "Input Plate Position",
+        `pVel` = "Plate Velocity",
+        `pAcc` = "Plate Acceleration",
         `q` = "Arc-length Position",
         `qd` = "Arc-length Velocity",
         `qdd` = "Arc-length Acceleration",
@@ -123,7 +128,6 @@ get_simulation_variable_names <- function() {
 get_simulation_data <- function(participant, trial) {
     # Load raw simulation data and apply trial duration capping
     sim_data <- get_t_data(participant, "sim", trial)
-    # Data already trimmed in get_t_data(); no extra capping needed
 
     # Filter out non-simulation steps
     sim_data <- sim_data %>%
@@ -134,32 +138,29 @@ get_simulation_data <- function(participant, trial) {
     }
 
     # Get level data for arcDeg and apply trial duration capping
-    level_data <- get_t_data(participant, "level", trial)
-    # Data already trimmed in get_t_data(); no extra capping needed
-
-    # Process the simulation data
-    sim_data <- process_simulation_data(sim_data, level_data)
-
-    # Load task data and apply trial duration capping
-    task_data <- get_t_data(participant, "task", trial)
-    # Data already trimmed in get_t_data(); no extra capping needed
-
-    if (!is.null(task_data) && nrow(task_data) > 0) {
-        # Add pInput if available
-        if (all(c("time", "pInput") %in% colnames(task_data))) {
-            sim_data <- left_join(sim_data, task_data %>% select(time, pInput), by = "time")
-        }
-
-        # Add running score if available
-        if ("score" %in% colnames(task_data)) {
-            sim_data <- left_join(sim_data, task_data %>% select(time, score), by = "time")
-        }
-
-        # Add time_in_bowl if available
-        if ("time_in_bowl" %in% colnames(task_data)) {
-            sim_data <- left_join(sim_data, task_data %>% select(time, time_in_bowl), by = "time")
-        }
+    level_data <- get_t_data(participant, "level", trial, apply_udp_trimming = FALSE)
+    # If level data is missing or empty, log an error but continue.
+    # Using cat() ensures it is captured by captureOutput in parallel logs.
+    if (is.null(level_data) || nrow(level_data) == 0) {
+        cat(sprintf(
+            "[ERROR] Level data not found or empty for participant %s, trial %s (tracker: level). Proceeding with default arcDeg=180.\n",
+            as.character(participant), as.character(trial)
+        ))
+        # Allow downstream code to handle missing level data (assign_arc_degrees will default to 180)
     }
+
+    # Load task data and merge columns
+    task_data <- get_t_data(participant, "task", trial)
+    if (!is.null(task_data) && nrow(task_data) > 0) {
+        sim_data <- left_join(
+            sim_data,
+            task_data %>% select(time, pInput, pVel, pAcc, score, time_in_bowl),
+            by = "time"
+        )
+    }
+
+    # Process the simulation data (now with task columns available)
+    sim_data <- process_simulation_data(sim_data, level_data)
 
     # DEBUG: Check if time_in_bowl column successfully merged and resolve duplicates if needed
     time_in_bowl_like <- grep("^time_in_bowl", colnames(sim_data), value = TRUE)
@@ -212,7 +213,7 @@ process_simulation_data <- function(sim_data, level_data) {
     sim_data <- ensure_qdd_column(sim_data)
 
     # Step 8: Add energy, power, and safety metrics
-    representative_arcDeg <- tail(sim_data$arcDeg, 1)
+    representative_arcDeg <- tail(sim_data$arcDeg, 1) ################### HERE
     representative_shape <- CircularProfileShape$new(
         R = 5.0, arcDeg = representative_arcDeg, L = 0,
         mu_d = 0.03, mu_s = 0.05, damping = 0, g = 9.81
@@ -264,7 +265,6 @@ calculate_coordinates <- function(data) {
     if (length(artificial_indices) > 0) {
         data$x[artificial_indices] <- 0
         data$y[artificial_indices] <- 0
-        data$q_max[artificial_indices] <- 0
     }
 
     # Add world coordinates in same step
@@ -354,8 +354,8 @@ assign_arc_degrees <- function(sim_data, level_data) {
     }
 
     level_data <- level_data[order(level_data$time), ]
-    level_indices <- findInterval(sim_data$time, level_data$time, rightmost.closed = TRUE)
-    level_indices[level_indices == 0] <- 1
+    level_indices <- findInterval(sim_data$time, level_data$time)
+    level_indices[level_indices == 0] <- 1 # Fixes a bug in the recording where it records level 0 at the start of the trial
 
     sim_data$arcDeg <- level_data$deg[level_indices]
     sim_data$arcDeg[is.na(sim_data$arcDeg)] <- 180
