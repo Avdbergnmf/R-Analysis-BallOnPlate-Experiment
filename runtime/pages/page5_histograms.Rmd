@@ -44,6 +44,16 @@ numericInput("bin", "Bin width",
 checkboxInput("enableHistograms", "Enable histogram plotting",
   value = FALSE
 )
+
+# Show simulation-specific filter only when simulation data type is selected
+conditionalPanel(
+  condition = "input.dataType == 'simulation'",
+  checkboxInput(
+    "sim_only_on_plate",
+    "Only samples when ball is on the plate",
+    value = TRUE
+  )
+)
 ```
 
 Column
@@ -72,6 +82,11 @@ currentData <- reactive({
     # Use simulation data if available
     sim_data <- filteredSimulationData()
     if (nrow(sim_data) > 0) {
+      # Optionally filter to only samples where the ball is on the plate
+      if (!is.null(input$sim_only_on_plate) && input$sim_only_on_plate &&
+          ("simulating" %in% colnames(sim_data))) {
+        sim_data <- sim_data[sim_data$simulating == TRUE, , drop = FALSE]
+      }
       return(sim_data)
     } else {
       # Return empty data frame with expected structure
