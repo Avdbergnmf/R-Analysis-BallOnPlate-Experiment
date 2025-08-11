@@ -1,15 +1,48 @@
 #### Participant Filtering
 ```{r}
 selectizeInput("filterParticipants", "Participants", choices = participants, selected = participants, multiple = TRUE)
+div(style = "margin-top: 5px;",
+  actionButton("selectAllParticipants", "Select All", class = "btn-xs btn-success"),
+  actionButton("clearAllParticipants", "Clear All", class = "btn-xs btn-danger", style = "margin-left: 6px;")
+)
+```
+
+```{r, context="server"}
+observeEvent(input$selectAllParticipants, {
+  updateSelectizeInput(session, "filterParticipants", selected = participants)
+}, ignoreInit = TRUE)
+
+observeEvent(input$clearAllParticipants, {
+  updateSelectizeInput(session, "filterParticipants", selected = character(0))
+}, ignoreInit = TRUE)
 ```
 
 #### Trial Filtering
 ```{r}
 defaultTrials <- c(5,10,11)
 selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
+div(style = "margin-top: 5px;",
+  actionButton("selectAllTrials", "Select All", class = "btn-xs btn-success"),
+  actionButton("selectDefaultTrials", "Select Default", class = "btn-xs btn-info", style = "margin-left: 6px;"),
+  actionButton("clearAllTrials", "Clear All", class = "btn-xs btn-danger", style = "margin-left: 6px;")
+)
 selectizeInput("filterCondition", "Condition", choices = c("control", "perturbation", "perturbation_visualization"), selected = c("control", "perturbation", "perturbation_visualization"), multiple = TRUE)
 phaseChoices <- unique(unlist(default_phases))
 selectizeInput("filterPhase", "Phase", choices = phaseChoices, selected = phaseChoices, multiple = TRUE)
+```
+
+```{r, context="server"}
+observeEvent(input$selectAllTrials, {
+  updateSelectizeInput(session, "filterTrials", selected = allTrials)
+}, ignoreInit = TRUE)
+
+observeEvent(input$clearAllTrials, {
+  updateSelectizeInput(session, "filterTrials", selected = character(0))
+}, ignoreInit = TRUE)
+
+observeEvent(input$selectDefaultTrials, {
+  updateSelectizeInput(session, "filterTrials", selected = c(5, 10, 11))
+}, ignoreInit = TRUE)
 ```
 
 #### Step Filtering
