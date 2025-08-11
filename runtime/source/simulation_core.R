@@ -88,13 +88,11 @@ compute_velocities_from_qd <- function(df) {
 
 post_process_df <- function(df) {
   # Drop invalid samples with non-positive or missing dt to avoid divide-by-zero
-  if ("dt" %in% colnames(df)) {
-    remove_mask <- is.na(df$dt) | df$dt == 0 | df$dt < 0
-    removed_n <- sum(remove_mask, na.rm = TRUE)
-    if (removed_n > 0) {
-      cat(sprintf("[INFO] post_process_df: removed %d samples with non-positive/NA dt.\n", removed_n))
-      df <- df[!remove_mask, , drop = FALSE]
-    }
+  remove_mask <- is.na(df$dt) | df$dt < 0.001
+  removed_n <- sum(remove_mask, na.rm = TRUE)
+  if (removed_n > 0) {
+    cat(sprintf("[INFO] post_process_df: removed %d samples with non-positive/NA dt.\n", removed_n))
+    df <- df[!remove_mask, , drop = FALSE]
   }
 
   # First compute velocities from qd (cleaner signal)
