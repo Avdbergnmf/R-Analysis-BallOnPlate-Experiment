@@ -45,6 +45,27 @@ load_or_calculate <- function(filePath,
                               parallel = USE_PARALLEL,
                               force_recalc = FORCE_RECALC,
                               stop_cluster = FALSE) {
+    # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
+    if (parallel && stop_cluster) {
+        on.exit(
+            {
+                if (exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)) {
+                    tryCatch(
+                        {
+                            cl_to_stop <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+                            stopCluster(cl_to_stop)
+                        },
+                        error = function(e) {
+                            warning("Failed to stop global parallel cluster: ", e$message)
+                        }
+                    )
+                    rm(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+                }
+            },
+            add = TRUE
+        )
+    }
+
     if (!force_recalc && file.exists(filePath)) {
         data <- readRDS(filePath)
     } else {
@@ -83,19 +104,6 @@ load_or_calculate <- function(filePath,
         data <- calculate_function(loop_function)
 
         saveRDS(data, filePath)
-        # Optionally stop and clean up the global cluster
-        if (stop_cluster && parallel && exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)) {
-            tryCatch(
-                {
-                    cl_to_stop <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
-                    stopCluster(cl_to_stop)
-                },
-                error = function(e) {
-                    warning("Failed to stop global parallel cluster: ", e$message)
-                }
-            )
-            rm(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
-        }
     }
     return(data)
 }
