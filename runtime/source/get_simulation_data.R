@@ -76,6 +76,8 @@ get_simulation_variable_names <- function() {
         `pInput` = "Input Plate Position",
         `pVel` = "Plate Velocity",
         `pAcc` = "Plate Acceleration",
+        `time_in_bowl` = "Time in Bowl",
+        `ball_in_bowl` = "Ball In Bowl Status",
         `q` = "Arc-length Position",
         `qd` = "Arc-length Velocity",
         `qdd` = "Arc-length Acceleration",
@@ -154,9 +156,19 @@ get_simulation_data <- function(participant, trial) {
     if (!is.null(task_data) && nrow(task_data) > 0) {
         sim_data <- left_join(
             sim_data,
-            task_data %>% select(time, pInput, pVel, pAcc, score, time_in_bowl),
+            task_data %>% select(time, pInput, pVel, pAcc, score, time_in_bowl, ball_in_bowl),
             by = "time"
         )
+        # Remove samples where pVel == 0 and time_in_bowl < 0.001 (near-zero dwell in bowl with no plate motion)
+        remove_mask <- is.finite(sim_data$pVel) & sim_data$pVel == 0 &
+            is.finite(sim_data$time_in_bowl) & sim_data$time_in_bowl < 1e-3
+        removed_n <- sum(remove_mask, na.rm = TRUE)
+        if (removed_n > 0) {
+            cat(sprintf("[INFO] Removed %d samples with pVel == 0 and time_in_bowl < 0.001.\n", removed_n))
+            sim_data <- sim_data[!remove_mask, , drop = FALSE]
+        } else {
+            cat("[INFO] No samples removed with pVel == 0 and time_in_bowl < 0.001.\n")
+        }
     }
 
     # Process the simulation data (now with task columns available)
