@@ -182,6 +182,8 @@ initialize_global_parameters <- function() {
     phase_map <<- c(
         "baseline" = "BL",
         "training" = "TR",
+        "training1" = "TR1",
+        "training2" = "TR2",
         "retention" = "RE",
         "transfer" = "TF",
         "washout" = "WO",
@@ -436,6 +438,7 @@ clean_effect_name <- function(effect_name, input_vars) {
         # Escape special regex characters in the variable name
         escaped_var <- escape_regex_chars(var)
         # Use word boundary or end of string to ensure we match the complete variable name
+        # Avoid matching substrings of the variable name by requiring the rest to be recognized factor levels
         pattern <- paste0("^", escaped_var, "(?=", paste(factor_levels, collapse = "|"), "|$)")
         if (grepl(pattern, effect_name, perl = TRUE)) {
             return(var)
