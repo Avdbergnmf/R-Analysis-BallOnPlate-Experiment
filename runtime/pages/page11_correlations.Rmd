@@ -14,23 +14,29 @@ numericInput("heatmap_bins", "Bins heatmaps", min = 0, max = Inf, value = 30, st
 # Add selectors for x and y inputs for the correlation plot
 selectizeInput("xVar", "X Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("yVar", "Y Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
+checkboxInput("interactive_correlation", "Interactive plot", value = FALSE)
 ```
 
 Column
 --------------------------------------------
 
-### Correlation Plots  {data-height=500}
+### Correlation Plots  {data-height=1000}
 This page allows you to run some correlation tests on the selected data based on the settings on the left.
 
 ```{r}
-# Add plot output for the correlation plot
-imageOutput("correlation_plot")
+# Dynamic plot container (switches between static SVG and interactive Plotly)
+uiOutput("correlation_plot_ui")
 ```
 
 
 ### Correlation Results  {data-height=500}
 ```{r}
 verbatimTextOutput("correlation_text")
+```
+
+### Assumption Checks  {data-height=400}
+```{r}
+verbatimTextOutput("correlation_assumptions")
 ```
 
 ### Homoscedasticity check
@@ -94,100 +100,19 @@ create_dynamic_variable_observer(
 
 output$correlation_text <- renderPrint({
   dt <- get_correlation_data()
-  
-  # Check if we have sufficient data for analysis
-  if (nrow(dt) < 2) {
-    cat("ERROR: Insufficient data for correlation analysis.\n")
-    cat("You need at least 2 data points (participants/observations) for statistical analysis.\n")
-    cat("Current dataset has", nrow(dt), "rows.\n")
-    cat("Please add more participants or check your data filtering settings.\n")
-    return()
+  # Minimal validation & simpler output
+  if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
+      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    cat("Insufficient or invalid data for correlation analysis.\n"); return()
   }
-  
-  # Check if selected variables exist and are numeric
-  if (!input$xVar %in% names(dt)) {
-    cat("ERROR: X variable '", input$xVar, "' not found in dataset.\n")
-    return()
-  }
-  
-  if (!input$yVar %in% names(dt)) {
-    cat("ERROR: Y variable '", input$yVar, "' not found in dataset.\n")
-    return()
-  }
-  
-  if (!is.numeric(dt[[input$xVar]])) {
-    cat("ERROR: X variable '", input$xVar, "' is not numeric.\n")
-    cat("Type:", class(dt[[input$xVar]]), "\n")
-    return()
-  }
-  
-  if (!is.numeric(dt[[input$yVar]])) {
-    cat("ERROR: Y variable '", input$yVar, "' is not numeric.\n") 
-    cat("Type:", class(dt[[input$yVar]]), "\n")
-    return()
-  }
-  
-  # Check for variation in the data
-  if (length(unique(dt[[input$xVar]])) < 2) {
-    cat("ERROR: X variable '", input$xVar, "' has no variation (all values identical).\n")
-    cat("Unique values:", unique(dt[[input$xVar]]), "\n")
-    return()
-  }
-  
-  if (length(unique(dt[[input$yVar]])) < 2) {
-    cat("ERROR: Y variable '", input$yVar, "' has no variation (all values identical).\n")
-    cat("Unique values:", unique(dt[[input$yVar]]), "\n")
-    return()
-  }
-  
-  cat("---CHECKING PARAMETRIC ASSUMPTIONS---\n")
-  # Check normality of the selected variables
-  cat("Number of datapoints: ", nrow(dt), "\n")
-  
-  # Only run Shapiro test if we have enough data points and variation
-  if (nrow(dt) >= 3 && nrow(dt) <= 5000) {  # Shapiro test works for n=3 to n=5000
-    tryCatch({
-      shapiro_x <- shapiro.test(dt[[input$xVar]])
-      shapiro_y <- shapiro.test(dt[[input$yVar]])
-      print(shapiro_x)
-      print(shapiro_y)
-    }, error = function(e) {
-      cat("Could not perform Shapiro test:", e$message, "\n")
-    })
-  } else {
-    cat("Shapiro test skipped (requires 3-5000 data points with variation)\n")
-  }
-  
-  # Check homoscedasticity: Breusch-Pagan test
-  tryCatch({
-    model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
-    bp_test <- bptest(model)
-    cat("Breusch-Pagan Test for Homoscedasticity:\n")
-    print(bp_test)
-
-    # Interpretation of homoscedasticity
-    if (bp_test$p.value > 0.05) {
-      cat("Interpretation: The p-value is", bp_test$p.value, 
-          "> 0.05, so we assume homoscedasticity.\n")
-    } else {
-      cat("Interpretation: The p-value is", bp_test$p.value, 
-          "< 0.05, indicating that the homoscedasticity assumption is violated.\n")
-    }
-  }, error = function(e) {
-    cat("Could not perform Breusch-Pagan test:", e$message, "\n")
-  })
-  
-  cat("Also check plot:\n")
-  cat("  - The x-axis represents the fitted values, and the y-axis represents the residuals.\n  - Ideally, the residuals should be randomly scattered around the horizontal line at 0, without any clear pattern, indicating homoscedasticity.\n")
-  
-  # Determine correlation method based on input
-  cat("---CORRELATION RESULTS---\n\n")
+  cat("--- CORRELATION RESULTS ---\n")
   method <- switch(input$par,
                    parametric = "pearson",
                    nonparametric = "spearman",
                    bayes = "bayes",
                    robust = "robust")
-  print(paste("Using method:",method))
+  cat("Method:", method, "\n")
   
   # Calculate correlation
   tryCatch({
@@ -201,24 +126,13 @@ output$correlation_text <- renderPrint({
       cat(result_text, "\n")
     } else {
       correlation <- cor.test(dt[[input$xVar]], dt[[input$yVar]], method = method)
-      result_text <- paste("Correlation between", input$xVar, "and", input$yVar, ":",
-                           correlation$estimate, "\n",
-                           "p-value:", correlation$p.value, "\n",
-                           "Confidence interval:", correlation$conf.int[1], "-", correlation$conf.int[2])
-      cat(result_text, "\n")
-      
-      # Additional information
-      if (abs(correlation$estimate) > 0.7) {
-        strength <- "strong"
-      } else if (abs(correlation$estimate) > 0.5) {
-        strength <- "moderate"
-      } else {
-        strength <- "weak"
-      }
-      
+      cat("r:", correlation$estimate, " p:", correlation$p.value, " CI:",
+          correlation$conf.int[1], "-", correlation$conf.int[2], "\n")
+      # Additional info: strength + significance
+      est_val <- as.numeric(correlation$estimate)
+      strength <- if (abs(est_val) > 0.7) "strong" else if (abs(est_val) > 0.5) "moderate" else "weak"
       cat("The correlation is", strength, "\n")
-      
-      if (correlation$p.value < 0.05) {
+      if (is.finite(correlation$p.value) && correlation$p.value < 0.05) {
         cat("The correlation is statistically significant.\n")
       } else {
         cat("The correlation is not statistically significant.\n")
@@ -227,6 +141,50 @@ output$correlation_text <- renderPrint({
   }, error = function(e) {
     cat("Could not calculate correlation:", e$message, "\n")
   })
+})
+
+# Detailed assumption checks output
+output$correlation_assumptions <- renderPrint({
+  dt <- get_correlation_data()
+  # Basic validity
+  if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
+      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    cat("Insufficient or invalid data for assumption checks.\n"); return()
+  }
+
+  cat("---CHECKING PARAMETRIC ASSUMPTIONS---\n")
+  cat("Number of datapoints: ", nrow(dt), "\n")
+
+  # Shapiro-Wilk normality tests (only if within valid range)
+  if (nrow(dt) >= 3 && nrow(dt) <= 5000) {
+    tryCatch({
+      shapiro_x <- shapiro.test(dt[[input$xVar]])
+      shapiro_y <- shapiro.test(dt[[input$yVar]])
+      cat("Shapiro-Wilk test (X variable):\n"); print(shapiro_x)
+      cat("\nShapiro-Wilk test (Y variable):\n"); print(shapiro_y)
+    }, error = function(e) {
+      cat("Could not perform Shapiro tests:", e$message, "\n")
+    })
+  } else {
+    cat("Shapiro test skipped (requires 3-5000 data points with variation)\n")
+  }
+
+  # Breusch-Pagan test for homoscedasticity
+  tryCatch({
+    model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
+    bp_test <- bptest(model)
+    cat("\nBreusch-Pagan Test for Homoscedasticity:\n"); print(bp_test)
+    if (bp_test$p.value > 0.05) {
+      cat("Interpretation: p-value =", bp_test$p.value, "> 0.05 → assume homoscedasticity.\n")
+    } else {
+      cat("Interpretation: p-value =", bp_test$p.value, "< 0.05 → possible heteroscedasticity.\n")
+    }
+  }, error = function(e) {
+    cat("Could not perform Breusch-Pagan test:", e$message, "\n")
+  })
+
+  cat("\nAlso check residuals vs fitted plot for visual assessment.\n")
 })
 
 output$homoscedasticity_plot <- renderSVG({ reactive({
@@ -276,7 +234,15 @@ output$homoscedasticity_plot <- renderSVG({ reactive({
 }) })
 
 
-output$correlation_plot <- renderSVG({ reactive({
+output$correlation_plot_ui <- renderUI({
+  if (isTRUE(input$interactive_correlation)) {
+    plotlyOutput("correlation_plotly")
+  } else {
+    imageOutput("correlation_plot_svg")
+  }
+})
+
+output$correlation_plot_svg <- renderSVG({ reactive({
   dt <- get_correlation_data()
   
   # Check if we have sufficient data
@@ -309,16 +275,30 @@ output$correlation_plot <- renderSVG({ reactive({
     return()
   }
   
-  tryCatch({
-    x_var <- sym(input$xVar)
-    y_var <- sym(input$yVar)
-    
-    plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
-  }, error = function(e) {
-    plot.new()
-    text(0.5, 0.5, paste("Error creating plot:", e$message), 
-         cex = 1, col = "red", adj = 0.5)
-  })
-}) 
+  plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
+}) })
+
+output$correlation_plotly <- renderPlotly({
+  dt <- get_correlation_data()
+  if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
+      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    return(plotly::plot_ly() %>% layout(title = "Insufficient/invalid data"))
+  }
+  hover_text <- paste0(
+    "Participant: ", if ("participant" %in% names(dt)) as.character(dt$participant) else "?",
+    "<br>", input$xVar, ": ", signif(dt[[input$xVar]], 4),
+    "<br>", input$yVar, ": ", signif(dt[[input$yVar]], 4)
+  )
+  plotly::plot_ly(
+    data = dt,
+    x = ~get(input$xVar), y = ~get(input$yVar), type = 'scatter', mode = 'markers',
+    text = hover_text, hoverinfo = 'text', marker = list(size = 8, color = 'steelblue')
+  ) %>% layout(
+    xaxis = list(title = input$xVar),
+    yaxis = list(title = input$yVar),
+    width = input$plotwidth,
+    height = input$plotheight
+  )
 })
 ```

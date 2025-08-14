@@ -56,7 +56,7 @@ udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
 udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
 
 # Load or calculate the data using the global parallel setting
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results)
+allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
 allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 
 

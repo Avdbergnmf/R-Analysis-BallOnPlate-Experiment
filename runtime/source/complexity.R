@@ -754,11 +754,10 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
     ))
   }
 
-  # Update datasets to verify - include simulation data sources if continuous analysis is requested
+  # Verify only gait data so non-task trials (e.g., 3, 9) are included.
+  # Continuous metrics will be attempted opportunistically inside the worker
+  # if simulation/task data exist, but are not required to run.
   datasets_to_verify <- c("leftfoot", "rightfoot")
-  if (include_continuous) {
-    datasets_to_verify <- c(datasets_to_verify, "sim", "task")
-  }
 
   # Use the provided loop function
   result <- loop_function(complexity_function, datasets_to_verify = datasets_to_verify)
