@@ -51,7 +51,7 @@ HTML('<div class="section-header">📂 Import/Export</div>')
 
 fluidRow(
   column(6,
-    actionButton("load_manual_outliers", "📂 Load Manual Files", 
+    actionButton("load_manual_outliers", "📂 Load Outlier Files", 
                  class = "btn-info", style = "width: 100%;")
   ),
   column(6,
