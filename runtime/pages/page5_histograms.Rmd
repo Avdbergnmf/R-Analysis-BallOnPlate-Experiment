@@ -311,7 +311,7 @@ output$hist_plotly <- renderPlotly({
       xlim(0, 1) + ylim(0, 1) +
       theme_void() +
       ggtitle("Histogram Plotting Disabled")
-    return(ggplotly(p, dynamicTicks = TRUE))
+    return(ggplotly(p, dynamicTicks = TRUE, height = plotHeight()))
   }
 
   # Use current data source
@@ -331,12 +331,12 @@ output$hist_plotly <- renderPlotly({
       xlim(0, 1) + ylim(0, 1) +
       theme_void() +
       ggtitle("No Data Available")
-    return(ggplotly(p, dynamicTicks = TRUE))
+    return(ggplotly(p, dynamicTicks = TRUE, height = plotHeight()))
   }
 
   # Create histogram with available data and convert to Plotly
   p <- make_histogram(data, get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
-  ggplotly(p, tooltip = "all", dynamicTicks = TRUE)
+  ggplotly(p, tooltip = "all", dynamicTicks = TRUE, height = plotHeight())
 })
 
 # Add mean tables
