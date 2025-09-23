@@ -103,14 +103,14 @@ output$full_results_table_interactive_13 <- DT::renderDataTable({
       scrollY = "800px",
       scrollCollapse = TRUE,
       fixedHeader = FALSE,
+      autoWidth = TRUE,
       search = list(regex = TRUE, caseInsensitive = TRUE),
       dom = 'Bfrtip',
-      columnDefs = list(
-        list(width = "80px", targets = "_all")
-      )
+      columnDefs = list()
     ),
     selection = 'single',
-    filter = 'top'
+    filter = 'top',
+    escape = FALSE
   ) %>%
     DT::formatStyle(columns = 1:ncol(dt), fontSize = '12px')
 })
