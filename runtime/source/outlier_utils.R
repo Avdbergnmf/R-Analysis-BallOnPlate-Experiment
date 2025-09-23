@@ -83,6 +83,47 @@ find_closest_heel_strikes <- function(outliers, data_source, search_tolerance = 
     matches
 }
 
+#' Find the single closest heel strike (first match only)
+#'
+#' Convenience wrapper around `find_closest_heel_strikes()` that returns only the
+#' first matched heel strike row. Intended for cases where a single match is
+#' sufficient.
+#'
+#' @param outlier            A single-row data frame describing the target outlier
+#'                           (must include `participant`, `trialNum`, `time`).
+#'                           If multiple rows are provided, only the first will be used.
+#' @param data_source        Data frame containing heel strike data
+#' @param search_tolerance   Maximum time difference to search for potential matches (seconds)
+#' @param grouping_tolerance Maximum time difference to group steps together (seconds)
+#' @return A one-row data.table/data.frame with the first matched heel strike, or NULL if none
+find_closest_heel_strike <- function(outlier,
+                                     data_source,
+                                     search_tolerance = 0.03,
+                                     grouping_tolerance = 0.001) {
+    if (is.null(outlier) || nrow(outlier) == 0) {
+        return(NULL)
+    }
+
+    # Use only the first row if more than one provided
+    if (nrow(outlier) > 1) {
+        outlier <- outlier[1, , drop = FALSE]
+    }
+
+    matches <- find_closest_heel_strikes(
+        outliers = outlier,
+        data_source = data_source,
+        search_tolerance = search_tolerance,
+        grouping_tolerance = grouping_tolerance
+    )
+
+    if (is.null(matches) || nrow(matches) == 0) {
+        return(NULL)
+    }
+
+    # Return only the first match
+    return(matches[1, ])
+}
+
 #' Check if a heel strike is marked as an outlier
 #'
 #' @param participant Participant identifier
