@@ -1882,8 +1882,12 @@ observeEvent(input$apply_to_workspace, {
 
     # Find heel strikes to remove
     hs_matches  <- find_closest_heel_strikes(current_hs_outliers, gait_dt, threshold)
-    rows_to_remove <- if (!is.null(hs_matches)) gait_dt[hs_matches,
-                          on = .(participant, trialNum, time), which = TRUE] else integer(0)
+    if (!is.null(hs_matches) && nrow(hs_matches) > 0) {
+      hs_matches <- data.table::as.data.table(hs_matches)
+      rows_to_remove <- gait_dt[hs_matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
+    } else {
+      rows_to_remove <- integer(0)
+    }
 
     # Build summary string
     hs_impact_details <- if (length(rows_to_remove)) {
@@ -1897,8 +1901,12 @@ observeEvent(input$apply_to_workspace, {
     
     # --- Calculate Step Outlier Markings ---
     step_matches <- find_closest_heel_strikes(current_step_outliers, gait_dt, threshold)
-    rows_to_mark <- if (!is.null(step_matches)) gait_dt[step_matches,
-                       on = .(participant, trialNum, time), which = TRUE] else integer(0)
+    if (!is.null(step_matches) && nrow(step_matches) > 0) {
+      step_matches <- data.table::as.data.table(step_matches)
+      rows_to_mark <- gait_dt[step_matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
+    } else {
+      rows_to_mark <- integer(0)
+    }
 
     step_impact_details <- if (length(rows_to_mark)) {
       step_summary <- gait_dt[rows_to_mark, .N, by = .(participant, trialNum)]
