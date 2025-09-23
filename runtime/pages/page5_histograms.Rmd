@@ -45,6 +45,10 @@ checkboxInput("enableHistograms", "Enable histogram plotting",
   value = FALSE
 )
 
+checkboxInput("interactiveHist", "Interactive histograms (hover tooltips)",
+  value = FALSE
+)
+
 # Show simulation-specific filter only when simulation data type is selected
 conditionalPanel(
   condition = "input.dataType == 'simulation'",
@@ -62,7 +66,10 @@ Column
 ### Histograms  {data-height=1500}
 Create histograms of the step results of the selected data.
 ```{r}
-imageOutput("hist")
+tagList(
+  conditionalPanel(condition = "!input.interactiveHist", imageOutput("hist")),
+  conditionalPanel(condition = "input.interactiveHist", plotlyOutput("hist_plotly"))
+)
 ```
 
 ### Mean values
@@ -291,6 +298,45 @@ output$hist <- renderSVG({ reactive({
       make_histogram(data, get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
     }
   })
+})
+
+# Interactive histogram (Plotly)
+output$hist_plotly <- renderPlotly({
+  # Check if histogram plotting is enabled
+  if (!input$enableHistograms) {
+    p <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+              label = "Enable histogram plotting using the checkbox above", 
+              hjust = 0.5, vjust = 0.5, size = 4, color = "blue") +
+      xlim(0, 1) + ylim(0, 1) +
+      theme_void() +
+      ggtitle("Histogram Plotting Disabled")
+    return(ggplotly(p, dynamicTicks = TRUE))
+  }
+
+  # Use current data source
+  data <- currentData()
+
+  # Check if we have data
+  if (nrow(data) == 0) {
+    message <- if (input$dataType == "simulation") {
+      "No simulation data available. Please check your filters and click 'Update Simulation Data'."
+    } else {
+      "No data available for the selected filters and data type"
+    }
+    p <- ggplot() + 
+      annotate("text", x = 0.5, y = 0.5, 
+              label = message, 
+              hjust = 0.5, vjust = 0.5, size = 4, color = "red") +
+      xlim(0, 1) + ylim(0, 1) +
+      theme_void() +
+      ggtitle("No Data Available")
+    return(ggplotly(p, dynamicTicks = TRUE))
+  }
+
+  # Create histogram with available data and convert to Plotly
+  p <- make_histogram(data, get_mu_dyn_long(), FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize=input$baseSize)
+  ggplotly(p, tooltip = "all", dynamicTicks = TRUE)
 })
 
 # Add mean tables
