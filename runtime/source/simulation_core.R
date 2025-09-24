@@ -221,7 +221,23 @@ add_safety_cols <- function(df, shape) {
     danger = pmax(0, ifelse(e_total_needed > 1e-6, # Avoid division by zero
       (e - e_total_needed) / e_total_needed,
       0
-    ))
+    )),
+
+    # Time to escape: given current velocity, how long until ball falls off
+    # Calculate distance to the edge the ball is moving toward
+    # qd > 0: moving right, distance = q_max - q
+    # qd < 0: moving left, distance = q_max + q  
+    # qd ≈ 0: max 10s
+    time_to_escape = ifelse(
+      abs(qd) < 1e-6, # No velocity
+      10,# max 10s
+      ifelse(
+        qd > 0, # Moving right toward positive edge
+        pmin(10, (q_max - q) / abs(qd)),
+        # Moving left toward negative edge  
+        pmin(10, (q_max + q) / abs(qd))
+      )
+    )
   )
 }
 

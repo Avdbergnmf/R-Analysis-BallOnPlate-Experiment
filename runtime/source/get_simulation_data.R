@@ -55,6 +55,7 @@ get_simulation_parameters <- function() {
         danger = "Danger Level",
         dist_to_escape = "Distance to Escape",
         e_total_needed = "Total Energy Needed to Escape",
+        time_to_escape = "Time to Escape",
 
         # Coordinate parameters
         x = "X Position (plate-relative)",
@@ -116,6 +117,7 @@ get_simulation_variable_names <- function() {
         `work_plate` = "Plate Work",
         `margin_E` = "Energy Margin",
         `danger` = "Danger Level",
+        `time_to_escape` = "Time to Escape",
         `score` = "Score",
         `total_score` = "Total Score",
         `arcDeg` = "Arc Degrees",
@@ -451,7 +453,7 @@ zero_variables_at_indices <- function(data, indices_to_zero) {
         power_local = c("power", "work"),
         power_world = c("power_world", "work_world"),
         power_plate = c("power_plate", "work_plate"),
-        safety = c("margin_E", "danger")
+        safety = c("margin_E", "danger", "time_to_escape")
     )
 
     # Zero out each group
