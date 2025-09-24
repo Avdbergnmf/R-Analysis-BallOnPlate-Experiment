@@ -5,7 +5,7 @@ max_plot,7
 min_plot,1
 do_average,1
 comfort,1
-resistance,0
+resistance,1
 naturalness,1
 agency,3
 safety,0
