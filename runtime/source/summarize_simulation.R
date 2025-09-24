@@ -87,8 +87,8 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
             n_respawns = length(unique(respawn_segment)) - 1,
             mean_arcDeg = mean(arcDeg, na.rm = TRUE),
             n_arcDeg_changes = length(unique(arcDeg)),
-            final_work = if ("work" %in% colnames(analysis_data)) last(work, default = NA_real_) else NA_real_,
-            final_work_world = if ("work_world" %in% colnames(analysis_data)) last(work_world, default = NA_real_) else NA_real_
+            final_work = if ("work" %in% colnames(analysis_data)) max(work) else NA_real_,
+            final_work_world = if ("work_world" %in% colnames(analysis_data)) max(work_world) else NA_real_
         ) %>%
         mutate(
             n_ball_falls = n_respawns,

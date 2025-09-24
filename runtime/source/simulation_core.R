@@ -159,11 +159,11 @@ add_power_cols <- function(df) {
   df %>% mutate(
     # World power (includes plate motion effects)
     power_world = ax_world * vx_world + ay * vy, # W kg⁻¹ in world frame
-    work_world = cumsum(power_world * dt), # J kg⁻¹ cumulative work in world frame
+    work_world = cumsum(abs(power_world) * dt), # J kg⁻¹ cumulative work in world frame
 
     # Local power (plate-relative, more physically meaningful)
     power = ax * vx + ay * vy, # W kg⁻¹ relative to plate
-    work = cumsum(power * dt) # J kg⁻¹ cumulative work relative to plate
+    work = cumsum(abs(power) * dt) # J kg⁻¹ cumulative work relative to plate
   )
 }
 
