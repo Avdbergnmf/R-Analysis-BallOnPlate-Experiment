@@ -114,9 +114,7 @@ post_process_df <- function(df) {
   vy <- df$vy_from_qd
 
   # For world velocities, we still need to add plate motion
-  plate_velocity <- df$pVel
-
-  vx_world <- vx + plate_velocity
+  vx_world <- vx + df$pVel
 
   # Accelerations from the cleaner velocities
   ax <- c(diff(vx), NA) / dt
@@ -157,6 +155,10 @@ add_energy_cols <- function(df, g = 9.81) {
 #  Specific mechanical power and cumulative work  - assumes postprocess already ran
 add_power_cols <- function(df) {
   df %>% mutate(
+    # Plate power and work
+    power_plate = pAcc * pVel, # W kg⁻¹ plate power
+    work_plate = cumsum(abs(power_plate) * dt), # J kg⁻¹ cumulative work in world frame
+
     # World power (includes plate motion effects)
     power_world = ax_world * vx_world + ay * vy, # W kg⁻¹ in world frame
     work_world = cumsum(abs(power_world) * dt), # J kg⁻¹ cumulative work in world frame

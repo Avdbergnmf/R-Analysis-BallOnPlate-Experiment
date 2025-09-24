@@ -43,6 +43,12 @@ get_simulation_parameters <- function() {
         # Power parameters
         power = "Power (plate-relative)",
         power_world = "Power (world)",
+        power_plate = "Plate Power",
+
+        # Work parameters
+        work = "Work (plate-relative)",
+        work_world = "Work (world)",
+        work_plate = "Plate Work",
 
         # Safety parameters
         margin_E = "Energy Margin",
@@ -104,8 +110,10 @@ get_simulation_variable_names <- function() {
         `e_total_needed` = "Total Energy Needed to Escape",
         `power` = "Power (plate-relative)",
         `power_world` = "Power (world)",
+        `power_plate` = "Plate Power",
         `work` = "Work (plate-relative)",
         `work_world` = "Work (world)",
+        `work_plate` = "Plate Work",
         `margin_E` = "Energy Margin",
         `danger` = "Danger Level",
         `score` = "Score",
@@ -442,6 +450,7 @@ zero_variables_at_indices <- function(data, indices_to_zero) {
         energy_world = c("ke_world", "e_world"),
         power_local = c("power", "work"),
         power_world = c("power_world", "work_world"),
+        power_plate = c("power_plate", "work_plate"),
         safety = c("margin_E", "danger")
     )
 
