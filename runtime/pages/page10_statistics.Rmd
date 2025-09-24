@@ -30,9 +30,6 @@ selectizeInput("correctionMethod", "Multiple comparison correction",
   choices = c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"),
   selected = "holm", multiple = FALSE
 )
-
-checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = FALSE)
-checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
 ```
 
 
@@ -47,7 +44,6 @@ bsTooltip("indepVars",
           trigger = "hover")
 ```
 
-Further data processing:
 ```{r}
 bsTooltip("averageData_stats", 
           "Make sure to do this when looking at questionnaire data as the dependent variable.", 
@@ -97,6 +93,8 @@ tableOutput("random_effects_table")
 ##### Post-hoc tests {data-height=500}
 
 ```{r}
+checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = FALSE)
+checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
 checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = FALSE)
 ```
 
