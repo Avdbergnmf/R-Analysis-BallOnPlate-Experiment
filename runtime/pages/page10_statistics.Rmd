@@ -31,8 +31,6 @@ selectizeInput("correctionMethod", "Multiple comparison correction",
   selected = "holm", multiple = FALSE
 )
 
-checkboxInput("paired_ttest", "Use Paired t-test", value = FALSE)
-
 checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = FALSE)
 checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
 ```
@@ -71,14 +69,6 @@ bsTooltip("filter_posthoc",
           trigger = "hover")
 ```
 
-Use paired t-test instead of LMM:
-```{r}
-numericInput("num_tests", 
-             label = "Number of Comparisons:", 
-             value = 1,  # Default value
-             min = 1)  # Minimum value (must be at least one test)
-```
-
 
 Column
 --------------------------------------------
@@ -105,6 +95,21 @@ tableOutput("random_effects_table")
 ```
 
 ##### Post-hoc tests {data-height=500}
+
+```{r}
+checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = FALSE)
+```
+
+```{r}
+conditionalPanel(
+  condition = "input.paired_ttest == true",
+  numericInput("num_tests", 
+               label = "Number of Comparisons (for Bonferroni correction):", 
+               value = 1,  # Default value
+               min = 1)  # Minimum value (must be at least one test)
+)
+```
+
 ```{r}
 tableOutput("post_hoc_table")
 ```
@@ -660,7 +665,7 @@ output$post_hoc_table <- renderTable({
       }
     }
     
-    # If paired t-test is enabled, add paired t-test p-values for each comparison
+    # If paired t-test is enabled, replace the entire table with paired t-test results
     if (isTRUE(input$paired_ttest) && all(c("Effect", "contrast") %in% names(final_df))) {
       # Map pretty effect names back to one representative indep_var key
       pretty_map <- list()
@@ -707,9 +712,10 @@ output$post_hoc_table <- renderTable({
         list(left = left_levels, right = right_levels)
       }
 
-      # Compute paired p-values row-wise
-      paired_p <- rep(NA_real_, nrow(final_df))
+      # Build complete paired t-test results table
+      ttest_results <- list()
       unique_participants <- unique(dt2$participant)
+      
       for (i in seq_len(nrow(final_df))) {
         eff_pretty <- as.character(final_df$Effect[i])
         contrast_str <- as.character(final_df$contrast[i])
@@ -717,8 +723,12 @@ output$post_hoc_table <- renderTable({
         if (is.null(indep_key) || is.na(contrast_str) || !nzchar(contrast_str)) {
           next
         }
+        
         # Determine variables involved and the order used by emmeans
-        vars_involved <- unlist(strsplit(indep_key, ":"))
+        vars_involved_raw <- unlist(strsplit(indep_key, ":"))
+        # Clean the variable names to match the data column names
+        vars_involved <- sapply(vars_involved_raw, function(v) clean_effect_name(v, all_indep_vars))
+        
         lvl_pair <- parse_contrast_levels(contrast_str)
         if (is.null(lvl_pair)) next
         # Ensure level vector lengths match number of variables
@@ -739,41 +749,144 @@ output$post_hoc_table <- renderTable({
         right_vals <- c()
         for (pid in unique_participants) {
           rows_pid <- dt2$participant == pid
-          # left filter
+          
+          # left filter - using cleaned variable names
           rows_left <- rows_pid
           for (j in seq_along(vars_involved)) {
             v <- vars_involved[j]
-            if (!(v %in% names(dt2))) { rows_left <- FALSE; break }
+            if (!(v %in% names(dt2))) { 
+              rows_left <- FALSE
+              break 
+            }
             rows_left <- rows_left & (as.character(dt2[[v]]) == lvl_pair$left[j])
           }
-          # right filter
+          
+          # right filter - using cleaned variable names
           rows_right <- rows_pid
           for (j in seq_along(vars_involved)) {
             v <- vars_involved[j]
-            if (!(v %in% names(dt2))) { rows_right <- FALSE; break }
+            if (!(v %in% names(dt2))) { 
+              rows_right <- FALSE
+              break 
+            }
             rows_right <- rows_right & (as.character(dt2[[v]]) == lvl_pair$right[j])
           }
-          val_left <- suppressWarnings(mean(dt2[[dep_col]][rows_left], na.rm = TRUE))
-          val_right <- suppressWarnings(mean(dt2[[dep_col]][rows_right], na.rm = TRUE))
-          if (is.finite(val_left) && is.finite(val_right) && !is.na(val_left) && !is.na(val_right)) {
-            left_vals <- c(left_vals, val_left)
-            right_vals <- c(right_vals, val_right)
+          
+          # Calculate values only if we have valid filters
+          if (any(rows_left) && any(rows_right)) {
+            val_left <- suppressWarnings(mean(dt2[[dep_col]][rows_left], na.rm = TRUE))
+            val_right <- suppressWarnings(mean(dt2[[dep_col]][rows_right], na.rm = TRUE))
+            if (is.finite(val_left) && is.finite(val_right) && !is.na(val_left) && !is.na(val_right)) {
+              left_vals <- c(left_vals, val_left)
+              right_vals <- c(right_vals, val_right)
+            }
           }
         }
+        
+        # Perform paired t-test and collect all statistics
         if (length(left_vals) >= 2 && length(right_vals) >= 2 && length(left_vals) == length(right_vals)) {
           tt <- try(stats::t.test(left_vals, right_vals, paired = TRUE), silent = TRUE)
           if (!inherits(tt, "try-error")) {
-            paired_p[i] <- tt$p.value
+            # Calculate effect size (Cohen's d for paired samples)
+            differences <- right_vals - left_vals
+            cohens_d <- mean(differences) / sd(differences)
+            
+            # Apply multiple comparison correction if specified
+            corrected_p <- tt$p.value
+            if (input$num_tests > 1) {
+              corrected_p <- min(1, tt$p.value * input$num_tests) # Bonferroni correction
+            }
+            
+            ttest_results[[i]] <- data.frame(
+              Effect = eff_pretty,
+              Contrast = contrast_str,
+              n_pairs = length(left_vals),
+              Mean_Diff = mean(differences),
+              SD_Diff = sd(differences),
+              t_statistic = tt$statistic,
+              df = tt$parameter,
+              p_value = tt$p.value,
+              corrected_p = corrected_p,
+              CI_lower = tt$conf.int[1],
+              CI_upper = tt$conf.int[2],
+              Cohens_d = cohens_d,
+              stringsAsFactors = FALSE
+            )
           }
         }
       }
-      final_df$paired_t_p <- paired_p
+      
+      # Combine all t-test results
+      if (length(ttest_results) > 0) {
+        final_df <- do.call(rbind, ttest_results)
+        rownames(final_df) <- NULL
+        
+        # Apply filtering if requested
+        if (input$filter_posthoc) {
+          # Function to check if a comparison is meaningful (at least one level matches)
+          is_meaningful_comparison <- function(contrast_str, effect_name) {
+            # Split the contrast into left and right sides
+            parts <- strsplit(contrast_str, " - ")[[1]]
+            if (length(parts) != 2) return(TRUE) # Keep if we can't parse it
+            
+            left_side <- parts[1]
+            right_side <- parts[2]
+            
+            # For main effects, just check if the variable names match
+            if (!grepl(" × ", effect_name)) {
+              # For main effects, all comparisons are meaningful
+              return(TRUE)
+            }
+            
+            # For interactions, check if at least one level matches
+            # Split the interaction effect name to get the variables
+            effect_vars <- strsplit(effect_name, " × ")[[1]]
+            
+            # Split left and right sides by spaces to get individual levels
+            left_levels <- strsplit(left_side, " ")[[1]]
+            right_levels <- strsplit(right_side, " ")[[1]]
+            
+            # Check if at least one level matches between left and right sides
+            for (i in seq_along(left_levels)) {
+              if (left_levels[i] == right_levels[i]) {
+                return(TRUE) # Found a matching level
+              }
+            }
+            
+            return(FALSE) # No matching levels found
+          }
+          
+          # Apply filtering
+          meaningful_rows <- sapply(seq_len(nrow(final_df)), function(i) {
+            is_meaningful_comparison(final_df$Contrast[i], final_df$Effect[i])
+          })
+          
+          final_df <- final_df[meaningful_rows, , drop = FALSE]
+          
+          # Add a note about filtering
+          if (nrow(final_df) == 0) {
+            final_df <- data.frame(Message = "No meaningful comparisons found after filtering.")
+          }
+        }
+      } else {
+        final_df <- data.frame(Message = "No valid paired t-test comparisons could be computed.")
+      }
     }
 
     # Format the numbers to display more digits and make significant p-values bold
-    final_df <- set_digits_with_bold_pvalues(final_df, "p.value")
-    if (isTRUE(input$paired_ttest) && ("paired_t_p" %in% names(final_df))) {
-      final_df <- set_digits_with_bold_pvalues(final_df, "paired_t_p")
+    if (isTRUE(input$paired_ttest)) {
+      # For paired t-test table, format p_value and corrected_p columns
+      if ("p_value" %in% names(final_df)) {
+        final_df <- set_digits_with_bold_pvalues(final_df, "p_value")
+      }
+      if ("corrected_p" %in% names(final_df)) {
+        final_df <- set_digits_with_bold_pvalues(final_df, "corrected_p")
+      }
+    } else {
+      # For regular emmeans post-hoc table
+      if ("p.value" %in% names(final_df)) {
+        final_df <- set_digits_with_bold_pvalues(final_df, "p.value")
+      }
     }
     
     return(final_df)
@@ -873,21 +986,28 @@ get_ttest_diff <- reactive({
     
     if (length(unique(dt[[comparison_col]])) == 2) {  # Can only do t-test if there are exactly 2 levels
       levels <- unique(dt[[comparison_col]])
-      before <- dt[[dep_var]][dt[[comparison_col]] == levels[1]]
-      after <- dt[[dep_var]][dt[[comparison_col]] == levels[2]]
       
-      diff <- after - before
+      # Get data for each level, grouped by participant
+      level1_data <- dt[dt[[comparison_col]] == levels[1], c("participant", dep_var)]
+      level2_data <- dt[dt[[comparison_col]] == levels[2], c("participant", dep_var)]
       
-      # Return all three variables in a list
-      return(diff)
+      # Calculate mean per participant for each level
+      level1_means <- aggregate(level1_data[[dep_var]], by = list(participant = level1_data$participant), FUN = mean, na.rm = TRUE)
+      level2_means <- aggregate(level2_data[[dep_var]], by = list(participant = level2_data$participant), FUN = mean, na.rm = TRUE)
+      
+      # Merge to ensure we have paired data
+      paired_data <- merge(level1_means, level2_means, by = "participant", suffixes = c("_level1", "_level2"))
+      
+      # Remove any rows with NA values
+      paired_data <- paired_data[complete.cases(paired_data), ]
+      
+      if (nrow(paired_data) >= 2) {
+        return(paired_data$x_level2 - paired_data$x_level1)
+      }
     }
-  } else {
-    cat("Error: The selected independent variable must have exactly two levels for paired t-test.\n")
-    return(NULL)  # Return NULL if conditions are not met
   }
+  return(NULL)  # Return NULL if conditions are not met
 })
-
-output$ttest_text <- renderPrint({})
 
 ###############
 ############## FIGURES
@@ -896,6 +1016,12 @@ output$ttest_text <- renderPrint({})
 output$diff_histogram <- renderSVG({ reactive({
   req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
+  
+  if (is.null(diff)) {
+    plot.new()
+    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    return()
+  }
   
   # Create histogram
   hist(diff, main = "Histogram of Differences", xlab = "Differences",
@@ -907,6 +1033,12 @@ output$diff_qqplot <- renderSVG({ reactive({
   req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
   
+  if (is.null(diff)) {
+    plot.new()
+    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    return()
+  }
+  
   # Create Q-Q plot
   qqnorm(diff, main = "Q-Q Plot of Differences")
   qqline(diff, col = "blue")
@@ -916,6 +1048,12 @@ output$diff_qqplot <- renderSVG({ reactive({
 output$diff_boxplot <- renderSVG({ reactive({
   req(dep_var_selected(), input$paired_ttest)
   diff <- get_ttest_diff()
+  
+  if (is.null(diff)) {
+    plot.new()
+    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    return()
+  }
   
   # Create boxplot
   boxplot(diff, main = "Boxplot of Differences", ylab = "Differences", col = "lightblue", border = "darkblue")
