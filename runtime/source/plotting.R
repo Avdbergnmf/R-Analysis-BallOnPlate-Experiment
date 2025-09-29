@@ -324,6 +324,33 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
 
 
 make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize) {
+  # Check if the variable is categorical or numeric
+  is_categorical <- !is.numeric(data[[xinput]])
+
+  if (is_categorical) {
+    # For categorical variables, create a bar chart
+    if (group != "None") {
+      # When grouping, use fill aesthetic and position
+      p <- ggplot(data, aes(x = .data[[xinput]], fill = .data[[group]])) +
+        geom_bar(alpha = if (position == "identity") 0.5 else 1, position = position) +
+        theme_minimal(base_size = baseSize) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    } else {
+      # When not grouping, use fixed fill color
+      p <- ggplot(data, aes(x = .data[[xinput]])) +
+        geom_bar(fill = "grey", alpha = 1) +
+        theme_minimal(base_size = baseSize) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    }
+
+    if (split != "None") {
+      p <- p + facet_grid(reformulate(".", split))
+    }
+
+    return(p)
+  }
+
+  # For numeric variables, use the existing histogram logic
   # ------------------------------------------------------------------
   # Safety check: avoid generating an excessive number of bins which
   # would lock up the dashboard. If the estimated number of bins
@@ -367,13 +394,6 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
   p <- ggplot(data, aes) +
     geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
     theme_minimal(base_size = baseSize)
-
-  # if (showMeans && split != "None") {
-  #  p <- p + geom_vline(mu_data[[xinput]], mapping = aes_string(xintercept = "mean", col = split), linetype = "dashed")
-  # }
-  # if (showMeans && split == "None" && group != "None") {
-  #  p <- p + geom_vline(mu_data[[xinput]], mapping = aes_string(xintercept = "mean", col = group), linetype = "dashed")
-  # }
 
   if (split != "None") {
     p <- p + facet_grid(sym(split))
