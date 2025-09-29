@@ -335,16 +335,20 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
         geom_bar(alpha = if (position == "identity") 0.5 else 1, position = position) +
         theme_minimal(base_size = baseSize) +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+      if (split != "None") {
+        p <- p + facet_grid(as.formula(paste("~", split)))
+      }
     } else {
       # When not grouping, use fixed fill color
       p <- ggplot(data, aes(x = .data[[xinput]])) +
         geom_bar(fill = "grey", alpha = 1) +
         theme_minimal(base_size = baseSize) +
         theme(axis.text.x = element_text(angle = 45, hjust = 1))
-    }
 
-    if (split != "None") {
-      p <- p + facet_grid(reformulate(".", split))
+      if (split != "None") {
+        p <- p + facet_grid(reformulate(".", split))
+      }
     }
 
     return(p)
