@@ -8,6 +8,11 @@ runtime/index_data
 runtime/index.html
 
 runtime/results/
+!runtime/results/allGaitParams.rds
+!runtime/results/allComplexityMetrics.rds
+!runtime/results/allQResults.rds
+!runtime/results/alTaskMetrics.rds
+!runtime/results/udpTimeTrimInfo.rds
 
 runtime/.Rhistory
 runtime/Rplots.pdf
