@@ -259,6 +259,9 @@ summarize_across_conditions <- function(data) {
     stop("ERROR: 'condition' column is missing from data. This suggests an issue in the data merging process. Available columns: ", paste(colnames(data), collapse = ", "))
   }
 
+  # Keep a copy with *all* columns so we can fetch demographic info later
+  orig_data <- data
+
   # Determine base grouping columns based on data type
   base_cols <- if ("answer_type" %in% colnames(data)) {
     # Questionnaire data
@@ -279,6 +282,19 @@ summarize_across_conditions <- function(data) {
   summarized_data <- data %>%
     group_by(across(all_of(grouping_cols))) %>%
     summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+
+  # Add back non-summarizable columns (descriptive/demographic data that doesn't change per participant)
+  if (exists("columns_to_not_summarize")) {
+    available_meta_cols <- intersect(columns_to_not_summarize, colnames(orig_data))
+    if (length(available_meta_cols) > 0) {
+      meta_data <- orig_data %>%
+        select(participant, all_of(available_meta_cols)) %>%
+        distinct()
+
+      summarized_data <- summarized_data %>%
+        left_join(meta_data, by = "participant")
+    }
+  }
 
   return(summarized_data)
 }
