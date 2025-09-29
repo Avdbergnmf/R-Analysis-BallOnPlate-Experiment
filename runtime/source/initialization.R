@@ -215,7 +215,7 @@ initialize_global_parameters <- function() {
     # Define which variables should use which mapping for pretty labels
     variable_mappings <<- list(
         "condition" = condition_map,
-        "phase.x" = phase_map
+        "phase" = phase_map
         # Add more mappings here as needed
     )
 
@@ -226,7 +226,7 @@ initialize_global_parameters <- function() {
     # These will be used when creating factors in the data
     reference_levels <<- list(
         "condition" = "control", # control will be the reference level
-        "phase.x" = "baseline_task", # baseline_task will be the reference level
+        "phase" = "baseline_task", # baseline_task will be the reference level
         "gender" = "Male", # male will be the reference level
         "motion" = "FALSE", # low motion sensitivity will be the reference level
         "education" = "Higher", # bachelor+ will be the reference level
@@ -482,11 +482,6 @@ get_pretty_factor_labels <- function(effect_name, input_vars, data = NULL) {
             # For condition variable, use the condition map
             if (var == "condition" && level %in% names(condition_map)) {
                 return(var) # Just return "condition" instead of "conditionP"
-            }
-
-            # For phase variable, use the phase map
-            if (var == "phase.x" && level %in% names(phase_map)) {
-                return("phase") # Just return "phase" instead of "phase.xTR"
             }
 
             # For other variables, check if they're factors and get their levels

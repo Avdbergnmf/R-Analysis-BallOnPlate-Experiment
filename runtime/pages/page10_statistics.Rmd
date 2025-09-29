@@ -1,7 +1,7 @@
 ### Options
 
 ```{r}
-# Default variables more appropriate for the current experiment  
+# Default variables more appropriate for the current experiment
 defaultIndepVars <- c("condition")
 
 selectizeInput("depVar", "Dependent variable",
@@ -22,7 +22,7 @@ checkboxInput("diffData_stats", "Calculate difference + means per participant", 
 
 textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 | participant)")
 
-checkboxInput("useCustomModel", "Use custom model (above)", value = FALSE)
+checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
@@ -32,39 +32,42 @@ selectizeInput("correctionMethod", "Multiple comparison correction",
 )
 ```
 
-
 ```{r}
-bsTooltip("indepInterVars", 
-          "These independent variables are also multiplied with eachother (including the interaction terms).", 
-          placement = "right", 
-          trigger = "hover")
-bsTooltip("indepVars", 
-          "These independent variables are not multiplied with eachother.", 
-          placement = "right", 
-          trigger = "hover")
+bsTooltip("indepInterVars",
+  "These independent variables are also multiplied with eachother (including the interaction terms).",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("indepVars",
+  "These independent variables are not multiplied with eachother.",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 ```{r}
-bsTooltip("averageData_stats", 
-          "Make sure to do this when looking at questionnaire data as the dependent variable.", 
-          placement = "right", 
-          trigger = "hover")
+bsTooltip("averageData_stats",
+  "Make sure to do this when looking at questionnaire data as the dependent variable.",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 ```{r}
-bsTooltip("force_posthoc", 
-          "When checked, post-hoc tests will be performed for all effects, not just significant ones.", 
-          placement = "right", 
-          trigger = "hover")
+bsTooltip("force_posthoc",
+  "When checked, post-hoc tests will be performed for all effects, not just significant ones.",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 ```{r}
-bsTooltip("filter_posthoc", 
-          "When checked, only shows comparisons where at least one level matches between groups (e.g., same condition or same phase).", 
-          placement = "right", 
-          trigger = "hover")
+bsTooltip("filter_posthoc",
+  "When checked, only shows comparisons where at least one level matches between groups (e.g., same condition or same phase).",
+  placement = "right",
+  trigger = "hover"
+)
 ```
-
 
 Column
 --------------------------------------------
@@ -72,7 +75,7 @@ Column
 ### Statistics Results  {data-height=500}
 In this page we ran all of our statistical tests. Select the data in the sidebar, and choose the test settings in the options on the left. Be sure to check the assumptions of the test below. Using the custom formula box disables use of the other independent variable selection boxes.
 ```{r}
-#verbatimTextOutput("stats_results")
+# verbatimTextOutput("stats_results")
 uiOutput("stats_results_ui")
 ```
 
@@ -81,6 +84,11 @@ uiOutput("stats_results_ui")
 #### Tables (for LMM)
 
 ##### Fixed effects {data-height=500}
+
+```{r}
+uiOutput("lmm_assumption_button_ui")
+```
+
 ```{r}
 tableOutput("fixed_effects_table")
 ```
@@ -93,18 +101,20 @@ tableOutput("random_effects_table")
 ##### Post-hoc tests {data-height=500}
 
 ```{r}
-checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = FALSE)
+checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = TRUE)
 checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
-checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = FALSE)
+checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = TRUE)
 ```
 
 ```{r}
 conditionalPanel(
   condition = "input.paired_ttest == true",
-  numericInput("num_tests", 
-               label = "Number of Comparisons (for Bonferroni correction):", 
-               value = 1,  # Default value
-               min = 1)  # Minimum value (must be at least one test)
+  numericInput("num_tests",
+    label = "Number of Comparisons (for Bonferroni correction):",
+    value = 1, # Default value
+    min = 1
+  ), # Minimum value (must be at least one test)
+  helpText("Click 'Check assumptions' in the table below to inspect diagnostics for each paired comparison.")
 )
 ```
 
@@ -112,75 +122,16 @@ conditionalPanel(
 tableOutput("post_hoc_table")
 ```
 
-#### Check Assumptions
-
-##### QQ Plot  {data-height=500}
-
-- Interpret the Plot: The QQ plot compares the quantiles of the residuals from your model to the quantiles of a normal distribution. If the residuals are normally distributed, the points on the QQ plot will fall approximately along a straight line (the 45-degree reference line).
-- Look for Deviations: Significant deviations from the straight line suggest departures from normality. Small deviations are expected and acceptable, but large deviations or patterns (such as curves or S-shaped patterns) indicate that the residuals are not normally distributed.
-- Use QQ Line: The reference line (QQ line) helps in visualizing the deviation. The closer the points are to this line, the more normally distributed the residuals are.
-
-```{r}
-imageOutput("qq")
-```
-
-##### residuals_vs_fitted {data-height=1500}
-
-
-Check for homoscedasticity and non-linearity. Look for a random scatter of residuals around zero.
-
-```{r}
-imageOutput("residuals_vs_fitted")
-```
-
-##### scale_location {data-height=500}
-
-
-Check for homoscedasticity. Look for a horizontal line with equally spread points.
-
-```{r}
-imageOutput("scale_location")
-```
-
-##### residuals_vs_leverage {data-height=500}
-
-
-Check for influential cases. Look for any points outside the Cook's distance lines.
-
-```{r}
-imageOutput("residuals_vs_leverage")
-```
-
-### T-Test Extra
-
-#### Check Assumptions
-
-Histogram of Differences
-
-- Look for a roughly symmetric distribution centered around zero. Skewness or multimodal patterns may indicate deviations from normality.
-```{r}
-imageOutput("diff_histogram")
-```
-
-Q-Q Plot of Differences
-
-- Points should fall approximately along the reference line (blue line). Large deviations from the line suggest violations of the normality assumption.
-```{r}
-imageOutput("diff_qqplot")
-```
-
-
-Boxplot of Differences
-
-- Check for outliers, which are typically represented as points outside the whiskers. Extreme outliers can affect the paired t-test's validity and should be carefully assessed.
-```{r}
-imageOutput("diff_boxplot")
-```
-
-
 ```{r, context="server"}
-# Base data that does NOT depend on the chosen dependent variable
-base_stats_data <- reactive({
+# Source statistical utility functions
+source("source/stats_utils.R", local = TRUE)
+
+# Reactive values for t-test assumption checking
+ttest_assumption_lookup <- reactiveVal(list())
+ttest_assumption_state <- reactiveVal(NULL)
+
+############ Getting and setting data
+get_stats_data <- reactive({
   if (input$getSummarizedData_stats) {
     dt <- get_mu_dyn_long()
     if (input$averageData_stats) {
@@ -189,119 +140,30 @@ base_stats_data <- reactive({
   } else {
     dt <- filteredParams()
   }
+
+  # Handle empty data case
+  if (!is_stats_data_valid(dt)) {
+    return(handle_invalid_stats_data())
+  }
+
   # Apply reference levels so the column names match what the selectors expect
   dt <- apply_reference_levels(dt)
   dt
 })
 
 # Helper that tells whether a dependent variable is selected AND exists in data
-dep_var_selected <- reactive({
-  dep <- input$depVar
-  !is.null(dep) && nzchar(dep) && dep %in% names(get_stats_data())
-})
-
-############ Getting and setting data
-get_stats_data <- reactive({
-  if (input$getSummarizedData_stats) {
-    data <- get_mu_dyn_long()
-    if (input$averageData_stats) {
-      data <- summarize_across_conditions(data)
-    }
-  }
-  else {
-    data <- filteredParams()
-  }
-  
-  # Handle empty data case
-  if (is.null(data) || nrow(data) == 0) {
-    showNotification(
-      "No data available for statistical analysis. Please check your filter settings.",
-      type = "warning",
-      duration = 5
-    )
-    # Return a minimal data frame with the expected structure
-    return(data.frame(
-      participant = character(0),
-      trialNum = numeric(0),
-      condition = character(0),
-      phase = character(0),
-      foot = character(0)
-    ))
-  }
-
-  # -------------------------------------------------------------------
-  # Add a single numeric column "baseline" (per participant) that contains
-  # the value of the currently selected dependent variable (input$depVar)
-  # measured in the baseline trial/phase (trial 5 or phase == "baseline").
-  # This column will automatically show up in the selectize inputs and can
-  # be added as an independent variable.
-  # -------------------------------------------------------------------
-  if (!is.null(input$depVar) && input$depVar != "" && input$depVar %in% names(data) &&
-      "participant" %in% names(data) && nrow(data) > 0) {
-
-    # Identify baseline rows
-    baseline_filter <- rep(FALSE, nrow(data))
-    if ("trialNum" %in% names(data)) {
-      baseline_filter <- baseline_filter | (data$trialNum == 5)
-    }
-    if ("phase" %in% names(data)) {
-      baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
-    }
-
-    # Create column selection, avoiding duplicates if depVar is "participant"
-    cols_to_select <- unique(c("participant", input$depVar))
-    baseline_rows <- data[baseline_filter, cols_to_select, drop = FALSE]
-
-    if (nrow(baseline_rows) > 0) {
-      baseline_map <- baseline_rows %>%
-        dplyr::group_by(participant) %>%
-        dplyr::summarise(baseline = first(.data[[input$depVar]]), .groups = "drop")
-
-      # Remove existing baseline column if it exists to prevent duplicates
-      if ("baseline" %in% names(data)) {
-        data <- data[, !names(data) %in% "baseline", drop = FALSE]
-      }
-      
-      data <- dplyr::left_join(data, baseline_map, by = "participant")
-
-      # Remove baseline rows from the working dataset if baseline is indep var
-      baseline_in_indep_vars <- "baseline" %in% c(input$indepInterVars, input$indepVars)
-      if (input$depVar != "baseline" && baseline_in_indep_vars) {
-        data <- data[!baseline_filter, , drop = FALSE]
-      }
-    }
-  }
-
-  # -------------------------------------------------------------------
-  # If the user selects "baseline" as the dependent variable, restrict the
-  # dataset to baseline rows (trial 5 or phase == "baseline") so that each
-  # participant contributes a single observation.
-  # -------------------------------------------------------------------
-  if (!is.null(input$depVar) && input$depVar != "" && input$depVar == "baseline") {
-    baseline_filter <- rep(FALSE, nrow(data))
-    if ("trialNum" %in% names(data)) {
-      baseline_filter <- baseline_filter | (data$trialNum == 5)
-    }
-    if ("phase" %in% names(data)) {
-      baseline_filter <- baseline_filter | (as.character(data$phase) == "baseline")
-    }
-    data <- data[baseline_filter, , drop = FALSE]
-  }
-
-  # Apply reference levels to factor variables
-  data <- apply_reference_levels(data)
-  
-  # -----------------------------------------------------------------------
-  return(data)
+dep_var_valid <- reactive({
+  data <- get_stats_data()
+  is_dep_var_valid(input$depVar, data)
 })
 
 # Create dynamic observers for variable selection
 create_dynamic_variable_observer(
-  data_reactive = base_stats_data,
+  data_reactive = get_stats_data,
   input_id = "depVar",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = "stepWidths.sd",
+  default_choice = "task.dist_to_escape_mean", # "stepWidths.sd",
   fallback_choices = NULL,
   multiple = FALSE,
   input = input
@@ -330,90 +192,49 @@ create_dynamic_variable_observer(
 )
 
 
-# ----------------  MODEL  ----------------
+# ----------------  APPLY MODEL  ----------------
 get_lmer <- reactive({
-  req(dep_var_selected())           # ← stop early but quietly if no dep-var
-  dt <- get_stats_data()
-  
-  # Ensure a dependent variable is selected
-  if (is.null(input$depVar) || input$depVar == "" || !(input$depVar %in% names(dt))) {
-    stop("ERROR: Please select a dependent variable before running the analysis.")
-  }
+  req(dep_var_valid()) # ← stop early but quietly if no dep-var
 
-  # Check if we have the problematic case: each participant has only 1 observation
-  obs_per_participant <- dt %>% 
-    dplyr::group_by(participant) %>% 
-    dplyr::summarise(n_obs = n(), .groups = "drop")
-  
-  max_obs_per_participant <- max(obs_per_participant$n_obs, na.rm = TRUE)
-  
-  if (max_obs_per_participant <= 1) {
-    stop("ERROR: Each participant has only 1 observation. Mixed-effects models require multiple observations per participant.")
-  }
-  
-  # Construct the formula dynamically using inputs
-  dep_var <- input$depVar
-  if (input$useCustomModel && input$customModel != "") {
-    formula_text <- paste(dep_var, "~", input$customModel)
+  data <- get_stats_data()
+  validate_ready_for_lmm(data)
+
+  doCustom <- input$useCustomModel && !is.null(input$customModel) && nzchar(input$customModel)
+  if (doCustom) {
+    formula <- as.formula(paste(input$depVar, "~", input$customModel))
   } else {
-    interVars <- paste(input$indepInterVars, collapse = "*")
-    otherVars <- paste(input$indepVars, collapse = "+")
-    finalVars <- paste(interVars, "+", otherVars)
-    formula_text <- paste(dep_var, "~", finalVars, "+ (1 | participant)")
+    formula <- build_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
   }
 
-  # Convert to formula
-  formula <- as.formula(formula_text)
-  
-  # Center or scale numeric variables if specified
   if (input$doCentering) {
-    # Identify numeric columns
-    numeric_cols <- sapply(dt, is.numeric)
-    # Center or scale only the numeric independent variables used in the formula
-    model_vars <- setdiff(all.vars(formula), dep_var) # extract all independent variables in the formula
-    numeric_vars_to_center <- intersect(names(dt)[numeric_cols], model_vars) # get only the numeric ones in the model
-    
-    # remove ordered variables (to be sure)
-    numeric_vars_to_center <- setdiff(numeric_vars_to_center, c("trialNum","trialNumWithinCondition","trialNumWithoutPractice","conditionNumber","slice_index"))
-
-    # Apply centering (or scaling if needed) to selected numeric variables
-    dt[numeric_vars_to_center] <- lapply(dt[numeric_vars_to_center], function(x) {
-      if (input$doScaling) {
-        as.numeric(scale(x, center = TRUE, scale = TRUE)) # center and scale if both are selected
-      } else {
-        as.numeric(scale(x, center = TRUE, scale = FALSE)) # only center if doScaling is FALSE
-      }
-    })
+    data <- center_predictors(data, formula, input$depVar, input$doScaling)
   }
-  
-  # Fit the model
-  return(lmerTest::lmer(formula, data = dt, REML = FALSE)) # put lmerTest:: in front to get p values.
-})
-############
 
-############ conditional output
+  fit_lmm(data, formula)
+})
+
+# ----------------  LMM OUTPUTS ----------------
 output$stats_results_ui <- renderUI({
   verbatimTextOutput("lmm_text")
 })
-############
-############ LMM
+
 output$lmm_text <- renderPrint({
   lmm <- get_lmer()
   results <- summary(lmm)
-  
+
   # Summarize the model
   cat("\nLMM:\n")
   print(lmm)
   cat("\nRESULTS:\n")
   print(results)
-  
+
   # Print AIC and BIC
   aic_value <- AIC(lmm)
   bic_value <- BIC(lmm)
   log_likelihood <- logLik(lmm)
   deviance <- deviance(lmm)
   r_squared <- MuMIn::r.squaredGLMM(lmm)
-  
+
   cat("\nModel fit statistics:\n")
   cat("AIC:", aic_value, "\n")
   cat("BIC:", bic_value, "\n")
@@ -434,628 +255,289 @@ output$lmm_text <- renderPrint({
 
   # Calculate and print VIF
   cat("\nVariance Inflation Factors (VIF):\n")
-  tryCatch({
-    vif_values <- car::vif(lmm)
-    print(vif_values)
-  }, error = function(e) {
-    cat("VIF calculation failed:", e$message, "\n")
-  })
+  tryCatch(
+    {
+      vif_values <- car::vif(lmm)
+      print(vif_values)
+    },
+    error = function(e) {
+      cat("VIF calculation failed:", e$message, "\n")
+    }
+  )
 
   cat("\nChecking Singularity:...\n")
-  cat("isSingular:", isSingular(lmm, tol = 1e-4),"\n")
-
+  cat("isSingular:", isSingular(lmm, tol = 1e-4), "\n")
 })
 
-output$fixed_effects_table <- renderTable({
-  req(dep_var_selected())            # skip rendering until ready
-  lmm <- get_lmer()
-  results <- summary(lmm)
-  fixed_effects <- results$coefficients
-  
-  # Calculate effect sizes
-  residual_sd <- sigma(lmm)
-  fixed_effects_df <- as.data.frame(fixed_effects)
-  fixed_effects_df$EffectSize <- fixed_effects_df$Estimate / residual_sd
-  
-  # Adjust p-values for multiple comparisons using the selected correction method
-  correction_method <- input$correctionMethod
-  fixed_effects_df$AdjustedP <- p.adjust(fixed_effects_df[["Pr(>|t|)"]], method = correction_method)
-  
-  # Convert to a data frame for rendering and include row names
-  fixed_effects_df <- cbind(Effect = rownames(fixed_effects_df), fixed_effects_df)
-  rownames(fixed_effects_df) <- NULL
-  
-  # Format numbers and make significant p-values bold
-  fixed_effects_df <- set_digits_with_bold_pvalues(fixed_effects_df, "AdjustedP")
-  
-  fixed_effects_df
-}, rownames = TRUE, sanitize.text.function = function(x) x)
+output$fixed_effects_table <- renderTable(
+  {
+    req(dep_var_valid()) # skip rendering until ready
+    lmm <- get_lmer()
+    results <- summary(lmm)
+    fixed_effects <- results$coefficients
+
+    # Calculate effect sizes
+    residual_sd <- sigma(lmm)
+    fixed_effects_df <- as.data.frame(fixed_effects)
+    fixed_effects_df$EffectSize <- fixed_effects_df$Estimate / residual_sd
+
+    # Adjust p-values for multiple comparisons using the selected correction method
+    fixed_effects_df$AdjustedP <- p.adjust(fixed_effects_df[["Pr(>|t|)"]], method = input$correctionMethod)
+
+    # Convert to a data frame for rendering and include row names
+    fixed_effects_df <- cbind(Effect = rownames(fixed_effects_df), fixed_effects_df)
+    rownames(fixed_effects_df) <- NULL
+
+    # Format numbers and make significant p-values bold
+    fixed_effects_df <- set_digits_with_bold_pvalues(fixed_effects_df, "AdjustedP")
+
+    fixed_effects_df
+  },
+  rownames = TRUE,
+  sanitize.text.function = function(x) x
+)
 
 
-output$random_effects_table <- renderTable({
-  req(dep_var_selected())
-  lmm <- get_lmer()
-  random_effects <- as.data.frame(VarCorr(lmm))
-  
-  # Clean up the random effects table
-  random_effects_df <- cbind(Effect = rownames(random_effects), random_effects)
-  rownames(random_effects_df) <- NULL
-  
-  # Select only relevant columns
-  random_effects_df <- random_effects_df[, c("Effect", "grp", "vcov", "sdcor")]
-  
-  # Optionally rename columns for clarity
-  colnames(random_effects_df) <- c("Effect", "Group", "Variance", "Standard Deviation")
-  
-  random_effects_df <- set_digits(random_effects_df)
-  
-  random_effects_df
-}, rownames = TRUE)
+output$random_effects_table <- renderTable(
+  {
+    req(dep_var_valid())
+    lmm <- get_lmer()
+    random_effects <- as.data.frame(VarCorr(lmm))
 
-output$post_hoc_table <- renderTable({
-  req(dep_var_selected())
-  lmm <- get_lmer()
-  results <- summary(lmm)
-  
-  # Extract fixed effects (excluding intercept)
-  fixed_effects <- results$coefficients
-  all_effects <- rownames(results$coefficients)[rownames(results$coefficients) != "(Intercept)"]
-  
-  # Determine which effects to test based on force_posthoc setting
-  if (input$force_posthoc) {
-    # If force_posthoc is checked, test all effects
-    effects_to_test <- all_effects
-  } else {
-    # Otherwise, only test significant effects
-    significant_effects <- rownames(results$coefficients)[results$coefficients[, "Pr(>|t|)"] < 0.05]
-    significant_effects <- significant_effects[significant_effects != "(Intercept)"]
-    effects_to_test <- significant_effects
-  }
-  
-  # Remove duplicates from effects_to_test to prevent processing the same effect multiple times
-  effects_to_test <- unique(effects_to_test)
-  
-  # Get the actual independent variables from the input
-  all_indep_vars <- c(input$indepInterVars, input$indepVars)
-  
-  # Further deduplicate by base variable name to prevent processing the same variable multiple times
-  data <- get_stats_data()
-  processed_vars <- c()
-  unique_effects_to_test <- c()
-  
-  for (effect in effects_to_test) {
-    if (grepl(":", effect)) {
-      # For interactions, check each part
-      parts <- unlist(strsplit(effect, ":"))
-      base_vars <- sapply(parts, function(part) clean_effect_name(part, all_indep_vars))
-      effect_key <- paste(sort(base_vars), collapse = " × ")
-    } else {
-      # For main effects, get the base variable
-      base_var <- clean_effect_name(effect, all_indep_vars)
-      effect_key <- base_var
-    }
-    
-    # Only add if we haven't processed this variable combination before
-    if (!(effect_key %in% processed_vars)) {
-      processed_vars <- c(processed_vars, effect_key)
-      unique_effects_to_test <- c(unique_effects_to_test, effect)
-    }
-  }
-  
-  effects_to_test <- unique_effects_to_test
-  
-  # Initialize post-hoc results list
-  posthoc_results <- list()
-  
-  # Iterate through the independent variables selected (categorical variables for post-hoc tests)
-  for (indep_var in effects_to_test) {
-    if (grepl(":", indep_var)) {
-      # Interaction term detected, perform post-hoc test for interaction
-      interaction_parts <- unlist(strsplit(indep_var, ":"))
-      interaction_vars <- sapply(interaction_parts, function(part) clean_effect_name(part, all_indep_vars))
-      
-      # Validate that we have valid variable names
-      if (length(interaction_vars) == 0 || any(interaction_vars == "")) {
-        next
-      }
-      
-      posthoc_test <- emmeans::emmeans(lmm, specs = interaction_vars)
-    } else {
-      # Perform post-hoc test for the main effect
-      base_var_name <- clean_effect_name(indep_var, all_indep_vars)
-      
-      # Validate that we have a valid variable name
-      # Check if the variable exists in the model data
-      model_data <- get_stats_data()
-      if (is.null(base_var_name) || base_var_name == "" || !(base_var_name %in% names(model_data))) {
-        next
-      }
-      
-      posthoc_test <- emmeans::emmeans(lmm, specs = base_var_name)
-    }
-    pairwise_comparisons <- emmeans::contrast(posthoc_test, method = "pairwise")
-    
-    # Store results for this independent variable
-    pairwise_results <- summary(pairwise_comparisons)
-    posthoc_results[[indep_var]] <- pairwise_results
-  }
-  
-  # Combine posthoc results into a single data frame
-  if (length(posthoc_results) > 0) {
-    posthoc_df <- do.call(rbind, lapply(posthoc_results, as.data.frame))
-    
-    # Create pretty effect names for display
+    # Clean up the random effects table
+    random_effects_df <- cbind(Effect = rownames(random_effects), random_effects)
+    rownames(random_effects_df) <- NULL
+
+    # Select only relevant columns
+    random_effects_df <- random_effects_df[, c("Effect", "grp", "vcov", "sdcor")]
+
+    # Optionally rename columns for clarity
+    colnames(random_effects_df) <- c("Effect", "Group", "Variance", "Standard Deviation")
+
+    random_effects_df <- set_digits(random_effects_df)
+
+    random_effects_df
+  },
+  rownames = TRUE
+)
+
+output$post_hoc_table <- renderTable(
+  {
+    req(dep_var_valid())
     data <- get_stats_data()
-    pretty_effect_names <- sapply(names(posthoc_results), function(effect) {
-      if (grepl(":", effect)) {
-        # For interactions, clean each part
-        parts <- unlist(strsplit(effect, ":"))
-        pretty_parts <- sapply(parts, function(part) get_pretty_factor_labels(part, all_indep_vars, data))
-        return(paste(pretty_parts, collapse = " × "))
-      } else {
-        return(get_pretty_factor_labels(effect, all_indep_vars, data))
-      }
-    })
-    
-    # Deduplicate based on cleaned effect names
-    unique_cleaned_names <- unique(pretty_effect_names)
-    final_results <- list()
-    
-    for (cleaned_name in unique_cleaned_names) {
-      # Find all original effects that map to this cleaned name
-      matching_indices <- which(pretty_effect_names == cleaned_name)
-      matching_effects <- names(posthoc_results)[matching_indices]
-      
-      # Combine results from all matching effects
-      combined_results <- do.call(rbind, posthoc_results[matching_effects])
-      final_results[[cleaned_name]] <- combined_results
-    }
-    
-    # Create final data frame
-    final_df <- do.call(rbind, final_results)
-    final_df <- cbind(Effect = rep(names(final_results), sapply(final_results, nrow)), final_df)
-    
-    # Filter post-hoc results if requested
-    if (input$filter_posthoc) {
-      # Function to check if a comparison is meaningful (at least one level matches)
-      is_meaningful_comparison <- function(contrast_str, effect_name) {
-        # Split the contrast into left and right sides
-        parts <- strsplit(contrast_str, " - ")[[1]]
-        if (length(parts) != 2) return(TRUE) # Keep if we can't parse it
-        
-        left_side <- parts[1]
-        right_side <- parts[2]
-        
-        # For main effects, just check if the variable names match
-        if (!grepl(" × ", effect_name)) {
-          # For main effects, all comparisons are meaningful
-          return(TRUE)
-        }
-        
-        # For interactions, check if at least one level matches
-        # Split the interaction effect name to get the variables
-        effect_vars <- strsplit(effect_name, " × ")[[1]]
-        
-        # Split left and right sides by spaces to get individual levels
-        left_levels <- strsplit(left_side, " ")[[1]]
-        right_levels <- strsplit(right_side, " ")[[1]]
-        
-        # Check if at least one level matches between left and right sides
-        for (i in seq_along(left_levels)) {
-          if (left_levels[i] == right_levels[i]) {
-            return(TRUE) # Found a matching level
-          }
-        }
-        
-        return(FALSE) # No matching levels found
-      }
-      
-      # Apply filtering
-      meaningful_rows <- sapply(seq_len(nrow(final_df)), function(i) {
-        is_meaningful_comparison(final_df$contrast[i], final_df$Effect[i])
-      })
-      
-      final_df <- final_df[meaningful_rows, , drop = FALSE]
-      
-      # Add a note about filtering
-      if (nrow(final_df) == 0) {
-        final_df <- data.frame(Message = "No meaningful comparisons found after filtering.")
-      }
-    }
-    
-    # If paired t-test is enabled, replace the entire table with paired t-test results
-    if (isTRUE(input$paired_ttest) && all(c("Effect", "contrast") %in% names(final_df))) {
-      # Map pretty effect names back to one representative indep_var key
-      pretty_map <- list()
-      for (i in seq_along(pretty_effect_names)) {
-        k <- pretty_effect_names[i]
-        if (is.null(pretty_map[[k]])) {
-          pretty_map[[k]] <- names(posthoc_results)[i]
-        }
-      }
+    lmm <- get_lmer()
 
-      # Prepare the data used for paired tests (mirror any dep-var transform)
-      dt2 <- get_stats_data()
-      dep_col <- input$depVar
-      if (isTRUE(input$rankTransformDep) && dep_col %in% names(dt2)) {
-        ranked_col_name <- ".dep_ranked"
-        x <- dt2[[dep_col]]
-        r <- rank(x, ties.method = "average", na.last = "keep")
-        n <- sum(!is.na(x))
-        method <- if (!is.null(input$rankTransformMethod)) input$rankTransformMethod else "rank"
-        if (n > 0) {
-          if (identical(method, "rank")) {
-            dt2[[ranked_col_name]] <- r
-          } else if (identical(method, "fraction")) {
-            dt2[[ranked_col_name]] <- r / (n + 1)
-          } else if (identical(method, "vdw")) {
-            dt2[[ranked_col_name]] <- stats::qnorm(r / (n + 1))
-          } else if (identical(method, "blom")) {
-            dt2[[ranked_col_name]] <- stats::qnorm((r - 3/8) / (n + 1/4))
-          } else if (identical(method, "tukey")) {
-            dt2[[ranked_col_name]] <- stats::qnorm((r - 1/3) / (n + 1/3))
-          } else {
-            dt2[[ranked_col_name]] <- r
-          }
-          dep_col <- ranked_col_name
-        }
-      }
-
-      # Helper to split a contrast like "A B - C D" into two level vectors
-      parse_contrast_levels <- function(contrast_str) {
-        parts <- strsplit(contrast_str, " - ")[[1]]
-        if (length(parts) != 2) return(NULL)
-        left_levels <- strsplit(parts[1], " ")[[1]]
-        right_levels <- strsplit(parts[2], " ")[[1]]
-        list(left = left_levels, right = right_levels)
-      }
-
-      # Build complete paired t-test results table
-      ttest_results <- list()
-      unique_participants <- unique(dt2$participant)
-      
-      for (i in seq_len(nrow(final_df))) {
-        eff_pretty <- as.character(final_df$Effect[i])
-        contrast_str <- as.character(final_df$contrast[i])
-        indep_key <- pretty_map[[eff_pretty]]
-        if (is.null(indep_key) || is.na(contrast_str) || !nzchar(contrast_str)) {
-          next
-        }
-        
-        # Determine variables involved and the order used by emmeans
-        vars_involved_raw <- unlist(strsplit(indep_key, ":"))
-        # Clean the variable names to match the data column names
-        vars_involved <- sapply(vars_involved_raw, function(v) clean_effect_name(v, all_indep_vars))
-        
-        lvl_pair <- parse_contrast_levels(contrast_str)
-        if (is.null(lvl_pair)) next
-        # Ensure level vector lengths match number of variables
-        if (length(vars_involved) == 1) {
-          # For main effects, contrast strings have single tokens per side
-          lvl_pair$left <- lvl_pair$left[1]
-          lvl_pair$right <- lvl_pair$right[1]
-        } else {
-          # For interactions, require exact match in length
-          if (length(lvl_pair$left) != length(vars_involved) ||
-              length(lvl_pair$right) != length(vars_involved)) {
-            next
-          }
-        }
-
-        # Build per-participant paired values by averaging across other factors
-        left_vals <- c()
-        right_vals <- c()
-        for (pid in unique_participants) {
-          rows_pid <- dt2$participant == pid
-          
-          # left filter - using cleaned variable names
-          rows_left <- rows_pid
-          for (j in seq_along(vars_involved)) {
-            v <- vars_involved[j]
-            if (!(v %in% names(dt2))) { 
-              rows_left <- FALSE
-              break 
-            }
-            rows_left <- rows_left & (as.character(dt2[[v]]) == lvl_pair$left[j])
-          }
-          
-          # right filter - using cleaned variable names
-          rows_right <- rows_pid
-          for (j in seq_along(vars_involved)) {
-            v <- vars_involved[j]
-            if (!(v %in% names(dt2))) { 
-              rows_right <- FALSE
-              break 
-            }
-            rows_right <- rows_right & (as.character(dt2[[v]]) == lvl_pair$right[j])
-          }
-          
-          # Calculate values only if we have valid filters
-          if (any(rows_left) && any(rows_right)) {
-            val_left <- suppressWarnings(mean(dt2[[dep_col]][rows_left], na.rm = TRUE))
-            val_right <- suppressWarnings(mean(dt2[[dep_col]][rows_right], na.rm = TRUE))
-            if (is.finite(val_left) && is.finite(val_right) && !is.na(val_left) && !is.na(val_right)) {
-              left_vals <- c(left_vals, val_left)
-              right_vals <- c(right_vals, val_right)
-            }
-          }
-        }
-        
-        # Perform paired t-test and collect all statistics
-        if (length(left_vals) >= 2 && length(right_vals) >= 2 && length(left_vals) == length(right_vals)) {
-          tt <- try(stats::t.test(left_vals, right_vals, paired = TRUE), silent = TRUE)
-          if (!inherits(tt, "try-error")) {
-            # Calculate effect size (Cohen's d for paired samples)
-            differences <- right_vals - left_vals
-            cohens_d <- mean(differences) / sd(differences)
-            
-            # Apply multiple comparison correction if specified
-            corrected_p <- tt$p.value
-            if (input$num_tests > 1) {
-              corrected_p <- min(1, tt$p.value * input$num_tests) # Bonferroni correction
-            }
-            
-            ttest_results[[i]] <- data.frame(
-              Effect = eff_pretty,
-              Contrast = contrast_str,
-              n_pairs = length(left_vals),
-              Mean_Diff = mean(differences),
-              SD_Diff = sd(differences),
-              t_statistic = tt$statistic,
-              df = tt$parameter,
-              p_value = tt$p.value,
-              corrected_p = corrected_p,
-              CI_lower = tt$conf.int[1],
-              CI_upper = tt$conf.int[2],
-              Cohens_d = cohens_d,
-              stringsAsFactors = FALSE
-            )
-          }
-        }
-      }
-      
-      # Combine all t-test results
-      if (length(ttest_results) > 0) {
-        final_df <- do.call(rbind, ttest_results)
-        rownames(final_df) <- NULL
-        
-        # Apply filtering if requested
-        if (input$filter_posthoc) {
-          # Function to check if a comparison is meaningful (at least one level matches)
-          is_meaningful_comparison <- function(contrast_str, effect_name) {
-            # Split the contrast into left and right sides
-            parts <- strsplit(contrast_str, " - ")[[1]]
-            if (length(parts) != 2) return(TRUE) # Keep if we can't parse it
-            
-            left_side <- parts[1]
-            right_side <- parts[2]
-            
-            # For main effects, just check if the variable names match
-            if (!grepl(" × ", effect_name)) {
-              # For main effects, all comparisons are meaningful
-              return(TRUE)
-            }
-            
-            # For interactions, check if at least one level matches
-            # Split the interaction effect name to get the variables
-            effect_vars <- strsplit(effect_name, " × ")[[1]]
-            
-            # Split left and right sides by spaces to get individual levels
-            left_levels <- strsplit(left_side, " ")[[1]]
-            right_levels <- strsplit(right_side, " ")[[1]]
-            
-            # Check if at least one level matches between left and right sides
-            for (i in seq_along(left_levels)) {
-              if (left_levels[i] == right_levels[i]) {
-                return(TRUE) # Found a matching level
-              }
-            }
-            
-            return(FALSE) # No matching levels found
-          }
-          
-          # Apply filtering
-          meaningful_rows <- sapply(seq_len(nrow(final_df)), function(i) {
-            is_meaningful_comparison(final_df$Contrast[i], final_df$Effect[i])
-          })
-          
-          final_df <- final_df[meaningful_rows, , drop = FALSE]
-          
-          # Add a note about filtering
-          if (nrow(final_df) == 0) {
-            final_df <- data.frame(Message = "No meaningful comparisons found after filtering.")
-          }
-        }
-      } else {
-        final_df <- data.frame(Message = "No valid paired t-test comparisons could be computed.")
-      }
+    # Prepare analysis
+    lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc)
+    if (is.null(lmm_posthoc)) {
+      return(data.frame(Message = "No significant main or interaction effects found."))
     }
 
-    # Format the numbers to display more digits and make significant p-values bold
-    if (isTRUE(input$paired_ttest)) {
-      # For paired t-test table, format p_value and corrected_p columns
-      if ("p_value" %in% names(final_df)) {
-        final_df <- set_digits_with_bold_pvalues(final_df, "p_value")
-      }
-      if ("corrected_p" %in% names(final_df)) {
-        final_df <- set_digits_with_bold_pvalues(final_df, "corrected_p")
+    # Choose method based on paired_ttest input
+    if (input$paired_ttest) {
+      res <- compute_paired_ttest_table(lmm_posthoc, data, input$depVar, input$num_tests)
+      
+      # Store assumption lookup data and add assumption buttons
+      assumption_lookup <- attr(res, "assumption_lookup")
+      ttest_assumption_lookup(assumption_lookup)
+      
+      # Add assumption check buttons if we have valid results and remove AssumptionID
+      if (!"Message" %in% names(res)) {
+        if ("AssumptionID" %in% names(res)) {
+          assumption_ids <- res$AssumptionID
+          res$AssumptionID <- NULL  # Remove ID column from display
+          res$Assumptions <- sapply(assumption_ids, build_assumption_button)
+        }
       }
     } else {
-      # For regular emmeans post-hoc table
-      if ("p.value" %in% names(final_df)) {
-        final_df <- set_digits_with_bold_pvalues(final_df, "p.value")
-      }
+      res <- lmm_posthoc$combined$df
     }
-    
-    return(final_df)
-  } else {
-    return(data.frame(Message = "No significant main or interaction effects found."))
+
+    p_format_names <- c("p_value", "p.value", "corrected_p") # what column names to format based on value < 0.05
+    postprocess_posthoc_results(res, input$filter_posthoc, p_format_names)
+  },
+  sanitize.text.function = function(x) x,
+  escape = FALSE
+)
+
+# T-test assumption checking observer
+observeEvent(input$ttest_assumption_row, {
+  lookup <- ttest_assumption_lookup()
+  info <- lookup[[input$ttest_assumption_row]]
+  if (is.null(info)) {
+    showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
+    return()
   }
-}, rownames = TRUE, sanitize.text.function = function(x) x)
-###############
-############## FIGURES
-set_digits <- function(df, digits = 4){
-    # Format the numbers to display more digits
-  df <- df %>%
-    mutate(across(where(is.numeric), ~ format(round(.x, digits = digits), nsmall = digits)))
-  return(df)
-}
 
-set_digits_with_bold_pvalues <- function(df, p_value_column, digits = 4, alpha = 0.05) {
-  # Format all numeric columns
-  df <- df %>%
-    mutate(across(where(is.numeric), ~ format(round(.x, digits = digits), nsmall = digits)))
+  ttest_assumption_state(info)
+
+  showModal(modalDialog(
+    title = "Paired t-test assumption diagnostics",
+    uiOutput("ttest_assumption_details"),
+    plotOutput("ttest_assumption_hist", height = 250),
+    plotOutput("ttest_assumption_qq", height = 250),
+    plotOutput("ttest_assumption_box", height = 250),
+    size = "l",
+    easyClose = TRUE,
+    footer = modalButton("Close")
+  ))
+})
+
+# LMM assumption button
+output$lmm_assumption_button_ui <- renderUI({
+  req(dep_var_valid())
+  HTML(build_lmm_assumption_button())
+})
+
+# LMM assumption checking observer
+observeEvent(input$show_lmm_assumptions, {
+  req(dep_var_valid())
   
-  # Make significant p-values bold
-  if (p_value_column %in% names(df)) {
-    df[[p_value_column]] <- sapply(df[[p_value_column]], function(p_val) {
-      if (is.na(p_val) || p_val == "") {
-        return(p_val)
-      }
-      # Strip any HTML tags and convert safely to numeric (avoid warnings)
-      p_str <- as.character(p_val)
-      p_clean <- gsub("<[^>]+>", "", p_str)
-      p_num <- suppressWarnings(as.numeric(p_clean))
-      if (!is.na(p_num) && p_num < alpha) {
-        return(paste0("<strong>", p_val, "</strong>"))
-      } else {
-        return(p_val)
-      }
-    })
-  }
-  
-  return(df)
-}
+  showModal(modalDialog(
+    title = "Linear Mixed Model (LMM) Assumption Diagnostics",
+    tags$div(
+      tags$h4("How to interpret these plots:"),
+      tags$ul(
+        tags$li(tags$strong("QQ Plot:"), " Points should fall approximately along the diagonal line. Deviations suggest non-normal residuals."),
+        tags$li(tags$strong("Residuals vs Fitted:"), " Look for random scatter around zero. Patterns suggest heteroscedasticity or non-linearity."),
+        tags$li(tags$strong("Scale-Location:"), " Look for a horizontal line with equally spread points. Deviations suggest non-constant variance (heteroscedasticity)."),
+        tags$li(tags$strong("Residuals vs Leverage:"), " Check for influential cases. Points outside Cook's distance lines are potential outliers that may unduly influence the model.")
+      ),
+      tags$p("For more detailed interpretation, please refer to statistical literature or consult a statistician.")
+    ),
+    plotOutput("lmm_assumption_qq", height = 250),
+    plotOutput("lmm_assumption_residuals_fitted", height = 250),
+    plotOutput("lmm_assumption_scale_location", height = 250),
+    plotOutput("lmm_assumption_residuals_leverage", height = 250),
+    size = "l",
+    easyClose = TRUE,
+    footer = modalButton("Close")
+  ))
+})
 
-output$qq <- renderSVG({ reactive({
-  req(dep_var_selected())
+# LMM assumption modal plots
+output$lmm_assumption_qq <- renderPlot({
+  req(dep_var_valid())
   lmm <- get_lmer()
-  qqnorm(resid(lmm))
-  qqline(resid(lmm))
-})})
+  qqnorm(resid(lmm), main = "QQ Plot of Residuals")
+  qqline(resid(lmm), col = "blue")
+})
 
-output$residuals_vs_fitted <- renderSVG({ reactive({
-  req(dep_var_selected())
+output$lmm_assumption_residuals_fitted <- renderPlot({
+  req(dep_var_valid())
   lmm <- get_lmer()
-  plot(fitted(lmm), resid(lmm), 
-       xlab = "Fitted values", 
-       ylab = "Residuals",
-       main = "Residuals vs Fitted")
+  plot(fitted(lmm), resid(lmm),
+    xlab = "Fitted values",
+    ylab = "Residuals",
+    main = "Residuals vs Fitted"
+  )
   abline(h = 0, col = "red")
-}) })
+})
 
-output$scale_location <- renderSVG({ reactive({
-  req(dep_var_selected())
+output$lmm_assumption_scale_location <- renderPlot({
+  req(dep_var_valid())
   lmm <- get_lmer()
   sqrt_resid <- sqrt(abs(resid(lmm)))
   plot(fitted(lmm), sqrt_resid,
-       xlab = "Fitted values",
-       ylab = "Square root of standardized residuals",
-       main = "Scale-Location Plot")
-  abline(h = 0, col = "red")
-}) })
+    xlab = "Fitted values",
+    ylab = "√|Standardized residuals|",
+    main = "Scale-Location Plot"
+  )
+  abline(h = mean(sqrt_resid, na.rm = TRUE), col = "red")
+})
 
-output$residuals_vs_leverage <- renderSVG({ reactive({
-  req(dep_var_selected())
+output$lmm_assumption_residuals_leverage <- renderPlot({
+  req(dep_var_valid())
   lmm <- get_lmer()
   leverage <- hatvalues(lmm)
   cooksd <- cooks.distance(lmm)
   plot(leverage, resid(lmm),
-       xlab = "Leverage",
-       ylab = "Residuals",
-       main = "Residuals vs Leverage Plot")
+    xlab = "Leverage",
+    ylab = "Residuals",
+    main = "Residuals vs Leverage"
+  )
   abline(h = 0, col = "red")
-  points(leverage, resid(lmm), pch = 20, col = ifelse(cooksd > 4/(nrow(leverage) - length(coef(lmm))), "red", "black"))
-  # Add Cook's distance lines
-  cooksd_line <- 4/(nrow(leverage) - length(coef(lmm)))
-  abline(v = cooksd_line, col = "blue", lty = 2)
-  abline(v = 2 * cooksd_line, col = "blue", lty = 2)
-}) })
-
-############
-########## T-Test
-get_ttest_diff <- reactive({
-  req(dep_var_selected(), input$paired_ttest)
-  dt <- get_stats_data()
-  
-  dep_var <- input$depVar
-  if (length(input$indepInterVars) > 0) {
-    comparison_col <- input$indepInterVars[1]  # Use the first variable in indepInterVars to define the comparison column
-    
-    if (length(unique(dt[[comparison_col]])) == 2) {  # Can only do t-test if there are exactly 2 levels
-      levels <- unique(dt[[comparison_col]])
-      
-      # Get data for each level, grouped by participant
-      level1_data <- dt[dt[[comparison_col]] == levels[1], c("participant", dep_var)]
-      level2_data <- dt[dt[[comparison_col]] == levels[2], c("participant", dep_var)]
-      
-      # Calculate mean per participant for each level
-      level1_means <- aggregate(level1_data[[dep_var]], by = list(participant = level1_data$participant), FUN = mean, na.rm = TRUE)
-      level2_means <- aggregate(level2_data[[dep_var]], by = list(participant = level2_data$participant), FUN = mean, na.rm = TRUE)
-      
-      # Merge to ensure we have paired data
-      paired_data <- merge(level1_means, level2_means, by = "participant", suffixes = c("_level1", "_level2"))
-      
-      # Remove any rows with NA values
-      paired_data <- paired_data[complete.cases(paired_data), ]
-      
-      if (nrow(paired_data) >= 2) {
-        return(paired_data$x_level2 - paired_data$x_level1)
-      }
-    }
-  }
-  return(NULL)  # Return NULL if conditions are not met
+  # Highlight influential points
+  influential <- cooksd > 4 / (length(cooksd) - length(coef(lmm)))
+  points(leverage[influential], resid(lmm)[influential], pch = 20, col = "red", cex = 1.2)
 })
 
-###############
-############## FIGURES
+# Modal content outputs for t-test assumptions
+output$ttest_assumption_details <- renderUI({
+  info <- ttest_assumption_state()
+  req(info)
+  tagList(
+    tags$div(
+      tags$h4("Comparison Details:"),
+      tags$p(tags$strong("Effect:"), info$effect),
+      tags$p(tags$strong("Contrast:"), info$contrast),
+      tags$p(tags$strong("Pairs used:"), info$n_pairs),
+      tags$p(tags$strong("Levels compared:"),
+             sprintf("%s  vs  %s",
+                     paste(info$left_levels, collapse = " × "),
+                     paste(info$right_levels, collapse = " × ")))
+    ),
+    tags$div(
+      tags$h4("How to interpret these plots:"),
+      tags$ul(
+        tags$li(tags$strong("Histogram of Differences:"), " Should be roughly symmetric and bell-shaped, centered around zero. Skewness or multiple peaks may indicate violations of normality."),
+        tags$li(tags$strong("Q-Q Plot of Differences:"), " Points should fall approximately along the diagonal line (blue). Systematic deviations suggest the differences are not normally distributed."),
+        tags$li(tags$strong("Boxplot of Differences:"), " Check for extreme outliers (points beyond the whiskers). Outliers can affect the validity of the paired t-test and should be investigated.")
+      ),
+      tags$p(tags$strong("Note:"), " The paired t-test assumes that the differences between paired observations are normally distributed. If these assumptions are violated, consider non-parametric alternatives like the Wilcoxon signed-rank test.")
+    )
+  )
+})
 
-# Output for histogram of differences
-output$diff_histogram <- renderSVG({ reactive({
-  req(dep_var_selected(), input$paired_ttest)
-  diff <- get_ttest_diff()
-  
-  if (is.null(diff)) {
+output$ttest_assumption_hist <- renderPlot({
+  info <- ttest_assumption_state()
+  req(info)
+  diffs <- info$differences
+  if (length(diffs) < 2) {
     plot.new()
-    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    text(0.5, 0.5, "Not enough paired observations\nto plot diagnostics.", cex = 1.1, col = "red")
     return()
   }
-  
-  # Create histogram
-  hist(diff, main = "Histogram of Differences", xlab = "Differences",
-       col = "lightblue", border = "white")
-}) })
+  hist(diffs, main = "Histogram of Paired Differences",
+       xlab = "Differences (Right - Left)", col = "lightblue", border = "white",
+       breaks = max(5, min(15, length(diffs)/3)))
+  # Add normal curve overlay
+  x_seq <- seq(min(diffs), max(diffs), length.out = 100)
+  y_seq <- dnorm(x_seq, mean(diffs), sd(diffs))
+  y_seq <- y_seq * length(diffs) * diff(range(diffs)) / length(x_seq)
+  lines(x_seq, y_seq, col = "red", lwd = 2)
+})
 
-# Output for Q-Q plot of differences
-output$diff_qqplot <- renderSVG({ reactive({
-  req(dep_var_selected(), input$paired_ttest)
-  diff <- get_ttest_diff()
-  
-  if (is.null(diff)) {
+output$ttest_assumption_qq <- renderPlot({
+  info <- ttest_assumption_state()
+  req(info)
+  diffs <- info$differences
+  if (length(diffs) < 2) {
     plot.new()
-    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    text(0.5, 0.5, "Not enough paired observations\nto plot diagnostics.", cex = 1.1, col = "red")
     return()
   }
-  
-  # Create Q-Q plot
-  qqnorm(diff, main = "Q-Q Plot of Differences")
-  qqline(diff, col = "blue")
-})})
+  qqnorm(diffs, main = "Q-Q Plot of Differences")
+  qqline(diffs, col = "blue", lwd = 2)
+})
 
-# Output for boxplot of differences
-output$diff_boxplot <- renderSVG({ reactive({
-  req(dep_var_selected(), input$paired_ttest)
-  diff <- get_ttest_diff()
-  
-  if (is.null(diff)) {
+output$ttest_assumption_box <- renderPlot({
+  info <- ttest_assumption_state()
+  req(info)
+  diffs <- info$differences
+  if (length(diffs) < 2) {
     plot.new()
-    text(0.5, 0.5, "No valid difference data available", cex = 1.5, col = "red")
+    text(0.5, 0.5, "Not enough paired observations\nto plot diagnostics.", cex = 1.1, col = "red")
     return()
   }
-  
-  # Create boxplot
-  boxplot(diff, main = "Boxplot of Differences", ylab = "Differences", col = "lightblue", border = "darkblue")
-}) })
+  boxplot(diffs, main = "Boxplot of Differences", 
+          ylab = "Differences (Right - Left)",
+          col = "lightblue", border = "darkblue")
+  abline(h = 0, col = "red", lty = 2)
+  # Add mean line
+  abline(h = mean(diffs), col = "green", lwd = 2)
+  legend("topright", c("Zero line", "Mean"), col = c("red", "green"), 
+         lty = c(2, 1), lwd = c(1, 2), cex = 0.8)
+})
 
-```
 
