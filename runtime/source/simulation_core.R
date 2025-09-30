@@ -190,7 +190,13 @@ add_safety_cols <- function(df, shape) {
 
     # Distance to nearest escape point (shortest path)
     dist_to_escape = pmax(0, q_max - abs(q)),
+    
+    # Distance to escape ratio (scaled relative to q_max)
+    dist_to_escape_ratio = ifelse(q_max > 0, dist_to_escape / q_max, 0),
 
+    # Distance to escape for arcDeg = 6 only (NA otherwise)
+    dist_to_escape_arcdeg6 = ifelse(arcDeg == 6, dist_to_escape, NA_real_),
+    
     # Energy required to reach escape point (potential energy difference)
     e_potential_needed = g * (y_escape - y),
 

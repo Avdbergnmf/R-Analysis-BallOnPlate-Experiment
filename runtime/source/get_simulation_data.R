@@ -54,6 +54,8 @@ get_simulation_parameters <- function() {
         margin_E = "Energy Margin",
         danger = "Danger Level",
         dist_to_escape = "Distance to Escape",
+        dist_to_escape_ratio = "Distance to Escape Ratio",
+        dist_to_escape_arcdeg6 = "Distance to Escape (arcDeg=6)",
         e_total_needed = "Total Energy Needed to Escape",
         time_to_escape = "Time to Escape",
 
@@ -94,6 +96,8 @@ get_simulation_variable_names <- function() {
         `y` = "Y Position (height)",
         `y_escape` = "Escape Height",
         `dist_to_escape` = "Distance to Escape",
+        `dist_to_escape_ratio` = "Distance to Escape Ratio",
+        `dist_to_escape_arcdeg6` = "Distance to Escape (arcDeg=6)",
         `vx` = "X Velocity (plate-relative)",
         `vx_world` = "X Velocity (world)",
         `vy` = "Y Velocity",
