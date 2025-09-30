@@ -334,10 +334,11 @@ parse_contrast_levels <- function(contrast_str) {
 #' @param dep_col The dependent variable column name
 #' @param vars_involved Vector of variable names involved in the contrast
 #' @param lvl_pair List with left and right level vectors
-#' @return List with left_vals and right_vals vectors
+#' @return List with left_vals, right_vals vectors and participant_ids
 extract_paired_values <- function(dt2, dep_col, vars_involved, lvl_pair) {
     left_vals <- c()
     right_vals <- c()
+    participant_ids <- c()
     unique_participants <- unique(dt2$participant)
 
     for (pid in unique_participants) {
@@ -372,11 +373,12 @@ extract_paired_values <- function(dt2, dep_col, vars_involved, lvl_pair) {
             if (is.finite(val_left) && is.finite(val_right) && !is.na(val_left) && !is.na(val_right)) {
                 left_vals <- c(left_vals, val_left)
                 right_vals <- c(right_vals, val_right)
+                participant_ids <- c(participant_ids, pid)
             }
         }
     }
 
-    list(left_vals = left_vals, right_vals = right_vals)
+    list(left_vals = left_vals, right_vals = right_vals, participant_ids = participant_ids)
 }
 
 #' Perform paired t-test for one contrast
@@ -498,6 +500,7 @@ compute_paired_ttest_table <- function(lmm_posthoc, data, dep_var, num_tests = 1
                 differences = diffs,
                 left_vals = paired_vals$left_vals,
                 right_vals = paired_vals$right_vals,
+                participant_ids = paired_vals$participant_ids,
                 vars = vars_involved,
                 left_levels = lvl_pair$left,
                 right_levels = lvl_pair$right,
