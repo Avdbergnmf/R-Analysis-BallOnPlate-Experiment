@@ -155,6 +155,8 @@ get_simulation_data <- function(participant, trial) {
 
     # Get level data for arcDeg and apply trial duration capping
     level_data <- get_t_data(participant, "level", trial, apply_udp_trimming = FALSE)
+    level_data <- shift_trial_time_lookup(level_data, participant, trial)
+
     # If level data is missing or empty, log an error but continue.
     # Using cat() ensures it is captured by captureOutput in parallel logs.
     if (is.null(level_data) || nrow(level_data) == 0) {

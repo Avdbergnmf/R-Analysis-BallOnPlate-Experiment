@@ -266,7 +266,17 @@ check_file_has_data <- function(participant, trackerType, trialNum) {
   )
 }
 
+get_start_time <- function(participant, trialNum) {
+  # Get UDP time ranges (these are based on trialTime)
+  time_ranges <- get_udp_time_ranges(participant, trialNum)
+  return(time_ranges$valid_ranges$start_time[1])
+}
 
+shift_trial_time_lookup <- function(data, participant, trialNum, time_column = "time") {
+  start_time <- get_start_time(participant, trialNum)
+  data[[time_column]] <- data[[time_column]] - start_time
+  return(data)
+}
 
 # get any type of data
 get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE) {
