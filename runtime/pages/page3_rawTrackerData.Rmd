@@ -1,24 +1,27 @@
 
 ### Plot Options
 ```{r}
-checkboxInput("plotlines", "plot lines",value=TRUE)
-checkboxInput("plotpoints", "plot points",value=FALSE)
+checkboxInput("plotlines", "plot lines", value = TRUE)
+checkboxInput("plotpoints", "plot points", value = FALSE)
 
-selectizeInput("xtracker", "X Data to plot",
-  choices = trackers, selected = trackers[2], multiple = FALSE)
-selectizeInput("ytracker", "Y Data to plot",
-  choices = trackers, selected = trackers[2], multiple = FALSE)
+selectizeInput("tracker", "Data to plot",
+  choices = trackers, selected = trackers[2], multiple = FALSE
+)
 
 selectizeInput("participant2d", "participant",
-  choices = participants, selected = participants[1], multiple = FALSE)
+  choices = participants, selected = participants[1], multiple = FALSE
+)
 selectizeInput("trialNum2d", "Trial Number",
-  choices = allTrials, selected = allTrials[2], multiple = FALSE)
+  choices = allTrials, selected = allTrials[2], multiple = FALSE
+)
 
 
 selectizeInput("xplot2d", "xplot",
-  choices = xOptions2D, selected = xOptions2D[2], multiple = FALSE)
+  choices = xOptions2D, selected = xOptions2D[2], multiple = FALSE
+)
 selectizeInput("yplot2d", "yplot",
-  choices = xOptions2D, selected = xOptions2D[3], multiple = FALSE)
+  choices = xOptions2D, selected = xOptions2D[3], multiple = FALSE
+)
 ```
 
 
@@ -27,34 +30,33 @@ Column
 ### 2D plot {data-height=1500}
 Simple interface to create some 2D plots of the raw tracker data for debugging purposes.
 ```{r}
-#imageOutput("TwoD")
+# imageOutput("TwoD")
 plotlyOutput("TwoD_interactive")
 ```
 
 ```{r, context="server"}
 # Helper function to update plot options while preserving selection
-updatePlotOptions <- function(xtracker, ytracker, target_x, target_y, current_x = NULL, current_y = NULL) {
-  trialNum <- if(is.null(input$trialNum2d)) allTrials[2] else as.numeric(input$trialNum2d)
-  xchoices <- getOptions(xtracker, trialNum)
-  ychoices <- getOptions(ytracker, trialNum)
-  
+updatePlotOptions <- function(tracker, target_x, target_y, current_x = NULL, current_y = NULL) {
+  trialNum <- if (is.null(input$trialNum2d)) allTrials[2] else as.numeric(input$trialNum2d)
+  choices <- getOptions(tracker, trialNum)
+
   # Preserve previous selections if they still exist
-  selected_x <- if(!is.null(current_x) && current_x %in% xchoices) current_x else xchoices[min(2, length(xchoices))]
-  selected_y <- if(!is.null(current_y) && current_y %in% ychoices) current_y else ychoices[min(3, length(ychoices))]
-  
-  updateSelectizeInput(session = getDefaultReactiveDomain(), target_x, choices = xchoices, selected = selected_x)
-  updateSelectizeInput(session = getDefaultReactiveDomain(), target_y, choices = ychoices, selected = selected_y)
+  selected_x <- if (!is.null(current_x) && current_x %in% choices) current_x else choices[min(2, length(choices))]
+  selected_y <- if (!is.null(current_y) && current_y %in% choices) current_y else choices[min(3, length(choices))]
+
+  updateSelectizeInput(session = getDefaultReactiveDomain(), target_x, choices = choices, selected = selected_x)
+  updateSelectizeInput(session = getDefaultReactiveDomain(), target_y, choices = choices, selected = selected_y)
 }
 
 # Update plot options when any relevant input changes
 observeEvent(
   {
-    list(input$xtracker, input$ytracker, input$trialNum2d)
+    list(input$tracker, input$trialNum2d)
   },
   {
-    if (!is.null(input$xtracker) && !is.null(input$ytracker)) {
+    if (!is.null(input$tracker)) {
       updatePlotOptions(
-        input$xtracker, input$ytracker,
+        input$tracker,
         "xplot2d", "yplot2d",
         input$xplot2d, input$yplot2d
       )
@@ -62,20 +64,21 @@ observeEvent(
   }
 )
 
-output$TwoD <- renderSVG({ reactive({
-    plot_2d(input$xtracker, input$ytracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize=input$baseSize)
-  })}
-)
+output$TwoD <- renderSVG({
+  reactive({
+    plot_2d(input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
+  })
+})
 
 
 output$TwoD_interactive <- renderPlotly({
   p <- plot_2d(
-    input$xtracker, input$ytracker, 
-    input$participant2d, 
-    as.numeric(input$trialNum2d), 
-    input$xplot2d, input$yplot2d, 
-    input$plotlines, input$plotpoints, 
-    baseSize=input$baseSize
+    input$tracker, input$tracker,
+    input$participant2d,
+    as.numeric(input$trialNum2d),
+    input$xplot2d, input$yplot2d,
+    input$plotlines, input$plotpoints,
+    baseSize = input$baseSize
   )
 
   # Convert to ggplotly
