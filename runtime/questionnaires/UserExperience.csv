@@ -1,7 +1,7 @@
 QuestionID,question,mirror,category
 q1,How comfortable were the movements while walking in the exoskeleton?,false,comfort
 q2,How much resistance was the exoskeleton giving to your movements when walking in the exoskeleton?,false,resistance
-q3,How natural could you walk with the exoskeleton?,false,naturalness
+q3,How natural could you walk with the exoskeleton?,false,comfort
 q4,It seemed like I was in control of the exoskeleton.,false,agency
 q5,It seemed as if the exoskeleton was controlling me.,true,agency
 q6,It seemed like I was causing the movements of the exoskeleton.,false,agency
