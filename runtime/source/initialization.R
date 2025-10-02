@@ -53,6 +53,9 @@ initialize_global_parameters <- function() {
     # trial 4 is standing familiarization with the task
     # trial 6 is familiarization with condition, and was unstructured and different depending on the condition.
 
+    # Define training trials (trials 7 and 8)
+    trainingTrials <<- c(7, 8)
+
     # Define default durations for each trial (in seconds)
     default_durations <<- list(
         "1" = 120, # warmup - 2 minutes
@@ -111,7 +114,7 @@ initialize_global_parameters <- function() {
     # Include demographic / questionnaire details so they are preserved in
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
-        "visualizations", "perturbations",
+        "visualizations", "perturbations", "training",
         "age", "weight", "education", "vr_experience", "height_scale", "gender", "motion"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")

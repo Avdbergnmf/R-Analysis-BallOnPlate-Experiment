@@ -22,6 +22,7 @@ add_category_columns <- function(data) {
     dplyr::mutate(
       perturbations   = has_perturbations(as.character(participant), as.numeric(as.character(trialNum))),
       visualizations  = has_visualizations(as.character(participant), as.numeric(as.character(trialNum))),
+      training        = is_training_trial(as.numeric(as.character(trialNum))),
       task            = has_task(as.character(participant), as.numeric(as.character(trialNum))),
       treadmillSpeed  = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
       condition       = condition_number(as.character(participant)),
@@ -41,6 +42,7 @@ add_category_columns <- function(data) {
     dplyr::mutate(
       perturbations   = as.factor(perturbations),
       visualizations  = as.factor(visualizations),
+      training        = as.factor(training),
       task            = as.factor(task),
       condition       = as.factor(condition),
       phase           = as.factor(phase),

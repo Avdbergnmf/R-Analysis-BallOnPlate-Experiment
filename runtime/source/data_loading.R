@@ -192,6 +192,11 @@ has_task <- function(participant, trial) {
   return(result == "True" || result == TRUE || result == "true")
 }
 
+is_training_trial <- function(trial) {
+  ensure_global_data_initialized()
+  return(trial %in% trainingTrials)
+}
+
 condition_number <- function(participant) {
   # check what state the training was in
   p <- has_perturbations(participant, 7)
