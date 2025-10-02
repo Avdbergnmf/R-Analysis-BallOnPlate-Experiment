@@ -2,13 +2,25 @@
 
 ```{r}
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
-#selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
+selectizeInput("plotVarTransform", "Transform variable",
+  choices = c("None" = "none", "Log10" = "log10"),
+  selected = "none", multiple = FALSE
+)
+# selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
 selectizeInput("varCategory", "Category", choices = NULL, selected = NULL, multiple = TRUE)
 selectizeInput("colorCategory", "Color", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("shapeCategory", "Shape", choices = NULL, selected = NULL, multiple = FALSE)
-checkboxInput("doPaired", "Make it a paired plot",value=FALSE)
+checkboxInput("doPaired", "Make it a paired plot", value = FALSE)
 selectizeInput("pairedCategory", "Paired Category", choices = NULL, selected = NULL, multiple = FALSE)
-checkboxInput("useSVG", "Make SVG for saving", value=FALSE)
+checkboxInput("useSVG", "Make SVG for saving", value = FALSE)
+```
+
+```{r}
+bsTooltip("plotVarTransform",
+  "Apply transformation to the plotted variable. Log10 transformation can help with skewed data.",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 Column
@@ -85,6 +97,17 @@ generate_boxplot <- function() {
       stop("Invalid or missing plot variable")
     }
     
+    # Apply transformation to the plotting variable if selected
+    if (input$plotVarTransform == "log10") {
+      # Check if all values are positive for log10 transformation
+      plot_var_values <- mu[[input$plotVar]]
+      if (any(plot_var_values <= 0, na.rm = TRUE)) {
+        stop("Cannot apply log10 transformation: Some values are <= 0. Consider adding a constant or using a different transformation.")
+      }
+      # Apply log10 transformation directly to the column in mu
+      mu[[input$plotVar]] <- log10(mu[[input$plotVar]])
+    }
+    
     # Validate categories exist in data
     available_cols <- colnames(mu)
     if (!is.null(input$varCategory) && length(input$varCategory) > 0) {
@@ -94,7 +117,7 @@ generate_boxplot <- function() {
       }
     }
     
-    # Generate the plot
+    # Generate the plot with the (potentially transformed) data
     if (!input$doPaired) {
       plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
     } else {
@@ -141,4 +164,3 @@ output$plotOutput <- renderUI({
     })
   }
 })
-```
