@@ -160,7 +160,7 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
 #' @param other_data Other dataset to merge (questionnaire, task, complexity, etc.)
 #' @param data_type_name Descriptive name for logging (e.g., "questionnaire", "task", "complexity")
 #' @param merge_by Vector of column names to merge by (default: c("participant", "trialNum"))
-#' @return Merged data frame with gait data preserved
+#' @return Merged data frame with all data preserved (missing values filled with NA)
 merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", merge_by = c("participant", "trialNum")) {
   # Create copies to avoid modifying originals
   mu_gait_copy <- mu_gait
@@ -172,35 +172,41 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
     other_data_copy$trialNum <- as.numeric(as.character(other_data_copy$trialNum))
   }
 
-  # Filter other data using the common helper function
-  other_data_filtered <- filter_by_gait_combinations(mu_gait_copy, other_data_copy, data_type_name)
-
-  # Remove condition column from other data (gait data is authoritative for conditions)
-  if ("condition" %in% colnames(other_data_filtered)) {
-    other_data_filtered <- select(other_data_filtered, -condition)
-  }
-
-  # Check for column conflicts and remove duplicates from new dataset (keeping original gait data)
-  non_merge_cols <- setdiff(colnames(other_data_filtered), merge_by)
+  # Check for column conflicts - any column that exists in both datasets
+  non_merge_cols <- setdiff(colnames(other_data_copy), merge_by)
   conflicting_cols <- intersect(non_merge_cols, colnames(mu_gait_copy))
 
+  # For conflicting columns, handle them before the join to avoid .x/.y suffixes
   if (length(conflicting_cols) > 0) {
     cat(sprintf(
-      "Removing conflicting columns from %s data (keeping original gait data): %s\n",
+      "Handling conflicting columns (preferring original, filling missing from %s): %s\n",
       data_type_name, paste(conflicting_cols, collapse = ", ")
     ))
-    other_data_filtered <- select(other_data_filtered, -all_of(conflicting_cols))
+
+    # For each conflicting column, fill missing values in original data with values from new data
+    for (col in conflicting_cols) {
+      if (col %in% colnames(mu_gait_copy) && col %in% colnames(other_data_copy)) {
+        # Fill missing values in original column with values from new data
+        missing_mask <- is.na(mu_gait_copy[[col]]) | mu_gait_copy[[col]] == ""
+        mu_gait_copy[[col]][missing_mask] <- other_data_copy[[col]][missing_mask]
+      }
+    }
+
+    # Remove conflicting columns from other_data_copy since we've merged them into mu_gait_copy
+    other_data_copy <- select(other_data_copy, -all_of(conflicting_cols))
   }
 
-  # Add prefix to column names based on data type (except for merge_by columns)
-  columns_to_prefix <- setdiff(colnames(other_data_filtered), merge_by)
-  if (length(columns_to_prefix) > 0) {
-    other_data_filtered <- other_data_filtered %>%
-      rename_with(~ paste0(data_type_name, ".", .), all_of(columns_to_prefix))
+  # Add prefix to remaining columns (except for merge_by columns)
+  remaining_cols <- setdiff(colnames(other_data_copy), merge_by)
+  if (length(remaining_cols) > 0) {
+    other_data_copy <- other_data_copy %>%
+      rename_with(~ paste0(data_type_name, ".", .), all_of(remaining_cols))
   }
 
-  # Merge based on specified columns (using left_join to preserve all gait data)
-  return(left_join(mu_gait_copy, other_data_filtered, by = merge_by))
+  # Merge based on specified columns (using full_join to preserve all data from both datasets)
+  merged_data <- full_join(mu_gait_copy, other_data_copy, by = merge_by)
+
+  return(merged_data)
 }
 
 #' Prepare questionnaire data for merging with gait data

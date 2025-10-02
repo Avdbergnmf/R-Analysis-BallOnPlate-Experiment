@@ -11,6 +11,63 @@ init_gait_data_table <- function() {
   }
 }
 
+#' Apply trial-based filtering (participants, trials, condition, phase)
+#' @param data Data frame to filter
+#' @return Filtered data frame
+apply_trial_filters <- function(data) {
+  if (nrow(data) == 0) {
+    return(data)
+  }
+
+  # Apply participant filter
+  if (!is.null(input$filterParticipants) && length(input$filterParticipants) > 0) {
+    data <- data[data$participant %in% input$filterParticipants, ]
+  }
+
+  # Apply trial filter
+  if (!is.null(input$filterTrials) && length(input$filterTrials) > 0) {
+    data <- data[data$trialNum %in% input$filterTrials, ]
+  }
+
+  # Apply condition filter
+  if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
+    data <- data[data$condition %in% input$filterCondition, ]
+  }
+
+  # Apply phase filter
+  if (!is.null(input$filterPhase) && length(input$filterPhase) > 0) {
+    data <- data[data$phase %in% input$filterPhase, ]
+  }
+
+  return(data)
+}
+
+#' Apply step-based filtering (outlierSteps, suspect, foot)
+#' @param data Data frame to filter
+#' @return Filtered data frame
+apply_step_filters <- function(data) {
+  if (nrow(data) == 0) {
+    return(data)
+  }
+
+  # Apply outlier filter (if column exists)
+  if ("outlierSteps" %in% colnames(data) && !is.null(input$filterOutliers) && length(input$filterOutliers) > 0) {
+    data <- data[data$outlierSteps %in% input$filterOutliers, ]
+  }
+
+  # Apply suspect filter (if column exists)
+  if ("suspect" %in% colnames(data) && !is.null(input$filterSuspect) && length(input$filterSuspect) > 0) {
+    data <- data[data$suspect %in% input$filterSuspect, ]
+  }
+
+  # Apply side filter (if column exists)
+  if ("foot" %in% colnames(data) && !is.null(input$filterSide) && length(input$filterSide) > 0) {
+    data <- data[data$foot %in% input$filterSide, ]
+  }
+
+  return(data)
+}
+
 filteredParams <- reactive({
   # Force dependency on `refresh_trigger()`
   refresh_trigger()
@@ -23,19 +80,14 @@ filteredParams <- reactive({
   # Initialize data.table version if needed
   init_gait_data_table()
 
-  # Use data.table filtering for much better performance on large datasets
-  dt_filtered <- .allGaitParams_dt[
-    participant %in% input$filterParticipants &
-      trialNum %in% input$filterTrials &
-      condition %in% input$filterCondition &
-      phase %in% input$filterPhase &
-      outlierSteps %in% input$filterOutliers &
-      suspect %in% input$filterSuspect &
-      foot %in% input$filterSide
-  ]
+  # Convert to data.frame for filtering
+  dt_data <- as.data.frame(.allGaitParams_dt)
 
-  # Convert back to data.frame for compatibility with rest of application
-  return(as.data.frame(dt_filtered))
+  # Apply both trial-based and step-based filters
+  dt_data <- apply_trial_filters(dt_data)
+  dt_data <- apply_step_filters(dt_data)
+
+  return(dt_data)
 })
 
 # Reactive values for simulation data control (button-only updates with cancellation)
@@ -643,11 +695,26 @@ get_mu_dyn_long <- reactive({
   }
 
   # Use new unified merge approach - prefix naming handled automatically by merge_mu_with_data
+  # This now preserves all data from all sources
   mu <- mu_gait
   q_prepped <- prep_questionnaire_for_merge(allQResults)
   mu <- merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
+
+  # Apply trial-based filters to the complete merged dataset
+  # (step-based filters were already applied to the gait data)
+  # Now that categorical columns are properly merged, we can safely apply trial filters
+  mu <- apply_trial_filters(mu)
+
+  # Check if filtering resulted in empty data
+  if (nrow(mu) == 0) {
+    showNotification(
+      "No data matches the current filter settings. Please adjust your filters in the sidebar.",
+      type = "warning",
+      duration = 5
+    )
+  }
 
   return(mu)
 })
