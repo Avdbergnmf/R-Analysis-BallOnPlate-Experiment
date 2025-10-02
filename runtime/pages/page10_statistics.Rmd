@@ -1,9 +1,6 @@
 ### Options
 
 ```{r}
-# Default variables more appropriate for the current experiment
-defaultIndepVars <- c("condition")
-
 selectizeInput("depVar", "Dependent variable",
   choices = NULL, selected = NULL, multiple = FALSE
 )
@@ -169,12 +166,15 @@ create_dynamic_variable_observer(
   input = input
 )
 
+# Default variables more appropriate for the current experiment
+defaultIndepVars <- c("condition")
+
 create_dynamic_variable_observer(
   data_reactive = get_stats_data,
   input_id = "indepInterVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = "condition",
+  default_choice = defaultIndepVars,
   fallback_choices = NULL,
   multiple = TRUE,
   input = input
@@ -185,7 +185,7 @@ create_dynamic_variable_observer(
   input_id = "indepVars",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = NULL,
+  default_choice = defaultIndepVars,
   fallback_choices = NULL,
   multiple = TRUE,
   input = input
