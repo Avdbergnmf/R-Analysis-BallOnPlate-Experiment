@@ -176,35 +176,48 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
   non_merge_cols <- setdiff(colnames(other_data_copy), merge_by)
   conflicting_cols <- intersect(non_merge_cols, colnames(mu_gait_copy))
 
-  # For conflicting columns, handle them before the join to avoid .x/.y suffixes
-  if (length(conflicting_cols) > 0) {
-    cat(sprintf(
-      "Handling conflicting columns (preferring original, filling missing from %s): %s\n",
-      data_type_name, paste(conflicting_cols, collapse = ", ")
-    ))
-
-    # For each conflicting column, fill missing values in original data with values from new data
-    for (col in conflicting_cols) {
-      if (col %in% colnames(mu_gait_copy) && col %in% colnames(other_data_copy)) {
-        # Fill missing values in original column with values from new data
-        missing_mask <- is.na(mu_gait_copy[[col]]) | mu_gait_copy[[col]] == ""
-        mu_gait_copy[[col]][missing_mask] <- other_data_copy[[col]][missing_mask]
-      }
-    }
-
-    # Remove conflicting columns from other_data_copy since we've merged them into mu_gait_copy
-    other_data_copy <- select(other_data_copy, -all_of(conflicting_cols))
-  }
-
-  # Add prefix to remaining columns (except for merge_by columns)
-  remaining_cols <- setdiff(colnames(other_data_copy), merge_by)
-  if (length(remaining_cols) > 0) {
+  # Add prefix to non-conflicting columns (except for merge_by columns)
+  non_conflicting_cols <- setdiff(non_merge_cols, conflicting_cols)
+  if (length(non_conflicting_cols) > 0) {
     other_data_copy <- other_data_copy %>%
-      rename_with(~ paste0(data_type_name, ".", .), all_of(remaining_cols))
+      rename_with(~ paste0(data_type_name, ".", .), all_of(non_conflicting_cols))
   }
 
   # Merge based on specified columns (using full_join to preserve all data from both datasets)
   merged_data <- full_join(mu_gait_copy, other_data_copy, by = merge_by)
+
+  # For conflicting columns, use coalesce to prefer mu_gait values but fill missing ones from other_data
+  if (length(conflicting_cols) > 0) {
+    cat(sprintf(
+      "Merging conflicting columns (preferring mu_gait, filling missing from %s): %s\n",
+      data_type_name, paste(conflicting_cols, collapse = ", ")
+    ))
+
+    # Use coalesce for each conflicting column (prefers mu_gait, falls back to other_data)
+    for (col in conflicting_cols) {
+      # After full_join, conflicting columns get .x and .y suffixes
+      mu_gait_col <- paste0(col, ".x") # mu_gait values
+      other_data_col <- paste0(col, ".y") # other_data values
+
+      if (mu_gait_col %in% colnames(merged_data) && other_data_col %in% colnames(merged_data)) {
+        # Use coalesce to prefer mu_gait values, fill missing with other_data values
+        merged_data[[col]] <- coalesce(merged_data[[mu_gait_col]], merged_data[[other_data_col]])
+
+        # Remove the .x and .y columns since we've merged them
+        merged_data <- select(merged_data, -all_of(c(mu_gait_col, other_data_col)))
+      }
+    }
+
+    # Reorder columns to put conflicting columns right after merge_by columns
+    all_cols <- colnames(merged_data)
+    merge_by_cols <- intersect(merge_by, all_cols)
+    conflicting_cols_present <- intersect(conflicting_cols, all_cols)
+    other_cols <- setdiff(all_cols, c(merge_by_cols, conflicting_cols_present))
+
+    # Create new column order: merge_by, conflicting, then everything else
+    new_col_order <- c(merge_by_cols, conflicting_cols_present, other_cols)
+    merged_data <- select(merged_data, all_of(new_col_order))
+  }
 
   return(merged_data)
 }
@@ -218,16 +231,18 @@ prep_questionnaire_for_merge <- function(questionnaire_data) {
   }
 
   # Create trial mapping for questionnaire results
+  # training2 answers are assigned to both trial 7 and trial 8
   q_results_mapped <- questionnaire_data %>%
     mutate(
       trialNum = case_when(
-        answer_type == "baseline_task" ~ 5L,
-        answer_type == "retention" ~ 10L,
-        answer_type == "training2" ~ 8L,
-        answer_type == "transfer" ~ 11L,
-        TRUE ~ as.integer(NA)
+        answer_type == "baseline_task" ~ list(5L),
+        answer_type == "retention" ~ list(10L),
+        answer_type == "training2" ~ list(c(7L, 8L)), # Assign to both training trials
+        answer_type == "transfer" ~ list(11L),
+        TRUE ~ list(integer(0))
       )
     ) %>%
+    tidyr::unnest(trialNum) %>% # Expand rows for multiple trial assignments
     dplyr::filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
 
   return(q_results_mapped)
