@@ -148,7 +148,7 @@ add_energy_cols <- function(df, g = 9.81) {
 
     # Local energy (plate-relative, more relevant for escape)
     ke = 0.5 * (vx^2 + vy^2), # kinetic relative to plate
-    e = ke + pe # total plate-relative energy (this is what matters for escape)
+    e = ke + pe # total plate-relative energy
   )
 }
 
@@ -190,13 +190,13 @@ add_safety_cols <- function(df, shape) {
 
     # Distance to nearest escape point (shortest path)
     dist_to_escape = pmax(0, q_max - abs(q)),
-    
+
     # Distance to escape ratio (scaled relative to q_max)
     dist_to_escape_ratio = ifelse(q_max > 0, dist_to_escape / q_max, 0),
 
     # Distance to escape for arcDeg = 6 only (NA otherwise)
     dist_to_escape_arcdeg6 = ifelse(arcDeg == 6, dist_to_escape, NA_real_),
-    
+
     # Energy required to reach escape point (potential energy difference)
     e_potential_needed = g * (y_escape - y),
 
@@ -220,7 +220,7 @@ add_safety_cols <- function(df, shape) {
     # Energy margin: how much energy we have vs what's needed
     # Positive = safe (current energy < needed)
     # Negative = can escape (current energy > needed)
-    margin_E = e_total_needed - e,
+    margin_E = e_total_needed - e_world,
 
     # Danger level: how much excess energy we have relative to what's needed
     # 0 = safe, 1 = just enough to escape, >1 = excess energy beyond escape
@@ -232,88 +232,20 @@ add_safety_cols <- function(df, shape) {
     # Time to escape: given current velocity, how long until ball falls off
     # Calculate distance to the edge the ball is moving toward
     # qd > 0: moving right, distance = q_max - q
-    # qd < 0: moving left, distance = q_max + q  
+    # qd < 0: moving left, distance = q_max + q
     # qd ≈ 0: max 10s
     time_to_escape = ifelse(
       abs(qd) < 1e-6, # No velocity
-      10,# max 10s
+      10, # max 10s
       ifelse(
         qd > 0, # Moving right toward positive edge
         pmin(10, (q_max - q) / abs(qd)),
-        # Moving left toward negative edge  
+        # Moving left toward negative edge
         pmin(10, (q_max + q) / abs(qd))
       )
     )
   )
 }
-
-kalman_cv_filter <- function(pos,
-                             dt = 0.005, # scalar or vector Δt (s)
-                             sigma_a = 1.0, # process noise  (m/s²)
-                             sigma_m = 0.00001) { # meas. noise     (m)
-  n <- length(pos)
-  if (n == 0L) {
-    return(list(p = numeric(0), v = numeric(0)))
-  }
-
-  ## handle dt vector vs scalar -------------------------------------------
-  if (length(dt) == 1L) {
-    dt <- rep(dt, n)
-  } else if (length(dt) != n) stop("dt must be length 1 or length(pos)")
-
-  ## result vectors --------------------------------------------------------
-  p_hat <- numeric(n) # filtered position
-  v_hat <- numeric(n) # filtered velocity
-
-  ## initial state ---------------------------------------------------------
-  p_hat[1] <- ifelse(is.na(pos[1]), 0, pos[1])
-  v_hat[1] <- 0
-
-  ## initial covariance (large = uninformative) ---------------------------
-  P11 <- 1 # var(p)
-  P12 <- 0 # cov(p,v)
-  P22 <- 1 # var(v)
-
-  for (k in 2:n) {
-    dtk <- dt[k]
-
-    ## ---------- PREDICT --------------------------------------------------
-    p_pred <- p_hat[k - 1] + v_hat[k - 1] * dtk
-    v_pred <- v_hat[k - 1]
-
-    Q11 <- sigma_a^2 * dtk^3 / 3
-    Q12 <- sigma_a^2 * dtk^2 / 2
-    Q22 <- sigma_a^2 * dtk
-
-    P11p <- P11 + (P12 + P12 + P22) * dtk + Q11 # F P Fᵀ + Q
-    P12p <- P12 + P22 * dtk + Q12
-    P22p <- P22 + Q22
-
-    ## ---------- UPDATE (only if sample is present) -----------------------
-    if (!is.na(pos[k])) {
-      y <- pos[k] - p_pred # innovation
-      S <- P11p + sigma_m^2 # innovation covariance
-      K1 <- P11p / S # Kalman gains
-      K2 <- P12p / S
-
-      p_hat[k] <- p_pred + K1 * y
-      v_hat[k] <- v_pred + K2 * y
-
-      P11 <- P11p - K1 * P11p
-      P12 <- P12p - K1 * P12p
-      P22 <- P22p - K2 * P12p
-    } else { # no measurement → prediction only
-      p_hat[k] <- p_pred
-      v_hat[k] <- v_pred
-      P11 <- P11p
-      P12 <- P12p
-      P22 <- P22p
-    }
-  }
-
-  list(p = p_hat, v = v_hat)
-}
-
 
 patch_gaps <- function(time, pos, tol = 1.5) {
   dt_nom <- median(diff(time))
