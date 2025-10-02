@@ -5,6 +5,11 @@ selectizeInput("depVar", "Dependent variable",
   choices = NULL, selected = NULL, multiple = FALSE
 )
 
+selectizeInput("depVarTransform", "Transform dependent variable",
+  choices = c("None" = "none", "Log10" = "log10"),
+  selected = "none", multiple = FALSE
+)
+
 selectizeInput("indepInterVars", "Independent variable(s) (interactions)",
   choices = NULL, selected = NULL, multiple = TRUE
 )
@@ -30,6 +35,11 @@ selectizeInput("correctionMethod", "Multiple comparison correction",
 ```
 
 ```{r}
+bsTooltip("depVarTransform",
+  "Apply transformation to the dependent variable before analysis. Log10 transformation can help with skewed data.",
+  placement = "right",
+  trigger = "hover"
+)
 bsTooltip("indepInterVars",
   "These independent variables are also multiplied with eachother (including the interaction terms).",
   placement = "right",
@@ -100,7 +110,7 @@ tableOutput("random_effects_table")
 ```{r}
 checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = TRUE)
 checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
-checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = TRUE)
+checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = FALSE)
 ```
 
 ```{r}
@@ -199,6 +209,18 @@ get_lmer <- reactive({
   data <- get_stats_data()
   validate_ready_for_lmm(data)
 
+  # Apply transformation to dependent variable if selected
+  if (input$depVarTransform == "log10") {
+    # Check if all values are positive for log10 transformation
+    dep_var_values <- data[[input$depVar]]
+    if (any(dep_var_values <= 0, na.rm = TRUE)) {
+      showNotification("Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.", type = "warning")
+      return(NULL)
+    }
+    # Apply log10 transformation
+    data[[input$depVar]] <- log10(data[[input$depVar]])
+  }
+
   doCustom <- input$useCustomModel && !is.null(input$customModel) && nzchar(input$customModel)
   if (doCustom) {
     formula <- as.formula(paste(input$depVar, "~", input$customModel))
@@ -220,7 +242,19 @@ output$stats_results_ui <- renderUI({
 
 output$lmm_text <- renderPrint({
   lmm <- get_lmer()
+  if (is.null(lmm)) {
+    cat("Model could not be fitted. Check for errors above.\n")
+    return()
+  }
+
   results <- summary(lmm)
+
+  # Show transformation information
+  if (input$depVarTransform != "none") {
+    cat("TRANSFORMATION APPLIED:\n")
+    cat("Dependent variable transformation:", input$depVarTransform, "\n")
+    cat("Note: All results are based on the transformed variable.\n\n")
+  }
 
   # Summarize the model
   cat("\nLMM:\n")
