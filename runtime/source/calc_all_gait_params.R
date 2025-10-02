@@ -35,7 +35,7 @@ add_category_columns <- function(data) {
       weight          = as.numeric(get_p_detail(as.character(participant), "weight")),
       education       = get_p_detail(as.character(participant), "education"),
       vr_experience   = get_p_detail(as.character(participant), "vr_experience"),
-      height_scale    = as.numeric(get_p_detail(as.character(participant), "height_scale"))
+      height_meters   = as.numeric(get_p_detail(as.character(participant), "height_scale")) * avatar_height_m
     ) %>%
     dplyr::ungroup() %>%
     # Convert categorical variables to factors

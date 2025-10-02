@@ -107,7 +107,6 @@ calculate_participant_details <- function(participants) {
   details$vr_experience <- sapply(participants, get_p_detail, detail = "vr_experience")
   details$motion <- sapply(participants, get_p_detail, detail = "motion")
   details$move_speed <- sapply(participants, get_move_speed, trialNum = 3)
-  avatar_height_m <- 1.85
   details$height_meters <- as.numeric(sapply(participants, get_p_detail, detail = "height_scale")) * avatar_height_m
 
   # -------------------------------------------------------------

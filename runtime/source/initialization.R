@@ -115,7 +115,7 @@ initialize_global_parameters <- function() {
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
         "visualizations", "perturbations", "training",
-        "age", "weight", "education", "vr_experience", "height_scale", "gender", "motion"
+        "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
     categoriesExtraInputs <<- append(categoriesExtra, c("foot", "slice_index", "None"))
@@ -158,6 +158,12 @@ initialize_global_parameters <- function() {
     default_sigma_a <<- 1.0
     default_sigma_m <<- 0.00001
     default_min_attempt_duration <<- 0
+
+    # =============================================================================
+    # AVATAR CONFIGURATION
+    # =============================================================================
+    # Avatar height in meters (used for converting height_scale to actual height)
+    avatar_height_m <<- 1.85
 
     # =============================================================================
     # VISUALIZATION PARAMETERS
