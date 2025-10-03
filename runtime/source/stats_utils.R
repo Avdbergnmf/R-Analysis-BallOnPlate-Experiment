@@ -212,8 +212,9 @@ dedupe_effects_by_base <- function(effects, all_indep_vars) {
 #' @param effect The effect name
 #' @param all_indep_vars All independent variables
 #' @param data The dataset
+#' @param adjust_method Method for p-value adjustment (default: "tukey")
 #' @return Post-hoc results data frame or NULL
-run_posthoc_for_effect <- function(lmm, effect, all_indep_vars, data) {
+run_posthoc_for_effect <- function(lmm, effect, all_indep_vars, data, adjust_method = "tukey") {
     if (grepl(":", effect)) {
         parts <- unlist(strsplit(effect, ":"))
         vars <- sapply(parts, function(p) clean_effect_name(p, all_indep_vars))
@@ -228,7 +229,7 @@ run_posthoc_for_effect <- function(lmm, effect, all_indep_vars, data) {
         }
         posthoc <- emmeans::emmeans(lmm, specs = var)
     }
-    res <- emmeans::contrast(posthoc, method = "pairwise")
+    res <- emmeans::contrast(posthoc, method = "pairwise", adjust = adjust_method)
     as.data.frame(summary(res))
 }
 
@@ -591,8 +592,9 @@ set_digits_with_bold_pvalues <- function(df, p_value_column, digits = 4, alpha =
 #' @param indep_inter_vars Independent interaction variables
 #' @param indep_vars Independent variables
 #' @param force_all Whether to test all effects regardless of significance
+#' @param adjust_method Method for p-value adjustment (default: "tukey")
 #' @return List with posthoc_results, combined results, and metadata
-prepare_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars, force_all = FALSE) {
+prepare_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars, force_all = FALSE, adjust_method = "tukey") {
     results <- summary(lmm)
     effects_all <- select_effects_to_test(results$coefficients, force_all)
     all_indep_vars <- c(indep_inter_vars, indep_vars)
@@ -602,7 +604,7 @@ prepare_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars, fo
     # Run emmeans for each effect
     posthoc_results <- list()
     for (eff in effects_to_test) {
-        res <- run_posthoc_for_effect(lmm, eff, all_indep_vars, data)
+        res <- run_posthoc_for_effect(lmm, eff, all_indep_vars, data, adjust_method)
         if (!is.null(res)) posthoc_results[[eff]] <- res
     }
 
