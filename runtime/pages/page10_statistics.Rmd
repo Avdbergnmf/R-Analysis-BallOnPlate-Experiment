@@ -28,7 +28,7 @@ checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
-selectizeInput("correctionMethod", "Multiple comparison correction",
+selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
   choices = c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"),
   selected = "holm", multiple = FALSE
 )
@@ -126,6 +126,17 @@ conditionalPanel(
 ```
 
 ```{r}
+conditionalPanel(
+  condition = "input.paired_ttest == false",
+  selectizeInput("posthoc_correction", "Post-hoc correction method",
+    choices = c("tukey", "scheffe", "sidak", "bonferroni", "holm", "hochberg", "hommel", "BH", "BY", "fdr", "none"),
+    selected = "tukey", multiple = FALSE
+  ),
+  helpText("Tukey's HSD is recommended for pairwise comparisons. Other methods may be more or less conservative.")
+)
+```
+
+```{r}
 tableOutput("post_hoc_table")
 ```
 
@@ -170,7 +181,7 @@ create_dynamic_variable_observer(
   input_id = "depVar",
   column_filter = function(x) TRUE, # All columns
   exclude_patterns = NULL,
-  default_choice = "task.dist_to_escape_mean", # "stepWidths.sd",
+  default_choice = "task.dist_to_escape_ratio_mean", # "stepWidths.sd",
   fallback_choices = NULL,
   multiple = FALSE,
   input = input
@@ -361,8 +372,8 @@ output$post_hoc_table <- renderTable(
     data <- get_stats_data()
     lmm <- get_lmer()
 
-    # Prepare analysis
-    lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc)
+    # Prepare analysis (use posthoc_correction for emmeans, not correctionMethod which is for fixed effects)
+    lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)
     if (is.null(lmm_posthoc)) {
       return(data.frame(Message = "No significant main or interaction effects found."))
     }
