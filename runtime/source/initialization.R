@@ -79,8 +79,8 @@ initialize_global_parameters <- function() {
         "4" = "familiarisation_stand",
         "5" = "baseline_task",
         "6" = "familiarisation_training",
-        "7" = "training1",
-        "8" = "training2",
+        "7" = "training",
+        "8" = "training",
         "9" = "washout",
         "10" = "retention",
         "11" = "transfer"
@@ -114,7 +114,7 @@ initialize_global_parameters <- function() {
     # Include demographic / questionnaire details so they are preserved in
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
-        "visualizations", "perturbations", "training",
+        "visualizations", "perturbations",
         "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion","trialNumWithinPhase"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
@@ -191,8 +191,6 @@ initialize_global_parameters <- function() {
     phase_map <<- c(
         "baseline" = "BL",
         "training" = "TR",
-        "training1" = "TR1",
-        "training2" = "TR2",
         "retention" = "RE",
         "transfer" = "TF",
         "washout" = "WO",

@@ -22,12 +22,11 @@ add_category_columns <- function(data) {
     dplyr::mutate(
       perturbations   = has_perturbations(as.character(participant), as.numeric(as.character(trialNum))),
       visualizations  = has_visualizations(as.character(participant), as.numeric(as.character(trialNum))),
-      training        = is_training_trial(as.numeric(as.character(trialNum))),
       task            = has_task(as.character(participant), as.numeric(as.character(trialNum))),
       treadmillSpeed  = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
       condition       = condition_number(as.character(participant)),
       phase           = get_trial_phase(as.character(participant), as.numeric(as.character(trialNum))),
-      trialNumWithinPhase = if (as.numeric(as.character(trialNum)) == 8) { 2 } else { 1 }, # training2 is the second trial within the training phase, the rest is all first
+      trialNumWithinPhase = if (as.numeric(as.character(trialNum)) == 8) { 2 } else { 1 }, # training second trial within training phase
 
       # Demographic / questionnaire details
       gender          = get_p_detail(as.character(participant), "gender"),
@@ -43,7 +42,6 @@ add_category_columns <- function(data) {
     dplyr::mutate(
       perturbations   = as.factor(perturbations),
       visualizations  = as.factor(visualizations),
-      training        = as.factor(training),
       task            = as.factor(task),
       condition       = as.factor(condition),
       phase           = as.factor(phase),
