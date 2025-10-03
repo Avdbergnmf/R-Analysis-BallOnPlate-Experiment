@@ -224,6 +224,10 @@ run_posthoc_for_effect <- function(lmm, effect, all_indep_vars, data, adjust_met
         posthoc <- emmeans::emmeans(lmm, specs = vars)
     } else {
         var <- clean_effect_name(effect, all_indep_vars)
+        # Fallback: if cleaned name not in data, but the raw effect name is a column, use it
+        if (!is.null(effect) && !(var %in% names(data)) && effect %in% names(data)) {
+            var <- effect
+        }
         if (is.null(var) || var == "" || !(var %in% names(data))) {
             return(NULL)
         }

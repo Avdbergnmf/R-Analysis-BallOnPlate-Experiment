@@ -43,6 +43,144 @@ observeEvent(input$clearAllTrials, {
 observeEvent(input$selectDefaultTrials, {
   updateSelectizeInput(session, "filterTrials", selected = c(5, 10, 11))
 }, ignoreInit = TRUE)
+ 
+#### Derived Metrics (global)
+```{r}
+actionButton("open_global_derived_modal", "Derived Metrics", class = "btn btn-sm btn-primary")
+```
+
+#### Server logic for global derived metrics
+```{r, context="server"}
+# Persistent storage for global derived metric definitions
+# Load from saved file if available
+derived_metrics_file <- "data_extra/derived_metrics.csv"
+load_derived_metrics <- function() {
+  if (file.exists(derived_metrics_file)) {
+    tryCatch({
+      defs <- read.csv(derived_metrics_file, stringsAsFactors = FALSE)
+      if (nrow(defs) > 0 && all(c("var", "scope", "level", "label", "colname") %in% names(defs))) {
+        return(defs)
+      }
+    }, error = function(e) {
+      warning("Failed to load derived metrics: ", e$message)
+    })
+  }
+  return(data.frame(
+    var = character(0),
+    scope = character(0),
+    level = character(0),
+    label = character(0),
+    colname = character(0),
+    stringsAsFactors = FALSE
+  ))
+}
+
+save_derived_metrics <- function(defs) {
+  tryCatch({
+    write.csv(defs, derived_metrics_file, row.names = FALSE)
+  }, error = function(e) {
+    warning("Failed to save derived metrics: ", e$message)
+  })
+}
+
+global_derived_metric_defs <- reactiveVal(load_derived_metrics())
+
+observeEvent(input$open_global_derived_modal, {
+  # Get numeric columns from global cache (updated by get_mu_dyn_long)
+  numeric_choices <- if (exists("mu_numeric_choices")) mu_numeric_choices else character(0)
+  
+  showModal(modalDialog(
+    title = "Derived Metrics (Global)",
+    size = "m",
+    easyClose = TRUE,
+    footer = tagList(modalButton("Close")),
+    tags$div(
+      selectizeInput("global_derived_var", "Base metric (from current data)",
+        choices = numeric_choices, selected = NULL, multiple = FALSE
+      ),
+      radioButtons("global_derived_scope", "Use level from",
+        choices = c("Phase" = "phase", "Trial Number" = "trial"),
+        selected = "phase", inline = TRUE
+      ),
+      uiOutput("global_derived_level_ui"),
+      actionButton("global_derived_add", "Add derived metric", class = "btn btn-primary btn-sm"),
+      tags$hr(),
+      uiOutput("global_derived_metric_defs_ui")
+    )
+  ))
+})
+
+output$global_derived_level_ui <- renderUI({
+  scope <- input$global_derived_scope %||% "phase"
+  if (identical(scope, "phase")) {
+    ensure_global_data_initialized()
+    lvls <- if (exists("allPhases")) allPhases else character(0)
+  } else {
+    ensure_global_data_initialized()
+    lvls <- if (exists("allTrials")) sort(allTrials) else numeric(0)
+  }
+  selectizeInput("global_derived_level", "Level (from full dataset)",
+    choices = lvls, selected = if (length(lvls) > 0) lvls[[1]] else NULL, multiple = FALSE
+  )
+})
+
+observeEvent(input$global_derived_add, {
+  var <- input$global_derived_var
+  scope <- input$global_derived_scope
+  level <- input$global_derived_level
+  if (is.null(var) || !nzchar(var)) {
+    showNotification("Select a base metric first.", type = "error")
+    return()
+  }
+  if (is.null(scope) || is.null(level) || !nzchar(as.character(level))) {
+    showNotification("Select a phase/trial level.", type = "error")
+    return()
+  }
+  scope_key <- if (identical(scope, "trial")) "trial" else "phase"
+  level_str <- as.character(level)
+  # Build column name with underscores (safe for R formulas)
+  var_safe <- gsub("\\.", "_", var)
+  colname <- sprintf("%s_%s_%s", var_safe, scope_key, level_str)
+  label <- sprintf("%s at %s = %s", var, scope_key, level_str)
+  defs <- global_derived_metric_defs()
+  if (nrow(defs) > 0 && any(defs$colname == colname)) {
+    showNotification("Metric already added.", type = "message")
+    return()
+  }
+  new_row <- data.frame(var = var, scope = scope_key, level = level_str, label = label, colname = colname, stringsAsFactors = FALSE)
+  new_defs <- rbind(defs, new_row)
+  global_derived_metric_defs(new_defs)
+  save_derived_metrics(new_defs)
+})
+
+observeEvent(input$global_remove_derived_id, {
+  id <- input$global_remove_derived_id
+  defs <- global_derived_metric_defs()
+  if (!is.null(defs) && nrow(defs) > 0) {
+    keep <- defs$colname != id
+    new_defs <- defs[keep, , drop = FALSE]
+    global_derived_metric_defs(new_defs)
+    save_derived_metrics(new_defs)
+  }
+}, ignoreInit = TRUE)
+
+output$global_derived_metric_defs_ui <- renderUI({
+  defs <- global_derived_metric_defs()
+  if (is.null(defs) || nrow(defs) == 0) return(tags$em("No derived metrics defined yet."))
+  tags$div(
+    tags$strong("Current derived metrics:"),
+    tags$ul(lapply(seq_len(nrow(defs)), function(i) {
+      id <- defs$colname[i]
+      tags$li(
+        sprintf("%s", id),
+        HTML(sprintf(
+          "&nbsp;<button type='button' class='btn btn-xs btn-danger' onclick=\"Shiny.setInputValue('global_remove_derived_id','%s',{priority:'event'})\">remove</button>",
+          id
+        ))
+      )
+    }))
+  )
+})
 ```
 
 #### Step Filtering

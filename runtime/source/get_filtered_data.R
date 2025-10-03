@@ -644,49 +644,18 @@ get_mu_dyn_long <- reactive({
     return(NULL)
   }
 
-  # Get filtered data and check if it's empty
-  filtered_data <- filteredParams()
-  if (nrow(filtered_data) == 0) {
-    # Show user-friendly error message
-    showNotification(
-      "No data matches the current filter settings. Please adjust your filters in the sidebar.",
-      type = "warning",
-      duration = 5
-    )
-    # Return a minimal data frame with the expected structure to prevent crashes
-    return(data.frame(
-      participant = character(0),
-      trialNum = numeric(0),
-      condition = character(0),
-      phase = character(0),
-      foot = character(0)
-    ))
-  }
+  # Initialize data.table and apply ONLY step-based filters (not trial filters yet)
+  init_gait_data_table()
+  step_filtered_data <- as.data.frame(.allGaitParams_dt)
+  step_filtered_data <- apply_step_filters(step_filtered_data)
 
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
   if (input$do_slicing) {
     # Ensure allQResults exists for sliced version
     qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
-    mu_gait <- get_full_mu_sliced(filtered_data, qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+    mu_gait <- get_full_mu_sliced(step_filtered_data, qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
   } else {
-    mu_gait <- get_full_mu(filtered_data, categories, input$avg_feet, input$add_diff)
-  }
-
-  # Check if summarization resulted in empty data
-  if (is.null(mu_gait) || nrow(mu_gait) == 0) {
-    showNotification(
-      "No data available after summarization. Please check your filter settings.",
-      type = "warning",
-      duration = 5
-    )
-    # Return a minimal data frame with the expected structure
-    return(data.frame(
-      participant = character(0),
-      trialNum = numeric(0),
-      condition = character(0),
-      phase = character(0),
-      foot = character(0)
-    ))
+    mu_gait <- get_full_mu(step_filtered_data, categories, input$avg_feet, input$add_diff)
   }
 
   # Verify all required data is available
@@ -702,18 +671,62 @@ get_mu_dyn_long <- reactive({
   mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
 
-  # Apply trial-based filters to the complete merged dataset
-  # (step-based filters were already applied to the gait data)
-  # Now that categorical columns are properly merged, we can safely apply trial filters
+  # Inject global derived metrics from full MU (before trial filtering)
+  defs <- tryCatch(global_derived_metric_defs(), error = function(e) NULL)
+  if (!is.null(defs) && nrow(defs) > 0) {
+    if ("trialNum" %in% names(mu)) {
+      mu$trialNum_num <- suppressWarnings(as.numeric(as.character(mu$trialNum)))
+    }
+      for (i in seq_len(nrow(defs))) {
+        var_name <- defs$var[i]
+        scope <- defs$scope[i]
+        level <- defs$level[i]
+        col_name <- defs$colname[i]
+        if (!(var_name %in% names(mu))) next
+        if (identical(scope, "phase") && ("phase" %in% names(mu))) {
+          lookup <- mu[as.character(mu$phase) == as.character(level), c("participant", var_name)]
+        } else if (identical(scope, "trial") && ("trialNum" %in% names(mu))) {
+          if ("trialNum_num" %in% names(mu) && suppressWarnings(!is.na(as.numeric(level)))) {
+            lvl_num <- suppressWarnings(as.numeric(level))
+            lookup <- mu[mu$trialNum_num == lvl_num, c("participant", var_name)]
+          } else {
+            lookup <- mu[as.character(mu$trialNum) == as.character(level), c("participant", var_name)]
+          }
+        } else {
+          next
+        }
+        if (nrow(lookup) == 0) next
+        agg <- stats::aggregate(lookup[[var_name]], by = list(participant = lookup$participant), FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE)))
+        names(agg)[2] <- col_name
+        mu <- merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
+      }
+  }
+
+  # NOW apply trial-based filters to the complete merged dataset
   mu <- apply_trial_filters(mu)
 
-  # Check if filtering resulted in empty data
-  if (nrow(mu) == 0) {
+  # Update global numeric choices for derived metrics UI
+  if (!is.null(mu) && nrow(mu) > 0) {
+    exclude_cols <- c("participant", "condition", "trialNum", "phase", "foot", "trialNum_num")
+    numeric_cols <- names(mu)[sapply(mu, is.numeric)]
+    mu_numeric_choices <<- setdiff(numeric_cols, exclude_cols)
+  }
+
+  # Check if data is empty after all processing
+  if (is.null(mu) || nrow(mu) == 0) {
     showNotification(
       "No data matches the current filter settings. Please adjust your filters in the sidebar.",
       type = "warning",
       duration = 5
     )
+    # Return a minimal data frame with the expected structure
+    return(data.frame(
+      participant = character(0),
+      trialNum = numeric(0),
+      condition = character(0),
+      phase = character(0),
+      foot = character(0)
+    ))
   }
 
   return(mu)

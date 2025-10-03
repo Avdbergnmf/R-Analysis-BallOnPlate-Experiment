@@ -1,0 +1,7 @@
+"var","scope","level","label","colname"
+"task.dist_to_escape_ratio_mean","phase","baseline_task","task.dist_to_escape_ratio_mean at phase = baseline_task","task_dist_to_escape_ratio_mean_phase_baseline_task"
+"stepWidths.sd","phase","training","stepWidths.sd at phase = training","stepWidths_sd_phase_training"
+"questionnaire.UserExperience.total","phase","training","questionnaire.UserExperience.total at phase = training","questionnaire_UserExperience_total_phase_training"
+"questionnaire.IMI.total","phase","training","questionnaire.IMI.total at phase = training","questionnaire_IMI_total_phase_training"
+"stepWidths.sd","phase","baseline","stepWidths.sd at phase = baseline","stepWidths_sd_phase_baseline"
+"task.dist_to_escape_ratio_mean","phase","training","task.dist_to_escape_ratio_mean at phase = training","task_dist_to_escape_ratio_mean_phase_training"
