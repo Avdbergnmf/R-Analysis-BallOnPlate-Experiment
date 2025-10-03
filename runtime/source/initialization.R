@@ -115,7 +115,7 @@ initialize_global_parameters <- function() {
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
         "visualizations", "perturbations", "training",
-        "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion"
+        "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion","trialNumWithinPhase"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
     categoriesExtraInputs <<- append(categoriesExtra, c("foot", "slice_index", "None"))

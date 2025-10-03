@@ -27,6 +27,7 @@ add_category_columns <- function(data) {
       treadmillSpeed  = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
       condition       = condition_number(as.character(participant)),
       phase           = get_trial_phase(as.character(participant), as.numeric(as.character(trialNum))),
+      trialNumWithinPhase = if (as.numeric(as.character(trialNum)) == 8) { 2 } else { 1 }, # training2 is the second trial within the training phase, the rest is all first
 
       # Demographic / questionnaire details
       gender          = get_p_detail(as.character(participant), "gender"),
