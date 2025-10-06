@@ -215,25 +215,49 @@ dedupe_effects_by_base <- function(effects, all_indep_vars) {
 #' @param adjust_method Method for p-value adjustment (default: "tukey")
 #' @return Post-hoc results data frame or NULL
 run_posthoc_for_effect <- function(lmm, effect, all_indep_vars, data, adjust_method = "tukey") {
-    if (grepl(":", effect)) {
-        parts <- unlist(strsplit(effect, ":"))
-        vars <- sapply(parts, function(p) clean_effect_name(p, all_indep_vars))
-        if (length(vars) == 0 || any(vars == "")) {
-            return(NULL)
+    posthoc <- tryCatch(
+        {
+            if (grepl(":", effect)) {
+                parts <- unlist(strsplit(effect, ":"))
+                vars <- sapply(parts, function(p) clean_effect_name(p, all_indep_vars))
+                if (length(vars) == 0 || any(vars == "")) {
+                    return(NULL)
+                }
+                emmeans::emmeans(lmm, specs = vars)
+            } else {
+                var <- clean_effect_name(effect, all_indep_vars)
+                # Fallback: if cleaned name not in data, but the raw effect name is a column, use it
+                if (!is.null(effect) && !(var %in% names(data)) && effect %in% names(data)) {
+                    var <- effect
+                }
+                if (is.null(var) || var == "" || !(var %in% names(data))) {
+                    return(NULL)
+                }
+                emmeans::emmeans(lmm, specs = var)
+            }
+        },
+        error = function(e) {
+            if (grepl("No variable named", conditionMessage(e), fixed = FALSE)) {
+                return(NULL)
+            }
+            stop(e)
         }
-        posthoc <- emmeans::emmeans(lmm, specs = vars)
-    } else {
-        var <- clean_effect_name(effect, all_indep_vars)
-        # Fallback: if cleaned name not in data, but the raw effect name is a column, use it
-        if (!is.null(effect) && !(var %in% names(data)) && effect %in% names(data)) {
-            var <- effect
-        }
-        if (is.null(var) || var == "" || !(var %in% names(data))) {
-            return(NULL)
-        }
-        posthoc <- emmeans::emmeans(lmm, specs = var)
+    )
+    if (is.null(posthoc)) {
+        return(NULL)
     }
-    res <- emmeans::contrast(posthoc, method = "pairwise", adjust = adjust_method)
+    res <- tryCatch(
+        emmeans::contrast(posthoc, method = "pairwise", adjust = adjust_method),
+        error = function(e) {
+            if (grepl("No variable named", conditionMessage(e), fixed = FALSE)) {
+                return(NULL)
+            }
+            stop(e)
+        }
+    )
+    if (is.null(res)) {
+        return(NULL)
+    }
     as.data.frame(summary(res))
 }
 
