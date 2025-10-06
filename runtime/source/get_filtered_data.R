@@ -670,6 +670,7 @@ get_mu_dyn_long <- reactive({
   mu <- merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
+  mu <- merge_mu_with_data(mu, udpPelvisMetrics, "udp", c("participant", "trialNum"))
 
   # Inject global derived metrics from full MU (before trial filtering)
   defs <- tryCatch(global_derived_metric_defs(), error = function(e) NULL)
@@ -677,29 +678,29 @@ get_mu_dyn_long <- reactive({
     if ("trialNum" %in% names(mu)) {
       mu$trialNum_num <- suppressWarnings(as.numeric(as.character(mu$trialNum)))
     }
-      for (i in seq_len(nrow(defs))) {
-        var_name <- defs$var[i]
-        scope <- defs$scope[i]
-        level <- defs$level[i]
-        col_name <- defs$colname[i]
-        if (!(var_name %in% names(mu))) next
-        if (identical(scope, "phase") && ("phase" %in% names(mu))) {
-          lookup <- mu[as.character(mu$phase) == as.character(level), c("participant", var_name)]
-        } else if (identical(scope, "trial") && ("trialNum" %in% names(mu))) {
-          if ("trialNum_num" %in% names(mu) && suppressWarnings(!is.na(as.numeric(level)))) {
-            lvl_num <- suppressWarnings(as.numeric(level))
-            lookup <- mu[mu$trialNum_num == lvl_num, c("participant", var_name)]
-          } else {
-            lookup <- mu[as.character(mu$trialNum) == as.character(level), c("participant", var_name)]
-          }
+    for (i in seq_len(nrow(defs))) {
+      var_name <- defs$var[i]
+      scope <- defs$scope[i]
+      level <- defs$level[i]
+      col_name <- defs$colname[i]
+      if (!(var_name %in% names(mu))) next
+      if (identical(scope, "phase") && ("phase" %in% names(mu))) {
+        lookup <- mu[as.character(mu$phase) == as.character(level), c("participant", var_name)]
+      } else if (identical(scope, "trial") && ("trialNum" %in% names(mu))) {
+        if ("trialNum_num" %in% names(mu) && suppressWarnings(!is.na(as.numeric(level)))) {
+          lvl_num <- suppressWarnings(as.numeric(level))
+          lookup <- mu[mu$trialNum_num == lvl_num, c("participant", var_name)]
         } else {
-          next
+          lookup <- mu[as.character(mu$trialNum) == as.character(level), c("participant", var_name)]
         }
-        if (nrow(lookup) == 0) next
-        agg <- stats::aggregate(lookup[[var_name]], by = list(participant = lookup$participant), FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE)))
-        names(agg)[2] <- col_name
-        mu <- merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
+      } else {
+        next
       }
+      if (nrow(lookup) == 0) next
+      agg <- stats::aggregate(lookup[[var_name]], by = list(participant = lookup$participant), FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE)))
+      names(agg)[2] <- col_name
+      mu <- merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
+    }
   }
 
   # NOW apply trial-based filters to the complete merged dataset

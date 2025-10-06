@@ -530,59 +530,30 @@ apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "
     return(data)
   }
 
-  # For UDP datasets, we need to handle trialTime vs time differently
-  if ("trialTime" %in% colnames(data)) {
-    # UDP dataset: use trialTime for filtering, then normalize time column
+  # Step 1: Apply time-based filtering using UDP ranges (based on trialTime)
+  valid_rows <- rep(FALSE, nrow(data))
 
-    # Step 1: Apply time-based filtering using UDP ranges (based on trialTime)
-    valid_rows <- rep(FALSE, nrow(data))
+  # is_udp_data <- "trialTime" %in% colnames(data) && FALSE
+  # time_column_to_use <- if (is_udp_data) "trialTime" else "time"
 
-    for (i in seq_len(nrow(time_ranges$valid_ranges))) {
-      range_start <- time_ranges$valid_ranges$start_time[i]
-      range_end <- time_ranges$valid_ranges$end_time[i]
+  for (i in seq_len(nrow(time_ranges$valid_ranges))) {
+    range_start <- time_ranges$valid_ranges$start_time[i]
+    range_end <- time_ranges$valid_ranges$end_time[i]
 
-      # Find rows within this time range using trialTime
-      in_range <- data$trialTime >= range_start & data$trialTime <= range_end
-      valid_rows <- valid_rows | in_range
-    }
+    # Find rows within this time range using time column
+    in_range <- data[[time_column]] >= range_start & data[[time_column]] <= range_end
+    valid_rows <- valid_rows | in_range
+  }
+  # Filter data to valid rows
+  filtered_data <- data[valid_rows, ]
 
-    # Filter data to valid rows
-    filtered_data <- data[valid_rows, ]
+  # Step 2: Normalize the time column to start from 0 and cap at trial duration
+  if (nrow(filtered_data) > 0) {
+    minTime <- min(filtered_data[[time_column]], na.rm = TRUE)
+    filtered_data[[time_column]] <- filtered_data[[time_column]] - minTime
 
-    # Step 2: Normalize the time column to start from 0 and cap at trial duration
-    if (nrow(filtered_data) > 0) {
-      minTime <- min(filtered_data$time, na.rm = TRUE)
-      filtered_data$time <- filtered_data$time - minTime
-
-      # Apply duration cap to normalized time
-      filtered_data <- filtered_data[filtered_data$time <= time_ranges$trial_duration, ]
-    }
-  } else {
-    # Non-UDP dataset: use time column for filtering and normalization
-
-    # Step 1: Apply time-based filtering using UDP ranges
-    valid_rows <- rep(FALSE, nrow(data))
-
-    for (i in seq_len(nrow(time_ranges$valid_ranges))) {
-      range_start <- time_ranges$valid_ranges$start_time[i]
-      range_end <- time_ranges$valid_ranges$end_time[i]
-
-      # Find rows within this time range using time column
-      in_range <- data[[time_column]] >= range_start & data[[time_column]] <= range_end
-      valid_rows <- valid_rows | in_range
-    }
-
-    # Filter data to valid rows
-    filtered_data <- data[valid_rows, ]
-
-    # Step 2: Normalize the time column to start from 0 and cap at trial duration
-    if (nrow(filtered_data) > 0) {
-      minTime <- min(filtered_data[[time_column]], na.rm = TRUE)
-      filtered_data[[time_column]] <- filtered_data[[time_column]] - minTime
-
-      # Apply duration cap to normalized time
-      filtered_data <- filtered_data[filtered_data[[time_column]] <= time_ranges$trial_duration, ]
-    }
+    # Apply duration cap to normalized time
+    filtered_data <- filtered_data[filtered_data[[time_column]] <= time_ranges$trial_duration, ]
   }
 
   # --------------------------------------------------------------------------

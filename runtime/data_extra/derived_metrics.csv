@@ -5,3 +5,4 @@
 "questionnaire.IMI.total","phase","training","questionnaire.IMI.total at phase = training","questionnaire_IMI_total_phase_training"
 "stepWidths.sd","phase","baseline","stepWidths.sd at phase = baseline","stepWidths_sd_phase_baseline"
 "task.dist_to_escape_ratio_mean","phase","training","task.dist_to_escape_ratio_mean at phase = training","task_dist_to_escape_ratio_mean_phase_training"
+"udp.udpPelvisPos_sd","phase","familiarisation_walk","udp.udpPelvisPos_sd at phase = familiarisation_walk","udp_udpPelvisPos_sd_phase_familiarisation_walk"

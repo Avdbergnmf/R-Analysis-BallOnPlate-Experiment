@@ -8,25 +8,24 @@ runtime: shinyrmd
 ---
 
 ```{r setup, include=FALSE}
-
 # to reset:
 # Kill ALL R processes (including your current session - use with caution!)
 # system("pkill -f '^R$|Rterm|rsession'")
 # Kill all background R processes
-#system("pkill -f 'R --slave'", wait = FALSE)
-#system("pkill -f 'Rscript'", wait = FALSE)
-#system("pkill -f 'parallel'", wait = FALSE)
+# system("pkill -f 'R --slave'", wait = FALSE)
+# system("pkill -f 'Rscript'", wait = FALSE)
+# system("pkill -f 'parallel'", wait = FALSE)
 
-rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason. 
+rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear else it doesnt start the interface for whatever reason.
 
 # Configuration variables are now centralized in source/initialization.R
 
-source('source/setup.R')
+source("source/setup.R")
 source("source/outlier_utils.R", local = FALSE)
-source('source/data_loading.R', local = FALSE)
-source('source/pre_processing.R', local = FALSE)
+source("source/data_loading.R", local = FALSE)
+source("source/pre_processing.R", local = FALSE)
 
-source('source/find_foot_events.R', local = FALSE)
+source("source/find_foot_events.R", local = FALSE)
 
 # =============================================================================
 # FORCE REINITIALIZATION AT STARTUP
@@ -40,9 +39,9 @@ cat("=== REINITIALIZATION COMPLETE ===\n")
 # =============================================================================
 
 ## Get Results
-source('source/get_data_from_loop.R', local = FALSE)
-source('source/calc_all_gait_params.R', local = FALSE)
-source('source/get_questionnaire_results.R', local = FALSE)
+source("source/get_data_from_loop.R", local = FALSE)
+source("source/calc_all_gait_params.R", local = FALSE)
+source("source/get_questionnaire_results.R", local = FALSE)
 
 # File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
@@ -50,6 +49,7 @@ aqrFile <- file.path(resultsFolder, "allQResults.rds")
 simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
+udpPelvisMetricsFile <- file.path(resultsFolder, "udpPelvisMetrics.rds")
 
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
@@ -63,34 +63,36 @@ allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
 ## The simulation source
-source('source/profile_shapes.R', local = FALSE)
-source('source/simulation_core.R', local = FALSE)
-source('source/get_simulation_data.R', local = FALSE)
+source("source/profile_shapes.R", local = FALSE)
+source("source/simulation_core.R", local = FALSE)
+source("source/get_simulation_data.R", local = FALSE)
 
 
 ## Summary tables
-source('source/summarize_gaitparams.R', local = FALSE)
-source('source/summarize_simulation.R', local = FALSE)
-source('source/complexity.R', local = FALSE)
+source("source/summarize_gaitparams.R", local = FALSE)
+source("source/summarize_simulation.R", local = FALSE)
+source("source/complexity.R", local = FALSE)
+source("source/udp_metrics.R", local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
 allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+udpPelvisMetrics <- load_or_calculate(udpPelvisMetricsFile, get_all_udp_pelvis_metrics, parallel = FALSE)
 
 ## Plotting code
-source('source/plotting.R', local = FALSE)
+source("source/plotting.R", local = FALSE)
 
 # Dynamic input utilities (loaded once for all pages)
-source('source/dynamic_input_utils.R', local = FALSE)
+source("source/dynamic_input_utils.R", local = FALSE)
 
 
 
 # for testing combining of tables
-#mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
-#prepped_q <- prep_questionnaire_for_merge(allQResults)
-#mu_combined <- merge_mu_with_data(mu_gait, prepped_q,                 data_type_name = "questionnaire")
-#mu_combined <- merge_mu_with_data(mu_combined, allTaskMetrics,        data_type_name = "task")
-#mu_combined <- merge_mu_with_data(mu_combined, allComplexityMetrics,  data_type_name = "complexity")
+# mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
+# prepped_q <- prep_questionnaire_for_merge(allQResults)
+# mu_combined <- merge_mu_with_data(mu_gait, prepped_q,                 data_type_name = "questionnaire")
+# mu_combined <- merge_mu_with_data(mu_combined, allTaskMetrics,        data_type_name = "task")
+# mu_combined <- merge_mu_with_data(mu_combined, allComplexityMetrics,  data_type_name = "complexity")
 ```
 
 Sidebar {.sidebar}
@@ -99,7 +101,7 @@ Sidebar {.sidebar}
 ```
 
 ```{r, context="server", local=FALSE}
-source('source/get_filtered_data.R', local = TRUE)
+source("source/get_filtered_data.R", local = TRUE)
 ```
 
 
@@ -108,28 +110,31 @@ session$allowReconnect(TRUE)
 
 refresh_trigger <- reactiveVal(0) # used for refreshing filteredGaitParams after outlier update
 
-#Custom function used to render SVG's instead of png's
+# Custom function used to render SVG's instead of png's
 renderSVG <- function(expr) {
-  renderImage({
-    # Dynamically get width and height from input
-    dpi <- 96
-    width_value <- input$plotwidth / dpi
-    height_value <- input$plotheight / dpi
+  renderImage(
+    {
+      # Dynamically get width and height from input
+      dpi <- 96
+      width_value <- input$plotwidth / dpi
+      height_value <- input$plotheight / dpi
 
-    file <- htmltools::capturePlot(
-      expr(), tempfile(fileext = ".svg"),
-      grDevices::svg,
-      width = width_value, height = height_value
-    )
-    list(src = file, deleteFile = TRUE)
-  }, deleteFile = TRUE)
+      file <- htmltools::capturePlot(
+        expr(), tempfile(fileext = ".svg"),
+        grDevices::svg,
+        width = width_value, height = height_value
+      )
+      list(src = file, deleteFile = TRUE)
+    },
+    deleteFile = TRUE
+  )
 }
 ```
 
 Data Dictionary.md {data-orientation=columns}
 =====================================
 ```{r, echo=FALSE}
-shiny::includeMarkdown('data_dictionary.md')
+shiny::includeMarkdown("data_dictionary.md")
 ```
 
 Feet trajectories {data-orientation=columns}
