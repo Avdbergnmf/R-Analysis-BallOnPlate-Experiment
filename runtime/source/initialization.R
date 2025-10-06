@@ -71,24 +71,40 @@ initialize_global_parameters <- function() {
         "11" = 300 # transfer - 5 minutes
     )
 
+    taskNum <<- list(
+        "1" = 0, # warmup
+        "2" = 0, # baseline
+        "3" = 0, # familiarisation_walk
+        "4" = 0, # familiarisation_stand
+        "5" = 1, # baseline_task
+        "6" = 1, # familiarisation_training
+        "7" = 2, # training1
+        "8" = 3, # training2
+        "9" = 3, # washout
+        "10" = 4, # retention
+        "11" = 5 # transfer
+    )
+
     # Define all phase names in order
-    allPhases <<- c("warmup", "baseline", "familiarisation_walk", "familiarisation_stand", 
-                    "baseline_task", "familiarisation_training", "training", "washout", 
-                    "retention", "transfer")
-    
+    allPhases <<- c(
+        "warmup", "baseline", "familiarisation_walk", "familiarisation_stand",
+        "baseline_task", "familiarisation_training", "training", "washout",
+        "retention", "transfer"
+    )
+
     # Define phase names for each trial (built from allPhases)
     default_phases <<- list(
-        "1" = allPhases[1],   # warmup
-        "2" = allPhases[2],   # baseline
-        "3" = allPhases[3],   # familiarisation_walk
-        "4" = allPhases[4],   # familiarisation_stand
-        "5" = allPhases[5],   # baseline_task
-        "6" = allPhases[6],   # familiarisation_training
-        "7" = allPhases[7],   # training
-        "8" = allPhases[7],   # training (same phase for both training trials)
-        "9" = allPhases[8],   # washout
-        "10" = allPhases[9],  # retention
-        "11" = allPhases[10]  # transfer
+        "1" = allPhases[1], # warmup
+        "2" = allPhases[2], # baseline
+        "3" = allPhases[3], # familiarisation_walk
+        "4" = allPhases[4], # familiarisation_stand
+        "5" = allPhases[5], # baseline_task
+        "6" = allPhases[6], # familiarisation_training
+        "7" = allPhases[7], # training
+        "8" = allPhases[7], # training (same phase for both training trials)
+        "9" = allPhases[8], # washout
+        "10" = allPhases[9], # retention
+        "11" = allPhases[10] # transfer
     )
 
     # =============================================================================
@@ -120,7 +136,7 @@ initialize_global_parameters <- function() {
     # summary tables but excluded from mean/SD calculations.
     columns_to_not_summarize <<- c(
         "visualizations", "perturbations",
-        "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion","trialNumWithinPhase"
+        "age", "weight", "education", "vr_experience", "height_meters", "gender", "motion", "trialNumWithinPhase", "phaseNum", "taskNum"
     )
     categoriesExtra <<- c(categories, columns_to_not_summarize, "suspect")
     categoriesExtraInputs <<- append(categoriesExtra, c("foot", "slice_index", "None"))

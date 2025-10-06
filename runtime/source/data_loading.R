@@ -70,6 +70,17 @@ get_trial_phase <- function(participant, trialNum) { # return phase name for tri
   }
 }
 
+task_num_lookup <- function(trialNum) {
+  ensure_global_data_initialized()
+  trial_key <- as.character(trialNum)
+  if (trial_key %in% names(taskNum)) {
+    return(as.numeric(taskNum[[trial_key]]))
+  }
+
+  warning(sprintf("Unknown trial number for task count: %s", trialNum))
+  return(NA_real_)
+}
+
 get_p_detail <- function(participant, detail) {
   # get the path to the details file for the participant
   detailsFile <- file.path(get_p_dir(participant), "session_info/participant_details.csv")

@@ -41,8 +41,6 @@ preprocess_data <- function(participant, trialNum, dataName) {
     return(data.frame())
   }
 
-  # Data already trimmed in get_t_data(); no extra capping needed
-
   if (is_kinematic_data(data)) {
     rotation <- load_rotations(participant, trialNum)
     if (length(rotation) > 0) { # If rotation is found, apply it
