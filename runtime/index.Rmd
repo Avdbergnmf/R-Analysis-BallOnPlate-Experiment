@@ -49,7 +49,7 @@ aqrFile <- file.path(resultsFolder, "allQResults.rds")
 simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
-udpPelvisMetricsFile <- file.path(resultsFolder, "udpPelvisMetrics.rds")
+continuousMetricsFile <- file.path(resultsFolder, "allContinuousMetrics.rds")
 
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
@@ -72,12 +72,12 @@ source("source/get_simulation_data.R", local = FALSE)
 source("source/summarize_gaitparams.R", local = FALSE)
 source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
-source("source/udp_metrics.R", local = FALSE)
+source("source/continuous_metrics.R", local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
-udpPelvisMetrics <- load_or_calculate(udpPelvisMetricsFile, get_all_udp_pelvis_metrics, parallel = FALSE)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics)
+continuousMetrics <- load_or_calculate(continuousMetricsFile, get_all_combined_continuous_metrics, stop_cluster = TRUE)
 
 ## Plotting code
 source("source/plotting.R", local = FALSE)
