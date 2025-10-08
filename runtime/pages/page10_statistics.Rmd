@@ -22,7 +22,7 @@ checkboxInput("getSummarizedData_stats", "Use summarized data", value = TRUE)
 checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
 checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
 
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + taskNum | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
@@ -111,6 +111,7 @@ tableOutput("random_effects_table")
 checkboxInput("force_posthoc", "Force Post-Hoc Analysis (show all effects)", value = TRUE)
 checkboxInput("filter_posthoc", "Filter Post-Hoc Results (show only meaningful comparisons)", value = TRUE)
 checkboxInput("paired_ttest", "Use Paired t-test instead of emmeans", value = FALSE)
+actionButton("targeted_posthoc", "Targeted post-hoc…")
 ```
 
 ```{r}
@@ -399,6 +400,311 @@ output$post_hoc_table <- renderTable(
     }
 
     p_format_names <- c("p_value", "p.value", "corrected_p") # what column names to format based on value < 0.05
+    postprocess_posthoc_results(res, input$filter_posthoc, p_format_names)
+  },
+  sanitize.text.function = function(x) x,
+  escape = FALSE
+)
+
+# ----------------  TARGETED POST-HOC (Δ and within-phase) ----------------
+
+# Utilities
+ensure_phase_levels <- function(data, phase_var) {
+  if (!(phase_var %in% names(data))) return(data)
+  if (!is.factor(data[[phase_var]])) {
+    data[[phase_var]] <- factor(data[[phase_var]])
+  } else {
+    data[[phase_var]] <- factor(
+      data[[phase_var]],
+      levels = levels(data[[phase_var]]),
+      ordered = is.ordered(data[[phase_var]])
+    )
+  }
+  data
+}
+
+build_delta_contrasts_from_reference <- function(emm_phase_by_condition) {
+  levs <- levels(emm_phase_by_condition)$phase
+  if (is.null(levs) || length(levs) < 2) return(list())
+  ref <- levs[1]
+  others <- setdiff(levs, ref)
+  methods <- lapply(others, function(ph) {
+    w <- setNames(rep(0, length(levs)), levs)
+    w[ph] <- 1
+    w[ref] <- -1
+    w
+  })
+  names(methods) <- paste0(others, " - ", ref)
+  methods
+}
+
+apply_p_adjust <- function(df, p_col, method, group_col = NULL) {
+  if (is.null(df) || nrow(df) == 0) return(df)
+  if (!is.null(group_col)) {
+    split_list <- split(df, df[[group_col]], drop = TRUE)
+    adjusted <- lapply(split_list, function(d) {
+      d$corrected_p <- stats::p.adjust(d[[p_col]], method = method)
+      d
+    })
+    out <- do.call(rbind, adjusted)
+    rownames(out) <- NULL
+    return(out)
+  } else {
+    df$corrected_p <- stats::p.adjust(df[[p_col]], method = method)
+    return(df)
+  }
+}
+
+targeted_posthoc_results <- reactiveVal(NULL)
+targeted_posthoc_info <- reactiveVal(NULL)
+
+# ----------------  HELPER FUNCTIONS FOR TARGETED POST-HOC ----------------
+
+# Get EMMs with proper covariate handling
+get_emms_with_covariates <- function(lmm, specs, weights = c("equal", "proportional")) {
+  weights <- match.arg(weights)
+  
+  # For proportional weights or no covariates, use default behavior
+  if (weights == "proportional") {
+    return(emmeans::emmeans(lmm, specs = specs))
+  }
+  
+  # For equal weights, set covariates to their means
+  model_data <- lmm@frame
+  covariate_cols <- setdiff(names(model_data), c("participant", all.vars(specs)))
+  
+  at_list <- list()
+  if (length(covariate_cols) > 0) {
+    for (cov in covariate_cols) {
+      if (is.numeric(model_data[[cov]])) {
+        at_list[[cov]] <- mean(model_data[[cov]], na.rm = TRUE)
+      }
+    }
+  }
+  
+  emmeans::emmeans(lmm, specs = specs, at = at_list)
+}
+
+# Format estimate + CI
+format_estimate_ci <- function(df, family) {
+  fmt <- function(x, d = 4) format(round(as.numeric(x), d), nsmall = d)
+  if (!all(c("estimate", "lower.CL", "upper.CL") %in% names(df))) return(df)
+  
+  label <- switch(family,
+    "delta" = "\u0394",
+    "did" = "DiD",
+    "Diff"
+  )
+  
+  df$estimate_CI <- paste0(label, " = ", fmt(df$estimate), 
+                           " [", fmt(df$lower.CL), ", ", fmt(df$upper.CL), "]")
+  df$estimate <- df$lower.CL <- df$upper.CL <- NULL
+  df
+}
+
+# Compute within-condition Δ
+compute_delta_contrasts <- function(lmm, correction_method, weights) {
+  emm_pc <- get_emms_with_covariates(lmm, ~ phase | condition, weights)
+  
+  # Build contrasts vs reference phase
+  methods <- build_delta_contrasts_from_reference(emm_pc)
+  if (length(methods) == 0) return(data.frame(Message = "Not enough phase levels."))
+  
+  cont <- emmeans::contrast(emm_pc, method = methods, by = "condition", adjust = "none")
+  df <- as.data.frame(summary(cont, infer = c(TRUE, TRUE)))
+  
+  # Standardize names
+  names(df)[names(df) == "contrast"] <- "Contrast"
+  names(df)[names(df) == "condition"] <- "Condition"
+  
+  # Store unadjusted and apply correction
+  df$p_unadjusted <- df$p.value
+  if (correction_method %in% c("holm", "bonferroni", "hochberg", "hommel", "BH", "BY", "fdr", "none")) {
+    df$p.value <- p.adjust(df$p_unadjusted, method = correction_method)
+  }
+  
+  format_estimate_ci(df, "delta")
+}
+
+# Compute within-phase pairs
+compute_within_phase_pairs <- function(lmm, correction_method, weights) {
+  emm_cp <- get_emms_with_covariates(lmm, ~ condition | phase, weights)
+  
+  pairs_res <- emmeans::contrast(emm_cp, method = "pairwise", by = "phase", adjust = correction_method)
+  df <- as.data.frame(summary(pairs_res, infer = c(TRUE, TRUE)))
+  
+  names(df)[names(df) == "contrast"] <- "Contrast"
+  names(df)[names(df) == "phase"] <- "Phase"
+  
+  # Get unadjusted
+  pairs_unadj <- emmeans::contrast(emm_cp, method = "pairwise", by = "phase", adjust = "none")
+  df$p_unadjusted <- as.data.frame(summary(pairs_unadj))$p.value
+  
+  format_estimate_ci(df, "pairs")
+}
+
+# Compute DiD (two-step approach)
+compute_did_contrasts <- function(lmm, correction_method, weights, include_phases) {
+  # Step 1: Get EMMs
+  emm_pc <- get_emms_with_covariates(lmm, ~ phase | condition, weights)
+  
+  # Step 2: Within-condition deltas vs baseline
+  methods <- build_delta_contrasts_from_reference(emm_pc)
+  if (length(methods) == 0) return(data.frame(Message = "Not enough phase levels."))
+  
+  delta_cont <- emmeans::contrast(emm_pc, method = methods, by = "condition")
+  
+  # Step 3: Pairwise condition comparisons of those deltas, by phase
+  did_res <- emmeans::contrast(delta_cont, method = "pairwise", by = "phase", adjust = correction_method)
+  df <- as.data.frame(summary(did_res, infer = c(TRUE, TRUE)))
+  
+  # Filter to requested phases
+  if ("phase" %in% names(df)) {
+    names(df)[names(df) == "phase"] <- "Phase"
+    df <- df[df$Phase %in% include_phases, , drop = FALSE]
+  }
+  
+  names(df)[names(df) == "contrast"] <- "Contrast"
+  
+  # Get unadjusted
+  did_unadj <- emmeans::contrast(delta_cont, method = "pairwise", by = "phase", adjust = "none")
+  df_unadj <- as.data.frame(summary(did_unadj))
+  if ("phase" %in% names(df_unadj)) {
+    df_unadj <- df_unadj[df_unadj$phase %in% include_phases, , drop = FALSE]
+  }
+  df$p_unadjusted <- df_unadj$p.value
+  
+  format_estimate_ci(df, "did")
+}
+
+observeEvent(input$targeted_posthoc, {
+  req(dep_var_valid())
+  
+  # Get available phases dynamically
+  data <- get_stats_data()
+  phase_levels <- levels(factor(data$phase))
+  non_ref_phases <- if (length(phase_levels) > 1) phase_levels[-1] else character(0)
+  
+  showModal(modalDialog(
+    title = "Targeted post-hoc comparisons",
+    tags$div(style = "margin-bottom: 15px;",
+      tags$strong("Covariate handling:"), " EMMs computed at covariate means (equal weights).",
+      tags$br(),
+      tags$strong("Correction defaults:"), " Holm for Δ and DiD; Tukey for within-phase pairs."
+    ),
+    fluidRow(
+      column(4,
+        selectizeInput("tph_mode", "Comparison type",
+          choices = c("Within-condition Δ" = "delta", "Within-phase pairs" = "pairs", "Difference-in-differences (DiD)" = "did"),
+          selected = "delta", multiple = FALSE
+        )
+      ),
+      column(4,
+        conditionalPanel(
+          condition = "input.tph_mode == 'delta'",
+          selectizeInput("tph_delta_method", "Correction",
+            choices = c("holm", "bonferroni", "hochberg", "hommel", "BH", "BY", "fdr", "none"),
+            selected = "holm", multiple = FALSE
+          )
+        ),
+        conditionalPanel(
+          condition = "input.tph_mode == 'pairs'",
+          selectizeInput("tph_pairs_method", "Correction",
+            choices = c("tukey", "scheffe", "sidak", "bonferroni", "holm", "hochberg", "hommel", "BH", "BY", "fdr", "none"),
+            selected = "tukey", multiple = FALSE
+          )
+        ),
+        conditionalPanel(
+          condition = "input.tph_mode == 'did'",
+          selectizeInput("tph_did_method", "Correction (per phase)",
+            choices = c("holm", "bonferroni", "hochberg", "hommel", "BH", "BY", "fdr", "none"),
+            selected = "holm", multiple = FALSE
+          )
+        )
+      ),
+      column(4,
+        conditionalPanel(
+          condition = "input.tph_mode == 'did'",
+          checkboxGroupInput("tph_did_phases", "Include phases:",
+            choices = non_ref_phases,
+            selected = non_ref_phases
+          )
+        )
+      )
+    ),
+    tags$hr(),
+    htmlOutput("targeted_posthoc_info"),
+    tableOutput("targeted_posthoc_table"),
+    size = "l",
+    easyClose = TRUE,
+    footer = modalButton("Close")
+  ))
+})
+
+targeted_posthoc_compute <- function(input) {
+  shiny::req(dep_var_valid())
+  lmm <- tryCatch(get_lmer(), error = function(e) NULL)
+  if (is.null(lmm)) return(list(result = NULL, info = NULL))
+  
+  weights <- "equal"  # Always use equal weights (covariates at means)
+  
+  # Compute contrasts based on mode
+  result <- tryCatch({
+    if (identical(input$tph_mode, "delta")) {
+      compute_delta_contrasts(lmm, input$tph_delta_method, weights)
+    } else if (identical(input$tph_mode, "pairs")) {
+      compute_within_phase_pairs(lmm, input$tph_pairs_method, weights)
+    } else if (identical(input$tph_mode, "did")) {
+      phases <- if (!is.null(input$tph_did_phases)) input$tph_did_phases else character(0)
+      if (length(phases) == 0) {
+        data <- get_stats_data()
+        phase_levels <- levels(factor(data$phase))
+        phases <- if (length(phase_levels) > 1) phase_levels[-1] else character(0)
+      }
+      compute_did_contrasts(lmm, input$tph_did_method, weights, phases)
+    } else {
+      NULL
+    }
+  }, error = function(e) {
+    shiny::showNotification(paste("Error:", e$message), type = "error")
+    NULL
+  })
+  
+  if (is.null(result) || nrow(result) == 0) {
+    return(list(result = data.frame(Message = "No results available."), info = NULL))
+  }
+  
+  # Build info message
+  info <- sprintf("<small><em>EMMs at covariate means; Correction: %s</em></small>",
+    switch(input$tph_mode,
+      "delta" = input$tph_delta_method,
+      "pairs" = paste0(input$tph_pairs_method, " (per phase)"),
+      "did" = paste0(input$tph_did_method, " (per phase)"),
+      "unknown"
+    )
+  )
+  
+  list(result = result, info = info)
+}
+
+observe({
+  res_list <- targeted_posthoc_compute(input)
+  if (!is.null(res_list$result)) {
+    targeted_posthoc_results(res_list$result)
+    targeted_posthoc_info(res_list$info)
+  }
+})
+
+output$targeted_posthoc_info <- renderUI({
+  info <- targeted_posthoc_info()
+  if (!is.null(info)) HTML(info)
+})
+
+output$targeted_posthoc_table <- renderTable(
+  {
+    res <- targeted_posthoc_results()
+    if (is.null(res)) return(NULL)
+    p_format_names <- c("p.value", "p_unadjusted")
     postprocess_posthoc_results(res, input$filter_posthoc, p_format_names)
   },
   sanitize.text.function = function(x) x,
