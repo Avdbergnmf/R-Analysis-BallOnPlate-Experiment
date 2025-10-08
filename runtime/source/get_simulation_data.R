@@ -372,10 +372,17 @@ add_artificial_gap_points <- function(data) {
 }
 
 #' Helper function to assign arcDeg values based on task level data
+#' Uses global `arcdeg_lookup_table` (defined in initialization.R) to map
+#' recorded `level` → corrected arcDeg, ignoring the mis-recorded `deg` column.
 #' @param sim_data Simulation data
 #' @param level_data Task level data
 #' @return Simulation data with arcDeg column
 assign_arc_degrees <- function(sim_data, level_data) {
+    # Ensure global parameters (including arcdeg_lookup_table) are available
+    if (exists("ensure_global_data_initialized", envir = .GlobalEnv)) {
+        get("ensure_global_data_initialized", envir = .GlobalEnv)()
+    }
+
     if (is.null(level_data) || nrow(level_data) == 0) {
         sim_data$arcDeg <- 180
         return(sim_data)
@@ -383,10 +390,22 @@ assign_arc_degrees <- function(sim_data, level_data) {
 
     level_data <- level_data[order(level_data$time), ]
     level_indices <- findInterval(sim_data$time, level_data$time)
-    level_indices[level_indices == 0] <- 1 # Fixes a bug in the recording where it records level 0 at the start of the trial
+    level_indices[level_indices == 0] <- 1 # Fix for initial 0-level timestamp duplication
 
-    sim_data$arcDeg <- level_data$deg[level_indices]
-    sim_data$arcDeg[is.na(sim_data$arcDeg)] <- 180
+    # Select the level at each sim time
+    levels_at_time <- level_data$level[level_indices]
+
+    # Map level → arcDeg using lookup; coerce to character for names indexing
+    if (exists("arcdeg_lookup_table", envir = .GlobalEnv)) {
+        lookup <- get("arcdeg_lookup_table", envir = .GlobalEnv)
+        sim_data$arcDeg <- as.numeric(lookup[as.character(levels_at_time)])
+    } else {
+        # Fallback: compute same mapping on the fly (8 - level/3)
+        sim_data$arcDeg <- as.numeric(8 - as.numeric(levels_at_time) / 3)
+    }
+
+    # Any NA (e.g., out-of-range/missing levels) default to 180 for safety
+    sim_data$arcDeg[!is.finite(sim_data$arcDeg)] <- 180
 
     return(sim_data)
 }

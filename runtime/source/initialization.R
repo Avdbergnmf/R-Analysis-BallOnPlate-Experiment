@@ -180,6 +180,18 @@ initialize_global_parameters <- function() {
     default_sigma_m <<- 0.00001
     default_min_attempt_duration <<- 0
 
+    # -----------------------------------------------------------------------------
+    # LEVEL → ARC-DEG LOOKUP (used to correct mis-recorded 'deg' in level tracker)
+    # -----------------------------------------------------------------------------
+    # Levels 0–9 map to arc degrees decreasing in 1/3 increments from 8 to 5.
+    # We round to 6 decimals to match recorded precision conventions. 
+    # This was added later because the level tracker was not recording the correct 
+    # values (always logging the previous value).
+    arcdeg_lookup_table <<- stats::setNames(
+        round(8 - (0:9) / 3, 6),
+        as.character(0:9)
+    )
+
     # =============================================================================
     # AVATAR CONFIGURATION
     # =============================================================================
