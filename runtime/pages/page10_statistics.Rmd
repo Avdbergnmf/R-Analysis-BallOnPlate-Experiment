@@ -545,34 +545,68 @@ compute_within_phase_pairs <- function(lmm, correction_method, weights) {
 
 # Compute DiD (two-step approach)
 compute_did_contrasts <- function(lmm, correction_method, weights, include_phases) {
-  # Step 1: Get EMMs
-  emm_pc <- get_emms_with_covariates(lmm, ~ phase | condition, weights)
+  # Step 1: Get EMMs for phase × condition
+  emm_pc <- get_emms_with_covariates(lmm, ~ phase * condition, weights)
   
-  # Step 2: Within-condition deltas vs baseline
-  methods <- build_delta_contrasts_from_reference(emm_pc)
-  if (length(methods) == 0) return(data.frame(Message = "Not enough phase levels."))
+  # Step 2: Use interaction contrasts to get DiD
+  # This computes (phase effect in condition A) - (phase effect in condition B)
+  # i.e., difference of within-condition deltas
+  did_res <- emmeans::contrast(emm_pc, 
+    interaction = c("eff", "pairwise"),  # eff for phase (vs ref), pairwise for conditions
+    adjust = correction_method)
   
-  delta_cont <- emmeans::contrast(emm_pc, method = methods, by = "condition")
-  
-  # Step 3: Pairwise condition comparisons of those deltas, by phase
-  did_res <- emmeans::contrast(delta_cont, method = "pairwise", by = "phase", adjust = correction_method)
   df <- as.data.frame(summary(did_res, infer = c(TRUE, TRUE)))
   
-  # Filter to requested phases
-  if ("phase" %in% names(df)) {
-    names(df)[names(df) == "phase"] <- "Phase"
-    df <- df[df$Phase %in% include_phases, , drop = FALSE]
-  }
-  
-  names(df)[names(df) == "contrast"] <- "Contrast"
-  
-  # Get unadjusted
-  did_unadj <- emmeans::contrast(delta_cont, method = "pairwise", by = "phase", adjust = "none")
+  # Get unadjusted BEFORE filtering
+  did_unadj <- emmeans::contrast(emm_pc, 
+    interaction = c("eff", "pairwise"),
+    adjust = "none")
   df_unadj <- as.data.frame(summary(did_unadj))
-  if ("phase" %in% names(df_unadj)) {
-    df_unadj <- df_unadj[df_unadj$phase %in% include_phases, , drop = FALSE]
+  
+  # The result has phase_eff (or similar) and condition_pairwise columns
+  # Find phase column name
+  phase_col <- if ("phase_eff" %in% names(df)) "phase_eff" else if ("phase" %in% names(df)) "phase" else NULL
+  
+  # Filter both adjusted and unadjusted together
+  if (!is.null(phase_col) && phase_col %in% names(df)) {
+    # The phase_eff column has values like "retention effect", so we need to strip " effect"
+    # and compare against include_phases
+    phase_values <- df[[phase_col]]
+    phase_clean <- gsub(" effect$", "", phase_values)
+    
+    keep_idx <- phase_clean %in% include_phases
+    df <- df[keep_idx, , drop = FALSE]
+    
+    # Apply same filter to unadjusted
+    if (phase_col %in% names(df_unadj)) {
+      phase_values_unadj <- df_unadj[[phase_col]]
+      phase_clean_unadj <- gsub(" effect$", "", phase_values_unadj)
+      keep_idx_unadj <- phase_clean_unadj %in% include_phases
+      df_unadj <- df_unadj[keep_idx_unadj, , drop = FALSE]
+    }
   }
+  
+  # Check if we have any rows left
+  if (nrow(df) == 0) {
+    return(data.frame(Message = "No comparisons for selected phases."))
+  }
+  
+  # Add unadjusted p-values
   df$p_unadjusted <- df_unadj$p.value
+  
+  # Rename columns and clean up phase values
+  if (!is.null(phase_col) && phase_col %in% names(df)) {
+    # Clean up " effect" suffix from phase values
+    df[[phase_col]] <- gsub(" effect$", "", df[[phase_col]])
+    names(df)[names(df) == phase_col] <- "Phase"
+  }
+  
+  cond_col <- if ("condition_pairwise" %in% names(df)) "condition_pairwise" else if ("contrast" %in% names(df)) "contrast" else NULL
+  if (!is.null(cond_col)) {
+    names(df)[names(df) == cond_col] <- "Contrast"
+  }
+  
+  df$Family <- "Difference-in-differences"
   
   format_estimate_ci(df, "did")
 }
