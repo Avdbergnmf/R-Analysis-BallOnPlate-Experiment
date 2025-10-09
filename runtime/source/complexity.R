@@ -391,7 +391,9 @@ add_discrete_complexity <- function(result, dataType, values, log_msg) {
   
   # Add basic summary statistics
   stats <- calculate_summary_stats(values, dataType)
-  result <- c(result, stats)
+  for (name in names(stats)) {
+    result[[name]] <- stats[[name]]
+  }
 
   # Check if we have sufficient valid data for complexity metrics
   if (length(values) >= 10) {
@@ -459,7 +461,9 @@ add_continuous_complexity <- function(result, var_name, values, log_msg, step_fr
   # Add basic summary statistics on raw data (if provided)
   if (!is.null(values_raw)) {
     stats_raw <- calculate_summary_stats(values_raw, paste0(var_name, "_raw"))
-    result <- c(result, stats_raw)
+    for (name in names(stats_raw)) {
+      result[[name]] <- stats_raw[[name]]
+    }
   }
   
   # Clean filtered data - remove NA and infinite values
@@ -467,7 +471,9 @@ add_continuous_complexity <- function(result, var_name, values, log_msg, step_fr
   
   # Add basic summary statistics on filtered/downsampled data
   stats_filt <- calculate_summary_stats(values, paste0(var_name, "_filt"))
-  result <- c(result, stats_filt)
+  for (name in names(stats_filt)) {
+    result[[name]] <- stats_filt[[name]]
+  }
 
   # Check if we have sufficient valid data for complexity metrics
   if (length(values) >= 50) {
@@ -652,7 +658,7 @@ apply_outlier_filtering <- function(values, trial_data, outlier_col_names, log_m
 #' @param participant Participant identifier
 #' @param trial Trial identifier
 #' @param column_name Name of the column to extract from simulation data
-#' @return List with values, time, fs, and n_valid (same format as get_continuous_signal)
+#' @return List with values, time, fs, and n_valid
 get_simulation_signal <- function(participant, trial, column_name) {
   sim_data <- get_simulation_data(participant, trial)
   
@@ -685,6 +691,46 @@ get_simulation_signal <- function(participant, trial, column_name) {
     time = if (!is.null(times)) times[is.finite(values)] else numeric(0),
     fs = fs,
     n_valid = sum(is.finite(values))
+  )
+}
+
+#' Extract signal from tracker data (hip, udp, etc.)
+#' @param participant Participant identifier
+#' @param trial Trial identifier
+#' @param tracker_type Tracker type (e.g., "hip", "udp")
+#' @param column_name Name of the column to extract from tracker data
+#' @param description Human-readable description for logging
+#' @return List with values, time, fs, and n_valid
+get_tracker_signal <- function(participant, trial, tracker_type, column_name, description) {
+  tracker_data <- get_t_data(participant, tracker_type, trial)
+  
+  if (is.null(tracker_data) || nrow(tracker_data) == 0) {
+    return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
+  }
+  
+  if (!column_name %in% colnames(tracker_data)) {
+    return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
+  }
+  
+  # Extract values and times
+  values <- tracker_data[[column_name]]
+  times <- tracker_data$time
+  
+  # Calculate sampling frequency
+  fs <- if (!is.null(times) && length(times) > 1) {
+    dt <- median(diff(times), na.rm = TRUE)
+    if (is.finite(dt) && dt > 0) 1 / dt else NA_real_
+  } else {
+    NA_real_
+  }
+  
+  # Return in standard format
+  valid_mask <- is.finite(values) & is.finite(times)
+  list(
+    values = values[valid_mask],
+    time = times[valid_mask],
+    fs = fs,
+    n_valid = sum(valid_mask)
   )
 }
 
@@ -735,7 +781,7 @@ process_continuous_signal <- function(participant, trial, tracker_type, column_n
       signal_data <- if (tracker_type == "sim") {
         get_simulation_signal(participant, trial, column_name)
       } else {
-        get_continuous_signal(participant, trial, tracker_type, column_name, description)
+        get_tracker_signal(participant, trial, tracker_type, column_name, description)
       }
       
       if (length(signal_data$values) > 0) {
@@ -791,17 +837,16 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   trial_data <- allGaitParams %>%
     dplyr::filter(participant == !!participant, trialNum == !!trial)
 
-  if (nrow(trial_data) == 0) {
-    log_msg("WARN", "  No data found for this combination")
-    result <- data.frame(participant = participant, trialNum = trial)
-    if (debug && length(debug_messages) > 0) {
-      result$debug_messages <- list(debug_messages)
-    }
-    return(result)
+  # Check if gait parameters are missing
+  has_gait_data <- nrow(trial_data) > 0
+  
+  if (!has_gait_data) {
+    log_msg("WARN", "  No gait parameters found for this combination (missing foot tracker data)")
+    condition <- NA_character_
+  } else {
+    # Get condition from trial data
+    condition <- unique(trial_data$condition)[1]
   }
-
-  # Get condition (assuming it's consistent within a trial)
-  condition <- unique(trial_data$condition)[1]
 
   # Initialize result with identifiers
   # Convert trialNum to character to avoid ordered factor issues when combining across participants
@@ -813,10 +858,28 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   )
 
   # Calculate step frequency for adaptive frequency bands
+  # If gait data is missing for training trials (7 or 8), try to use the other training trial
   step_freq <- NULL
-  if ("stepTimes" %in% colnames(trial_data)) {
+  step_freq_data <- NULL
+  
+  if (has_gait_data && "stepTimes" %in% colnames(trial_data)) {
+    step_freq_data <- trial_data
+  } else if (!has_gait_data && (trial == "7" || trial == "8")) {
+    # For training trials, try fallback to the other training trial for step frequency only
+    fallback_trial <- if (trial == "7") "8" else "7"
+    fallback_data <- allGaitParams %>%
+      dplyr::filter(participant == !!participant, trialNum == !!fallback_trial)
+    
+    if (nrow(fallback_data) > 0 && "stepTimes" %in% colnames(fallback_data)) {
+      log_msg("WARN", "  Using step frequency from training trial", fallback_trial, "for adaptive frequency bands")
+      step_freq_data <- fallback_data
+    }
+  }
+  
+  # Calculate step frequency if we have data
+  if (!is.null(step_freq_data)) {
     # Apply outlier filtering to step times
-    step_times <- apply_outlier_filtering(trial_data$stepTimes, trial_data, outlier_col_names)
+    step_times <- apply_outlier_filtering(step_freq_data$stepTimes, step_freq_data, outlier_col_names)
     
     # Calculate step frequency (Hz) from median step time (seconds)
     step_times <- step_times[is.finite(step_times)]
@@ -829,21 +892,25 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
     }
   }
 
-  # Process discrete gait complexity types
-  complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(trial_data))
+  # Process discrete gait complexity types (only if we have gait data)
+  if (has_gait_data) {
+    complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(trial_data))
 
-  for (dataType in complexity_types) {
-    log_msg("DEBUG", "  Processing discrete gait data:", dataType)
+    for (dataType in complexity_types) {
+      log_msg("DEBUG", "  Processing discrete gait data:", dataType)
 
-    values <- trial_data[[dataType]]
-    original_length <- length(values)
-    log_msg("DEBUG", "    Original length:", original_length)
+      values <- trial_data[[dataType]]
+      original_length <- length(values)
+      log_msg("DEBUG", "    Original length:", original_length)
 
-    # Apply outlier filtering
-    values <- apply_outlier_filtering(values, trial_data, outlier_col_names, log_msg)
+      # Apply outlier filtering
+      values <- apply_outlier_filtering(values, trial_data, outlier_col_names, log_msg)
 
-    # Calculate complexity metrics using helper function
-    result <- add_discrete_complexity(result, dataType, values, log_msg)
+      # Calculate complexity metrics using helper function
+      result <- add_discrete_complexity(result, dataType, values, log_msg)
+    }
+  } else {
+    log_msg("INFO", "  Skipping discrete gait metrics (no gait data available)")
   }
 
   # Process continuous data if requested
