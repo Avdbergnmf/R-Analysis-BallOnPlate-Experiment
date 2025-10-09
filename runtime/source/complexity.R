@@ -292,12 +292,28 @@ psd_analysis <- function(x, fs = 30) {
       spectral_bandwidth <- sqrt(sum(((freqs - spectral_centroid)^2) * power_spectrum))
 
       # Power in different frequency bands
+      # If step frequency is provided, use adaptive bands based on gait characteristics
+      # Otherwise, use fixed bands
+      if (!is.null(step_freq) && is.finite(step_freq) && step_freq > 0.05 && step_freq < 15) {
+        # Adaptive frequency bands based on step frequency:
+        # Low: below step frequency (perturbation-related movements)
+        # Mid: around step frequency (gait-related movements)
+        # High: above 1.2x step frequency (noise and fast corrections)
+        low_mask <- freqs >= 0.05 & freqs <= 0.8*step_freq
+        mid_mask <- freqs > 0.8*step_freq & freqs <= 1.2 * step_freq
+        high_mask <- freqs > 1.2 * step_freq & freqs <= 15
+      } else {
+        if (!is.null(log_msg)) {
+          log_msg("WARN", "Using fixed frequency bands (step_freq invalid or out of range)")
+        }
+        # Fixed frequency bands (fallback):
       # Low frequency: 0.05-0.5 Hz (typical perturbation range)
       # Mid frequency: 0.5-2 Hz (walking-related)
       # High frequency: 2-15 Hz (noise and fast movements)
       low_mask <- freqs >= 0.05 & freqs <= 0.5
       mid_mask <- freqs > 0.5 & freqs <= 2
       high_mask <- freqs > 2 & freqs <= 15
+      }
 
       power_low <- sum(power_spectrum[low_mask])
       power_mid <- sum(power_spectrum[mid_mask])
