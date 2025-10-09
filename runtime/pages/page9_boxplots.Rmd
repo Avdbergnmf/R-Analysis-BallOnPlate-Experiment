@@ -3,7 +3,7 @@
 ```{r}
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("plotVarTransform", "Transform variable",
-  choices = c("None" = "none", "Log10" = "log10"),
+  choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
   selected = "none", multiple = FALSE
 )
 # selectizeInput("plotMetric", "Metric", choices = varMetrics, selected = varMetrics[1], multiple = FALSE)
@@ -17,7 +17,7 @@ checkboxInput("useSVG", "Make SVG for saving", value = FALSE)
 
 ```{r}
 bsTooltip("plotVarTransform",
-  "Apply transformation to the plotted variable. Log10 transformation can help with skewed data.",
+  "Apply transformation to the plotted variable. Log10 transformation can help with skewed data. Logit transformation is for proportions (values between 0 and 1).",
   placement = "right",
   trigger = "hover"
 )
@@ -98,14 +98,9 @@ generate_boxplot <- function() {
     }
     
     # Apply transformation to the plotting variable if selected
-    if (input$plotVarTransform == "log10") {
-      # Check if all values are positive for log10 transformation
-      plot_var_values <- mu[[input$plotVar]]
-      if (any(plot_var_values <= 0, na.rm = TRUE)) {
-        stop("Cannot apply log10 transformation: Some values are <= 0. Consider adding a constant or using a different transformation.")
-      }
-      # Apply log10 transformation directly to the column in mu
-      mu[[input$plotVar]] <- log10(mu[[input$plotVar]])
+    mu <- apply_depvar_transform(mu, input$plotVar, input$plotVarTransform)
+    if (is.null(mu)) {
+      stop("Transformation failed. Check notification for details.")
     }
     
     # Validate categories exist in data

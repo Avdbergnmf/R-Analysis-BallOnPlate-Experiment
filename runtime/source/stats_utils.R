@@ -91,6 +91,46 @@ apply_rank_transform <- function(data, dep_col, method = "rank") {
     return(list(data = data, dep_col = dep_col))
 }
 
+#' Apply transformation to dependent variable
+#' @param data The dataset
+#' @param dep_var The dependent variable column name
+#' @param transform_type The type of transformation to apply ("none", "log10", "logit")
+#' @return The dataset with the transformed dependent variable, or NULL if validation fails
+apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
+    if (transform_type == "none" || is.null(transform_type)) {
+        return(data)
+    }
+    
+    dep_var_values <- data[[dep_var]]
+    
+    if (transform_type == "log10") {
+        # Check if all values are positive for log10 transformation
+        if (any(dep_var_values <= 0, na.rm = TRUE)) {
+            showNotification(
+                "Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.", 
+                type = "warning"
+            )
+            return(NULL)
+        }
+        # Apply log10 transformation
+        data[[dep_var]] <- log10(data[[dep_var]])
+        
+    } else if (transform_type == "logit") {
+        # Check if all values are between 0 and 1 for logit transformation
+        if (any(dep_var_values <= 0 | dep_var_values >= 1, na.rm = TRUE)) {
+            showNotification(
+                "Warning: Some values are <= 0 or >= 1. Cannot apply logit transformation. Values must be strictly between 0 and 1 (proportions).", 
+                type = "warning"
+            )
+            return(NULL)
+        }
+        # Apply logit transformation: log(p / (1 - p))
+        data[[dep_var]] <- log(data[[dep_var]] / (1 - data[[dep_var]]))
+    }
+    
+    return(data)
+}
+
 # =============================================================================
 # LMM HELPERS
 # =============================================================================

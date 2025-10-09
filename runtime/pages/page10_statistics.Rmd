@@ -6,7 +6,7 @@ selectizeInput("depVar", "Dependent variable",
 )
 
 selectizeInput("depVarTransform", "Transform dependent variable",
-  choices = c("None" = "none", "Log10" = "log10"),
+  choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
   selected = "none", multiple = FALSE
 )
 
@@ -36,7 +36,7 @@ selectizeInput("correctionMethod", "Multiple comparison correction (fixed effect
 
 ```{r}
 bsTooltip("depVarTransform",
-  "Apply transformation to the dependent variable before analysis. Log10 transformation can help with skewed data.",
+  "Apply transformation to the dependent variable before analysis. Log10 transformation can help with skewed data. Logit transformation is for proportions (values between 0 and 1).",
   placement = "right",
   trigger = "hover"
 )
@@ -225,15 +225,9 @@ get_lmer <- reactive({
   validate_ready_for_lmm(data)
 
   # Apply transformation to dependent variable if selected
-  if (input$depVarTransform == "log10") {
-    # Check if all values are positive for log10 transformation
-    dep_var_values <- data[[input$depVar]]
-    if (any(dep_var_values <= 0, na.rm = TRUE)) {
-      showNotification("Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.", type = "warning")
-      return(NULL)
-    }
-    # Apply log10 transformation
-    data[[input$depVar]] <- log10(data[[input$depVar]])
+  data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+  if (is.null(data)) {
+    return(NULL)
   }
 
   doCustom <- input$useCustomModel && !is.null(input$customModel) && nzchar(input$customModel)
