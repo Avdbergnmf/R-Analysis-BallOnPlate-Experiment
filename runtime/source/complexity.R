@@ -1157,6 +1157,9 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
       }
     }
   }
+  
+  # Store step frequency in results for use by other analyses
+  result$step_freq <- if (!is.null(step_freq)) step_freq else NA_real_
 
   # Process discrete gait complexity types (only if we have gait data)
   if (has_gait_data) {
