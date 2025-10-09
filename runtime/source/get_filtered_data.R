@@ -670,7 +670,6 @@ get_mu_dyn_long <- reactive({
   mu <- merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
   mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
-  mu <- merge_mu_with_data(mu, continuousMetrics, "hip", c("participant", "trialNum"))
 
   # Inject global derived metrics from full MU (before trial filtering)
   defs <- tryCatch(global_derived_metric_defs(), error = function(e) NULL)

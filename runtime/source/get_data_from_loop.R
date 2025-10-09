@@ -240,7 +240,6 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
                 source("source/pre_processing.R", local = FALSE) # Load pre_processing before data_loading
                 source("source/data_loading.R", local = FALSE)
                 source("source/complexity.R", local = FALSE)
-                source("source/continuous_metrics.R", local = FALSE)
                 source("source/find_foot_events.R", local = FALSE)
                 source("source/calc_all_gait_params.R", local = FALSE)
                 source("source/profile_shapes.R", local = FALSE)
