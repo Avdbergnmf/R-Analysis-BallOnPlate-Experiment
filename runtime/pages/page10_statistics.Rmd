@@ -1,5 +1,6 @@
 ### Options
 
+#### Dependent Variable
 ```{r}
 selectizeInput("depVar", "Dependent variable",
   choices = NULL, selected = NULL, multiple = FALSE
@@ -9,7 +10,14 @@ selectizeInput("depVarTransform", "Transform dependent variable",
   choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
   selected = "none", multiple = FALSE
 )
+```
 
+```{r}
+tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
+```
+
+#### Independent Variables
+```{r}
 selectizeInput("indepInterVars", "Independent variable(s) (interactions)",
   choices = NULL, selected = NULL, multiple = TRUE
 )
@@ -17,11 +25,25 @@ selectizeInput("indepInterVars", "Independent variable(s) (interactions)",
 selectizeInput("indepVars", "Independent variable(s) (add to model)",
   choices = NULL, selected = NULL, multiple = TRUE
 )
+```
 
+```{r}
+tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
+```
+
+#### Data Options
+```{r}
 checkboxInput("getSummarizedData_stats", "Use summarized data", value = TRUE)
 checkboxInput("averageData_stats", "Average data across condition", value = FALSE)
 checkboxInput("diffData_stats", "Calculate difference + means per participant", value = FALSE)
+```
 
+```{r}
+tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
+```
+
+#### Model Settings
+```{r}
 textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + taskNum | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
@@ -35,8 +57,33 @@ selectizeInput("correctionMethod", "Multiple comparison correction (fixed effect
 ```
 
 ```{r}
+tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
+```
+
+#### Reference Levels
+```{r}
+selectizeInput("refLevelCondition", "Reference level for condition",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+selectizeInput("refLevelPhase", "Reference level for phase",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+```
+
+```{r}
 bsTooltip("depVarTransform",
   "Apply transformation to the dependent variable before analysis. Log10 transformation can help with skewed data. Logit transformation is for proportions (values between 0 and 1).",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("refLevelCondition",
+  "Select the reference level (baseline) for condition comparisons. Other conditions will be compared against this level. Auto-selects the default from initialization.R.",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("refLevelPhase",
+  "Select the reference level (baseline) for phase comparisons. Other phases will be compared against this level. Auto-selects the default from initialization.R.",
   placement = "right",
   trigger = "hover"
 )
@@ -216,6 +263,48 @@ create_dynamic_variable_observer(
   input = input
 )
 
+# Dynamic observers for reference level selection
+observe({
+  data <- get_stats_data()
+  
+  if ("condition" %in% names(data)) {
+    available_conditions <- unique(data$condition)
+    
+    # Get default from reference_levels or use first value
+    default_ref <- if (exists("reference_levels") && "condition" %in% names(reference_levels)) {
+      ref <- reference_levels$condition
+      if (ref %in% available_conditions) ref else available_conditions[1]
+    } else {
+      available_conditions[1]
+    }
+    
+    updateSelectizeInput(session, "refLevelCondition",
+      choices = available_conditions,
+      selected = default_ref
+    )
+  }
+})
+
+observe({
+  data <- get_stats_data()
+  
+  if ("phase" %in% names(data)) {
+    available_phases <- unique(data$phase)
+    
+    # Get default from reference_levels or use first value
+    default_ref <- if (exists("reference_levels") && "phase" %in% names(reference_levels)) {
+      ref <- reference_levels$phase
+      if (ref %in% available_phases) ref else available_phases[1]
+    } else {
+      available_phases[1]
+    }
+    
+    updateSelectizeInput(session, "refLevelPhase",
+      choices = available_phases,
+      selected = default_ref
+    )
+  }
+})
 
 # ----------------  APPLY MODEL  ----------------
 get_lmer <- reactive({
@@ -223,6 +312,14 @@ get_lmer <- reactive({
 
   data <- get_stats_data()
   validate_ready_for_lmm(data)
+
+  # Apply custom reference levels if specified
+  if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
+    data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+  }
+  if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
+    data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+  }
 
   # Apply transformation to dependent variable if selected
   data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
@@ -257,6 +354,16 @@ output$lmm_text <- renderPrint({
   }
 
   results <- summary(lmm)
+
+  # Show reference level information
+  cat("REFERENCE LEVELS:\n")
+  if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
+    cat("Condition reference level:", input$refLevelCondition, "\n")
+  }
+  if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
+    cat("Phase reference level:", input$refLevelPhase, "\n")
+  }
+  cat("\n")
 
   # Show transformation information
   if (input$depVarTransform != "none") {
@@ -367,8 +474,24 @@ output$random_effects_table <- renderTable(
 output$post_hoc_table <- renderTable(
   {
     req(dep_var_valid())
-    data <- get_stats_data()
     lmm <- get_lmer()
+    
+    # Get the same processed data that was used for the model
+    data <- get_stats_data()
+    
+    # Apply same reference levels as in get_lmer()
+    if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
+      data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+    }
+    if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
+      data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+    }
+    
+    # Apply same transformation as in get_lmer()
+    data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+    if (is.null(data)) {
+      return(data.frame(Message = "Transformation failed. Cannot perform post-hoc analysis."))
+    }
 
     # Prepare analysis (use posthoc_correction for emmeans, not correctionMethod which is for fixed effects)
     lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)

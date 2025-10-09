@@ -131,6 +131,38 @@ apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
     return(data)
 }
 
+#' Apply custom reference levels for specific variables
+#' @param data The dataset to modify
+#' @param var_name The variable name to set reference level for
+#' @param ref_level The reference level to set
+#' @return The dataset with updated reference level, or NULL if invalid
+apply_custom_reference_level <- function(data, var_name, ref_level) {
+    # Validate inputs
+    if (is.null(var_name) || !nzchar(var_name) || !var_name %in% names(data)) {
+        return(data)
+    }
+    
+    if (is.null(ref_level) || !nzchar(as.character(ref_level))) {
+        return(data)
+    }
+    
+    # Check if the reference level exists in the data
+    available_levels <- unique(data[[var_name]])
+    if (!ref_level %in% available_levels) {
+        warning(sprintf(
+            "Reference level '%s' not found in variable '%s'. Available levels: %s",
+            ref_level, var_name,
+            paste(available_levels, collapse = ", ")
+        ))
+        return(data)
+    }
+    
+    # Set the reference level
+    data[[var_name]] <- relevel(factor(data[[var_name]]), ref = as.character(ref_level))
+    
+    return(data)
+}
+
 # =============================================================================
 # LMM HELPERS
 # =============================================================================
