@@ -721,24 +721,32 @@ fit_fp_model <- function(FP_vec, P_vec, dP_vec = NULL, prefix, log_msg) {
       return(na_results)
     }
     
-    # Compute residuals and RMSE
+    # Compute residuals and model RMSE (using degrees of freedom)
     predicted <- if (!is.null(dP_vec)) {
       beta0 + beta1 * P_vec + beta2 * dP_vec
     } else {
       beta0 + beta1 * P_vec
     }
     residuals <- FP_vec - predicted
-    rmse <- sqrt(mean(residuals^2))
+    
+    # Model RMSE: sqrt(sum(residuals^2) / (n - p)) where p = number of parameters
+    n <- length(residuals)
+    p <- if (!is.null(dP_vec)) 3 else 2  # intercept + position (+ velocity)
+    rmse <- sqrt(sum(residuals^2) / (n - p))
     
     # Compute R²
     ss_res <- sum(residuals^2)
     ss_tot <- sum((FP_vec - mean(FP_vec))^2)
     r2 <- if (ss_tot > 0) 1 - ss_res / ss_tot else 0
     
-    # Check for exploding residuals
-    if (!is.finite(rmse) || rmse > 1) {
-      log_msg("WARN", "  Unreasonable residuals for", prefix, "(RMSE =", round(rmse, 4), ")")
+    # Sanity check for extreme values (very permissive, just catch numerical issues)
+    if (!is.finite(rmse)) {
+      log_msg("WARN", "  Non-finite RMSE for", prefix)
       return(na_results)
+    }
+    
+    if (rmse > 1) { # could make 10, but left at 1 for now to check.
+      log_msg("WARN", "  Very large RMSE for", prefix, "(RMSE =", round(rmse, 4), "m) - possible data issue")
     }
     
     # Log results
