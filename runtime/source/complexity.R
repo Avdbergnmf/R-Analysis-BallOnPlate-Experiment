@@ -26,6 +26,38 @@
 #' - dfa_alpha() - Detrended Fluctuation Analysis Alpha
 #' - lyapunov() - Largest Lyapunov Exponent
 
+#' Create a logging function with different log levels
+#' @param enabled Whether logging is enabled
+#' @param messages Vector to collect messages (for parallel processing)
+#' @return A logging function that can be called with level and message
+create_logger <- function(enabled = TRUE, messages = NULL) {
+  function(level = "DEBUG", ...) {
+    if (enabled) {
+      prefix <- switch(level,
+        "DEBUG" = "[DEBUG]",
+        "INFO" = "[INFO]",
+        "WARN" = "[WARN]",
+        "ERROR" = "[ERROR]",
+        "[DEBUG]"  # default
+      )
+      msg <- paste(prefix, paste(..., collapse = " "))
+      
+      # Collect messages if messages vector is provided
+      if (!is.null(messages)) {
+        # Use parent environment to modify the messages vector
+        parent_env <- parent.frame()
+        if (exists("debug_messages", envir = parent_env)) {
+          assign("debug_messages", c(get("debug_messages", envir = parent_env), msg), envir = parent_env)
+        }
+      }
+      
+      # Always output immediately for capture.output() to catch it
+      cat(msg, "\n")
+      flush.console()
+    }
+  }
+}
+
 #' Helper function to create metric column names
 #' @param variable Variable name (e.g., "stepTimes")
 #' @param metric Metric name (e.g., "sampen")
@@ -235,8 +267,10 @@ lyapunov <- function(x, emb.dim = 3, delay = 1, fit.range = c(0, 0.8)) {
 #' Power Spectral Density Analysis
 #' @param x numeric vector of time series data
 #' @param fs sampling frequency (default 30 Hz)
+#' @param step_freq optional step frequency in Hz to define adaptive frequency bands
+#' @param log_msg optional logging function for warnings
 #' @return List with frequency metrics
-psd_analysis <- function(x, fs = 30) {
+psd_analysis <- function(x, fs = 30, step_freq = NULL, log_msg = NULL) {
   if (length(x) < 50) {
     return(list(
       peak_freq = NA,
@@ -307,12 +341,12 @@ psd_analysis <- function(x, fs = 30) {
           log_msg("WARN", "Using fixed frequency bands (step_freq invalid or out of range)")
         }
         # Fixed frequency bands (fallback):
-      # Low frequency: 0.05-0.5 Hz (typical perturbation range)
-      # Mid frequency: 0.5-2 Hz (walking-related)
-      # High frequency: 2-15 Hz (noise and fast movements)
-      low_mask <- freqs >= 0.05 & freqs <= 0.5
-      mid_mask <- freqs > 0.5 & freqs <= 2
-      high_mask <- freqs > 2 & freqs <= 15
+        # Low frequency: 0.05-0.5 Hz (typical perturbation range)
+        # Mid frequency: 0.5-2 Hz (walking-related)
+        # High frequency: 2-15 Hz (noise and fast movements)
+        low_mask <- freqs >= 0.05 & freqs <= 0.5
+        mid_mask <- freqs > 0.5 & freqs <= 2
+        high_mask <- freqs > 2 & freqs <= 15
       }
 
       power_low <- sum(power_spectrum[low_mask])
@@ -349,13 +383,17 @@ psd_analysis <- function(x, fs = 30) {
 #' @param result Result data frame to modify
 #' @param dataType Type of data (e.g., "stepTimes", "stepWidths")
 #' @param values Numeric vector of data values
-#' @param debug_log Debug logging function
+#' @param log_msg Logging function
 #' @return Modified result data frame
-add_discrete_complexity <- function(result, dataType, values, debug_log) {
+add_discrete_complexity <- function(result, dataType, values, log_msg) {
   # Clean data first - remove NA and infinite values
   values <- values[is.finite(values)]
+  
+  # Add basic summary statistics
+  stats <- calculate_summary_stats(values, dataType)
+  result <- c(result, stats)
 
-  # Check if we have sufficient valid data
+  # Check if we have sufficient valid data for complexity metrics
   if (length(values) >= 10) {
     values_sd <- sd(values)
     if (is.finite(values_sd) && values_sd > .Machine$double.eps * 10) {
@@ -378,7 +416,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
             result[[get_metric_name(dataType, metric)]] <- metrics[[metric]]
           }
 
-          debug_log("    Computed", length(metrics), "discrete complexity metrics")
+          log_msg("DEBUG", "    Computed", length(metrics), "discrete complexity metrics")
         },
         error = function(e) {
           warning(paste("Error in", dataType, "complexity calculation:", e$message))
@@ -395,7 +433,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
       for (metric in na_metrics) {
         result[[get_metric_name(dataType, metric)]] <- NA
       }
-      debug_log("    Insufficient variability for complexity calculation")
+      log_msg("DEBUG", "    Insufficient variability for complexity calculation")
     }
   } else {
     # Insufficient data - add NAs
@@ -403,7 +441,7 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
     for (metric in na_metrics) {
       result[[get_metric_name(dataType, metric)]] <- NA
     }
-    debug_log("    Insufficient data for complexity calculation (", length(values), "valid values)")
+    log_msg("DEBUG", "    Insufficient data for complexity calculation (", length(values), "valid values)")
   }
 
   return(result)
@@ -412,14 +450,26 @@ add_discrete_complexity <- function(result, dataType, values, debug_log) {
 #' Helper function to add continuous complexity metrics to result
 #' @param result Result data frame to modify
 #' @param var_name Variable name (e.g., "p")
-#' @param values Numeric vector of data values
-#' @param debug_log Debug logging function
+#' @param values Numeric vector of filtered data values
+#' @param log_msg Logging function
+#' @param step_freq Optional step frequency in Hz for adaptive frequency bands
+#' @param values_raw Optional raw unfiltered data values for basic statistics
 #' @return Modified result data frame
-add_continuous_complexity <- function(result, var_name, values, debug_log) {
-  # Clean data first - remove NA and infinite values
+add_continuous_complexity <- function(result, var_name, values, log_msg, step_freq = NULL, values_raw = NULL) {
+  # Add basic summary statistics on raw data (if provided)
+  if (!is.null(values_raw)) {
+    stats_raw <- calculate_summary_stats(values_raw, paste0(var_name, "_raw"))
+    result <- c(result, stats_raw)
+  }
+  
+  # Clean filtered data - remove NA and infinite values
   values <- values[is.finite(values)]
+  
+  # Add basic summary statistics on filtered/downsampled data
+  stats_filt <- calculate_summary_stats(values, paste0(var_name, "_filt"))
+  result <- c(result, stats_filt)
 
-  # Check if we have sufficient valid data for continuous metrics
+  # Check if we have sufficient valid data for complexity metrics
   if (length(values) >= 50) {
     values_sd <- sd(values)
     if (is.finite(values_sd) && values_sd > .Machine$double.eps * 10) {
@@ -448,8 +498,8 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             }
           )
 
-          # Add frequency domain analysis
-          psd_metrics <- psd_analysis(values, fs = 30)
+          # Add frequency domain analysis with adaptive frequency bands
+          psd_metrics <- psd_analysis(values, fs = 30, step_freq = step_freq, log_msg = log_msg)
           metrics <- c(metrics, psd_metrics)
 
           # Add to result with proper naming
@@ -457,7 +507,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             result[[get_metric_name(var_name, metric)]] <- metrics[[metric]]
           }
 
-          debug_log("      Computed", length(metrics), "continuous complexity metrics")
+          log_msg("DEBUG", "      Computed", length(metrics), "continuous complexity metrics")
         },
         error = function(e) {
           warning(paste("Error in continuous", var_name, "complexity calculation:", e$message))
@@ -482,7 +532,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       for (metric in na_metrics) {
         result[[get_metric_name(var_name, metric)]] <- NA
       }
-      debug_log("      Insufficient variability for continuous complexity calculation")
+      log_msg("DEBUG", "      Insufficient variability for continuous complexity calculation")
     }
   } else if (length(values) >= 10) {
     values_sd <- sd(values)
@@ -505,7 +555,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
             result[[get_metric_name(var_name, metric)]] <- metrics[[metric]]
           }
 
-          debug_log("      Computed", length(metrics), "standard complexity metrics")
+          log_msg("DEBUG", "      Computed", length(metrics), "standard complexity metrics")
         },
         error = function(e) {
           warning(paste("Error in continuous", var_name, "complexity calculation:", e$message))
@@ -522,7 +572,7 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
       for (metric in na_metrics) {
         result[[get_metric_name(var_name, metric)]] <- NA
       }
-      debug_log("      Insufficient variability for standard complexity calculation")
+      log_msg("DEBUG", "      Insufficient variability for standard complexity calculation")
     }
   } else {
     # Insufficient data - add NAs for continuous metrics
@@ -534,15 +584,186 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
     for (metric in na_metrics) {
       result[[get_metric_name(var_name, metric)]] <- NA
     }
-    debug_log("      Insufficient data for complexity calculation (", length(values), "valid values)")
+    log_msg("DEBUG", "      Insufficient data for complexity calculation (", length(values), "valid values)")
   }
 
   return(result)
 }
 
+#' Calculate basic summary statistics for a vector
+#' @param values Numeric vector of data values
+#' @param prefix Column name prefix (e.g., "p_raw", "stepTimes")
+#' @return Named list with formatted column names
+calculate_summary_stats <- function(values, prefix) {
+  values <- values[is.finite(values)]
+  n <- length(values)
+  
+  if (n == 0) {
+    stats <- list(NA_real_, NA_real_, NA_real_, 0L)
+  } else {
+    mean_val <- mean(values)
+    sd_val <- sd(values)
+    cv_val <- sd_val / abs(mean_val)
+    stats <- list(mean_val, sd_val, cv_val, n)
+  }
+  
+  # Return with formatted names
+  names(stats) <- paste0(prefix, c("_mean", "_sd", "_cv", "_n"))
+  stats
+}
 
+#' Apply outlier filtering to values
+#' @param values Numeric vector to filter
+#' @param trial_data Trial data frame containing outlier columns
+#' @param outlier_col_names Vector of potential outlier column names to check
+#' @param log_msg Logging function (optional)
+#' @return Filtered values vector
+apply_outlier_filtering <- function(values, trial_data, outlier_col_names, log_msg = NULL) {
+  # Find outlier column
+  outlier_col_found <- NULL
+  for (col_name in outlier_col_names) {
+    if (col_name %in% colnames(trial_data)) {
+      outlier_col_found <- col_name
+      break
+    }
+  }
+  
+  if (!is.null(outlier_col_found)) {
+    if (!is.null(log_msg)) {
+      log_msg("DEBUG", "    Using outlier column:", outlier_col_found)
+    }
+    
+    outlier_mask <- trial_data[[outlier_col_found]]
+    if (is.logical(outlier_mask)) {
+      values <- values[!outlier_mask]
+    } else {
+      values <- values[outlier_mask == FALSE]
+    }
+    
+    if (!is.null(log_msg)) {
+      log_msg("DEBUG", "    After filtering:", length(values), "values")
+    }
+  }
+  
+  return(values)
+}
 
+#' Extract signal from simulation data
+#' @param participant Participant identifier
+#' @param trial Trial identifier
+#' @param column_name Name of the column to extract from simulation data
+#' @return List with values, time, fs, and n_valid (same format as get_continuous_signal)
+get_simulation_signal <- function(participant, trial, column_name) {
+  sim_data <- get_simulation_data(participant, trial)
+  
+  if (is.null(sim_data) || nrow(sim_data) == 0) {
+    return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
+  }
+  
+  # Filter to only real simulation data (when ball is on plate)
+  sim_data_filtered <- sim_data %>% dplyr::filter(simulating == TRUE)
+  
+  if (!column_name %in% colnames(sim_data_filtered)) {
+    return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
+  }
+  
+  # Extract values and times
+  values <- sim_data_filtered[[column_name]]
+  times <- sim_data_filtered$time
+  
+  # Calculate sampling frequency
+  fs <- if (!is.null(times) && length(times) > 1) {
+    dt <- median(diff(times), na.rm = TRUE)
+    if (is.finite(dt) && dt > 0) 1 / dt else NA_real_
+  } else {
+    NA_real_
+  }
+  
+  # Return in standard format
+  list(
+    values = values[is.finite(values)],
+    time = if (!is.null(times)) times[is.finite(values)] else numeric(0),
+    fs = fs,
+    n_valid = sum(is.finite(values))
+  )
+}
 
+#' Apply 6 Hz low-pass Butterworth filter and downsample to 30 Hz
+#' @param values_raw Raw signal values
+#' @param fs Sampling frequency
+#' @param log_msg Logging function
+#' @return Filtered and downsampled values
+apply_signal_filtering <- function(values_raw, fs, log_msg) {
+  # Apply 6 Hz low-pass Butterworth filter (4th-order, zero-lag)
+  # Retains the 0.05-0.5 Hz perturbation band while removing higher-frequency noise
+  cutoff <- 6 / (fs / 2)
+  if (cutoff >= 1) {
+    values_filt <- values_raw
+  } else {
+    bf <- signal::butter(4, cutoff, type = "low")
+    values_filt <- as.numeric(signal::filtfilt(bf, values_raw))
+  }
+  
+  # Down-sample to 30 Hz to avoid oversampling bias in complexity stats
+  if (fs > 30) {
+    dec_factor <- floor(fs / 30)
+    if (dec_factor > 1) {
+      values_filt <- values_filt[seq(1, length(values_filt), by = dec_factor)]
+      log_msg("DEBUG", "      Down-sampled with factor", dec_factor, "→", length(values_filt), "samples (@30 Hz approx.)")
+    }
+  }
+  
+  return(values_filt)
+}
+
+#' Helper function to process a continuous signal with filtering and downsampling
+#' @param participant Participant identifier
+#' @param trial Trial identifier
+#' @param tracker_type Type of tracker (e.g., "udp", "hip", "sim")
+#' @param column_name Name of the column to extract (e.g., "PelvisPos", "pos_x")
+#' @param var_name Variable name for output columns (e.g., "hipPos", "pelvisPos")
+#' @param description Human-readable description for logging
+#' @param result Result data frame to add metrics to
+#' @param log_msg Logging function
+#' @param step_freq Optional step frequency in Hz for adaptive frequency bands
+#' @return Modified result data frame with complexity metrics added
+process_continuous_signal <- function(participant, trial, tracker_type, column_name, 
+                                      var_name, description, result, log_msg, step_freq = NULL) {
+  tryCatch(
+    {
+      # Get signal data from appropriate source
+      signal_data <- if (tracker_type == "sim") {
+        get_simulation_signal(participant, trial, column_name)
+      } else {
+        get_continuous_signal(participant, trial, tracker_type, column_name, description)
+      }
+      
+      if (length(signal_data$values) > 0) {
+        log_msg("DEBUG", "    ", description, "available:", signal_data$n_valid, "valid samples")
+        
+        # Store raw values for statistics
+        values_raw <- signal_data$values
+        
+        # Get sampling frequency
+        fs <- if (is.finite(signal_data$fs)) signal_data$fs else 120
+        
+        # Apply filtering and downsampling
+        values_filt <- apply_signal_filtering(values_raw, fs, log_msg)
+        log_msg("DEBUG", "      Processed data length:", length(values_filt), "values")
+        
+        # Calculate complexity metrics with adaptive frequency bands (pass raw values too)
+        result <- add_continuous_complexity(result, var_name, values_filt, log_msg, step_freq, values_raw)
+      } else {
+        log_msg("DEBUG", "    No", description, "available")
+      }
+    },
+    error = function(e) {
+      log_msg("ERROR", "    Error getting", description, ":", e$message)
+    }
+  )
+  
+  return(result)
+}
 
 #' Calculate complexity metrics for a single participant/trial combination
 #' @param participant Participant identifier
@@ -550,37 +771,28 @@ add_continuous_complexity <- function(result, var_name, values, debug_log) {
 #' @param allGaitParams Full gait parameter dataset
 #' @param outlier_col_names Vector of potential outlier column names to check
 #' @param include_continuous Logical, whether to include continuous simulation data complexity
-#' @param continuous_vars Vector of continuous variable names to analyze
+#' @param continuous_vars Vector of continuous variable names to analyze (e.g., "p", "hipPos", "pelvisPos")
 #' @param debug Logical, whether to collect debug information (works with parallel processing)
 #' @return Single row data frame with complexity metrics (and debug_messages column if debug=TRUE)
 calculate_complexity_single <- function(participant, trial, allGaitParams,
                                         outlier_col_names = c("outlierSteps"),
                                         include_continuous = TRUE,
-                                        continuous_vars = c("p"),
+                                        continuous_vars = c("p", "hipPos", "pelvisPos"),
                                         debug = TRUE) {
   # Initialize debug messages collection for parallel processing compatibility
   debug_messages <- character(0)
 
-  # Debug helper function that works with parallel processing
-  debug_log <- function(...) {
-    if (debug) {
-      msg <- paste("[DEBUG]", paste(..., collapse = " "))
-      debug_messages <<- c(debug_messages, msg)
-      # Always output immediately during execution for capture.output() to catch it
-      # Use cat() with flush for immediate output that gets captured by parallel logging
-      cat(msg, "\n")
-      flush.console()
-    }
-  }
+  # Create logger function with access to debug_messages
+  log_msg <- create_logger(enabled = debug, messages = debug_messages)
 
-  debug_log("Processing participant:", participant, "trial:", trial)
+  log_msg("DEBUG", "Processing participant:", participant, "trial:", trial)
 
   # Filter data for this specific participant/trial
   trial_data <- allGaitParams %>%
     dplyr::filter(participant == !!participant, trialNum == !!trial)
 
   if (nrow(trial_data) == 0) {
-    debug_log("  No data found for this combination")
+    log_msg("WARN", "  No data found for this combination")
     result <- data.frame(participant = participant, trialNum = trial)
     if (debug && length(debug_messages) > 0) {
       result$debug_messages <- list(debug_messages)
@@ -592,114 +804,74 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   condition <- unique(trial_data$condition)[1]
 
   # Initialize result with identifiers
+  # Convert trialNum to character to avoid ordered factor issues when combining across participants
   result <- data.frame(
     participant = participant,
     condition = condition,
-    trialNum = trial
+    trialNum = as.character(trial),
+    stringsAsFactors = FALSE
   )
+
+  # Calculate step frequency for adaptive frequency bands
+  step_freq <- NULL
+  if ("stepTimes" %in% colnames(trial_data)) {
+    # Apply outlier filtering to step times
+    step_times <- apply_outlier_filtering(trial_data$stepTimes, trial_data, outlier_col_names)
+    
+    # Calculate step frequency (Hz) from median step time (seconds)
+    step_times <- step_times[is.finite(step_times)]
+    if (length(step_times) >= 5) {
+      median_step_time <- median(step_times)
+      if (is.finite(median_step_time) && median_step_time > 0) {
+        step_freq <- 1 / median_step_time
+        log_msg("INFO", "  Calculated step frequency:", round(step_freq, 3), "Hz (from median step time:", round(median_step_time, 3), "s)")
+      }
+    }
+  }
 
   # Process discrete gait complexity types
   complexity_types <- intersect(c("stepTimes", "stepWidths"), colnames(trial_data))
 
   for (dataType in complexity_types) {
-    debug_log("  Processing discrete gait data:", dataType)
+    log_msg("DEBUG", "  Processing discrete gait data:", dataType)
 
     values <- trial_data[[dataType]]
     original_length <- length(values)
-    debug_log("    Original length:", original_length)
+    log_msg("DEBUG", "    Original length:", original_length)
 
     # Apply outlier filtering
-    outlier_col_found <- NULL
-    for (col_name in outlier_col_names) {
-      if (col_name %in% colnames(trial_data)) {
-        outlier_col_found <- col_name
-        break
-      }
-    }
-
-    if (!is.null(outlier_col_found)) {
-      debug_log("    Using outlier column:", outlier_col_found)
-      outlier_mask <- trial_data[[outlier_col_found]]
-      if (is.logical(outlier_mask)) {
-        values <- values[!outlier_mask]
-      } else {
-        values <- values[outlier_mask == FALSE]
-      }
-      debug_log("    After filtering:", length(values), "values")
-    }
+    values <- apply_outlier_filtering(values, trial_data, outlier_col_names, log_msg)
 
     # Calculate complexity metrics using helper function
-    result <- add_discrete_complexity(result, dataType, values, debug_log)
+    result <- add_discrete_complexity(result, dataType, values, log_msg)
   }
 
-  # Process continuous simulation data if requested
+  # Process continuous data if requested
   if (include_continuous) {
-    debug_log("  Processing continuous simulation data")
-
-    # Get simulation data for this participant/trial
-    tryCatch(
-      {
-        sim_data <- get_simulation_data(participant, trial)
-
-        if (!is.null(sim_data) && nrow(sim_data) > 0) {
-          # Filter to only real simulation data (when ball is on plate)
-          sim_data_filtered <- sim_data %>%
-            dplyr::filter(simulating == TRUE)
-
-          debug_log("    Simulation data available:", nrow(sim_data), "total,", nrow(sim_data_filtered), "on plate")
-
-          # Process each continuous variable
-          available_vars <- intersect(continuous_vars, colnames(sim_data_filtered))
-          debug_log("    Available continuous variables:", paste(available_vars, collapse = ", "))
-
-          for (var_name in available_vars) {
-            debug_log("    Processing continuous variable:", var_name)
-
-            # Apply 6 Hz low-pass Butterworth (4th-order, zero-lag) to retain
-            # the 0.05–0.5 Hz perturbation band while removing higher-frequency noise
-            values_raw <- sim_data_filtered[[var_name]]
-
-            times <- sim_data_filtered$time
-            if (!is.null(times) && length(times) == length(values_raw)) {
-              dt <- median(diff(times), na.rm = TRUE)
-              fs <- 1 / dt
-            } else {
-              fs <- 120 # fallback sampling rate if 'time' not present
-            }
-
-            cutoff <- 6 / (fs / 2) # normalised cutoff for butter()
-            if (cutoff >= 1) {
-              values_filt <- values_raw # can't filter if fs too low
-            } else {
-              bf <- signal::butter(4, cutoff, type = "low")
-              # filtfilt ensures zero phase / no delay
-              values_filt <- as.numeric(signal::filtfilt(bf, values_raw))
-            }
-
-            # ------------------------------------------------------------------
-            # Down-sample to 30 Hz to avoid oversampling bias in complexity stats
-            # ------------------------------------------------------------------
-            if (fs > 30) {
-              dec_factor <- floor(fs / 30)
-              if (dec_factor > 1) {
-                values_filt <- values_filt[seq(1, length(values_filt), by = dec_factor)]
-                debug_log("      Down-sampled with factor", dec_factor, "→", length(values_filt), "samples (@30 Hz approx.)")
-              }
-            }
-            values <- values_filt
-            debug_log("      Raw data length:", length(values), "values")
-
-            # Calculate complexity metrics using helper function (cleaning handled inside)
-            result <- add_continuous_complexity(result, var_name, values, debug_log)
-          }
-        } else {
-          debug_log("    No simulation data available")
-        }
-      },
-      error = function(e) {
-        debug_log("    Error getting simulation data:", e$message)
-      }
+    log_msg("DEBUG", "  Processing continuous data")
+    
+    # Define signal configurations: var_name -> (tracker_type, column_name, description)
+    signal_configs <- list(
+      p = list(tracker = "sim", column = "p", description = "Plate position from simulation"),
+      hipPos = list(tracker = "hip", column = "pos_x", description = "Hip position"),
+      pelvisPos = list(tracker = "udp", column = "PelvisPos", description = "Pelvis position")
     )
+    
+    # Process each requested continuous variable
+    for (var_name in continuous_vars) {
+      if (var_name %in% names(signal_configs)) {
+        config <- signal_configs[[var_name]]
+        log_msg("DEBUG", "  Processing", config$description)
+        result <- process_continuous_signal(
+          participant, trial, 
+          config$tracker, config$column, 
+          var_name, config$description, 
+          result, log_msg, step_freq
+        )
+      } else {
+        log_msg("WARN", "  Unknown continuous variable:", var_name)
+      }
+    }
   }
 
   # Add debug messages to result if debug is enabled
@@ -724,7 +896,7 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
   allGaitParams <- args$allGaitParams
   outlier_col_names <- if (is.null(args$outlier_col_names)) c("outlierSteps") else args$outlier_col_names
   include_continuous <- if (is.null(args$include_continuous)) TRUE else args$include_continuous
-  continuous_vars <- if (is.null(args$continuous_vars)) c("p") else args$continuous_vars
+  continuous_vars <- if (is.null(args$continuous_vars)) c("p", "hipPos", "pelvisPos") else args$continuous_vars
   debug <- if (is.null(args$debug)) FALSE else args$debug
 
   if (is.null(allGaitParams)) {
@@ -743,11 +915,11 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
 #' Calculate complexity metrics for all participants and trials using get_data_from_loop framework
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
 #' @param include_continuous Logical, whether to include continuous simulation data complexity
-#' @param continuous_vars Vector of continuous variable names to analyze
+#' @param continuous_vars Vector of continuous variable names to analyze (e.g., "p", "hipPos", "pelvisPos")
 #' @return Data frame with complexity metrics for all valid combinations
 #' @note This function requires allGaitParams to be available in the global environment
 get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
-                                       continuous_vars = c("p")) {
+                                       continuous_vars = c("p", "hipPos", "pelvisPos")) {
   # Ensure global parameters and data are initialized
   ensure_global_data_initialized()
 
@@ -770,10 +942,10 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
     ))
   }
 
-  # Verify only gait data so non-task trials (e.g., 3, 9) are included.
+  # Verify only udp data so non-task trials (e.g., 3, 9) are included.
   # Continuous metrics will be attempted opportunistically inside the worker
   # if simulation/task data exist, but are not required to run.
-  datasets_to_verify <- c("leftfoot", "rightfoot")
+  datasets_to_verify <- c("udp")#, "hip", "sim")
 
   # Use the provided loop function
   result <- loop_function(complexity_function, datasets_to_verify = datasets_to_verify)
