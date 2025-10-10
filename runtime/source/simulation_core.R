@@ -133,7 +133,10 @@ post_process_df <- function(df) {
       ax = ax, ay = ay,
       # World coordinates (include plate motion)
       vx_world = vx_world,
-      ax_world = ax_world
+      ax_world = ax_world,
+      # Plate velocity and acceleration absolute values
+      pVelAbsolute = abs(pVel),
+      pAccAbsolute = abs(pAcc)
     ) %>%
     select(-vx_from_qd, -vy_from_qd) # Remove intermediate columns
 }

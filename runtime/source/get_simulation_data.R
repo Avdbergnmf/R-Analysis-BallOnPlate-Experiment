@@ -18,7 +18,9 @@ get_simulation_parameters <- function() {
         p = "Plate Position",
         pInput = "Input Plate Position",
         pVel = "Plate Velocity",
+        pVelAbsolute = "Plate Velocity Absolute",
         pAcc = "Plate Acceleration",
+        pAccAbsolute = "Plate Acceleration Absolute",
 
         # Velocity parameters
         vx = "X Velocity (plate-relative)",
@@ -84,7 +86,9 @@ get_simulation_variable_names <- function() {
         `p` = "Plate Position",
         `pInput` = "Input Plate Position",
         `pVel` = "Plate Velocity",
+        `pVelAbsolute` = "Plate Velocity Absolute",
         `pAcc` = "Plate Acceleration",
+        `pAccAbsolute` = "Plate Acceleration Absolute",
         `time_in_bowl` = "Time in Bowl",
         `ball_in_bowl` = "Ball In Bowl Status",
         `q` = "Arc-length Position",
