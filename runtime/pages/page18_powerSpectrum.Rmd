@@ -1,0 +1,393 @@
+### Options
+
+```{r}
+selectizeInput("psTracker", "Tracker",
+  choices = trackers, selected = trackers[2], multiple = FALSE
+)
+
+selectizeInput("psVar", "Variable (continuous data)",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+# Caching controls
+div(
+  actionButton("psUpdateTrackerData", "Update Tracker Data",
+    class = "btn-primary", style = "margin-bottom: 10px; margin-right: 10px;"
+  ),
+  actionButton("psCancelTrackerData", "Cancel Loading",
+    class = "btn-warning", style = "margin-bottom: 10px;"
+  ),
+  div(id = "psTrackerStatus", style = "margin-top: 5px; font-size: 12px; color: #666;"),
+  div(
+    style = "margin-top: 5px; font-size: 11px; color: #888;",
+    "Note: Progress bar shows during loading. Use Cancel button or press Esc to stop."
+  )
+)
+
+selectizeInput("psGroup", "Group by",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+selectizeInput("psSplit", "Split by",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+numericInput("psMaxFreq", "Maximum frequency (Hz)",
+  min = 0.5, max = 15, value = 2.5, step = 0.5
+)
+
+numericInput("psSmoothBandwidth", "Smoothing bandwidth (Hz)",
+  min = 0.01, max = 0.5, value = 0.1, step = 0.01
+)
+
+checkboxInput("psNormalize", "Normalize power (0-1)",
+  value = TRUE
+)
+
+checkboxInput("psStack", "Stack power spectra",
+  value = TRUE
+)
+
+checkboxInput("psShowIndividual", "Show individual spectra (semi-transparent)",
+  value = FALSE
+)
+
+checkboxInput("psEnablePlotting", "Enable power spectrum plotting",
+  value = FALSE
+)
+```
+
+```{r}
+bsTooltip("psTracker",
+  "Select which tracker data to analyze (e.g., hip, pelvis, etc.)",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("psVar",
+  "Select a continuous variable to compute power spectrum. Works best with position/velocity data.",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("psMaxFreq",
+  "Maximum frequency to display. Use 2.5 Hz for gait-related movements, higher for faster dynamics.",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("psSmoothBandwidth",
+  "Bandwidth for smoothing the power spectrum. Smaller = more detail, larger = smoother curves.",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("psNormalize",
+  "When checked, normalizes power to sum to 1 (relative power). When unchecked, shows absolute power.",
+  placement = "right",
+  trigger = "hover"
+)
+bsTooltip("psStack",
+  "When checked, stacks power spectra on top of each other (area chart). When unchecked, shows overlapping lines.",
+  placement = "right",
+  trigger = "hover"
+)
+```
+
+Column
+--------------------------------------------
+
+### Power Spectrum  {data-height=1500}
+Visualize frequency content of continuous data using power spectral density analysis.
+```{r}
+plotOutput("powerSpectrumPlot", height = "auto")
+```
+
+### Power Statistics
+```{r}
+tableOutput("powerStatsTable")
+```
+
+```{r, context="server"}
+# Source power spectrum utilities and caching system
+source("source/power_spectrum_utils.R", local = TRUE)
+source("source/data_caching_utils.R", local = TRUE)
+
+# Create tracker data cache manager
+tracker_cache_manager <- create_data_cache_manager("tracker")
+
+# Define functions for the caching system
+load_tracker_data <- function(participant, trial) {
+  # Load raw tracker data
+  data <- get_t_data(participant, input$psTracker, trial)
+  if (is.null(data) || nrow(data) == 0) {
+    return(data.frame())
+  }
+  
+  # Add condition information
+  data$condition <- condition_number(participant)
+  data$participant <- participant
+  data$trialNum <- trial
+  
+  return(data)
+}
+
+get_tracker_filters <- function() {
+  # Check if required inputs exist
+  if (is.null(input$filterParticipants) || is.null(input$filterTrials)) {
+    return(NULL)
+  }
+  
+  # Get current filter state
+  list(
+    participants = input$filterParticipants,
+    trials = input$filterTrials,
+    condition = input$filterCondition
+  )
+}
+
+has_tracker_data <- function(participant, trial) {
+  # Check if tracker data exists for this participant-trial combination
+  data <- get_t_data(participant, input$psTracker, trial)
+  return(!is.null(data) && nrow(data) > 0)
+}
+
+# Create cached tracker data reactive
+filteredTrackerData <- create_cached_data_reactive(
+  cache_manager = tracker_cache_manager,
+  load_function = load_tracker_data,
+  filter_function = get_tracker_filters,
+  validate_function = has_tracker_data,
+  cache_name = "tracker"
+)
+
+# Update variable choices when tracker changes (similar to page3_rawTrackerData.Rmd)
+observe({
+  if (!is.null(input$psTracker)) {
+    # Use trial 7, participant 1 to get example data (as suggested)
+    choices <- getOptions(input$psTracker, 7)
+    
+    # Get current selection
+    current_selection <- isolate(input$psVar)
+    
+    # Default to first available choice if current selection not available
+    default_var <- if (length(choices) > 0 && !"data not available" %in% choices) {
+      choices[1]
+    } else {
+      NULL
+    }
+    
+    updateSelectizeInput(session, "psVar",
+      choices = choices,
+      selected = if (!is.null(current_selection) && current_selection %in% choices) {
+        current_selection
+      } else {
+        default_var
+      }
+    )
+  }
+})
+
+# Use create_dynamic_category_observer for group and split selection
+# These use get_mu_dyn_long for category options, not the cached tracker data
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "psGroup",
+  category_choices = categoriesExtraInputs,
+  default_selection = "participant",
+  multiple = FALSE,
+  input = input
+)
+
+create_dynamic_category_observer(
+  data_reactive = get_mu_dyn_long,
+  input_id = "psSplit",
+  category_choices = c("None", categoriesExtraInputs),
+  default_selection = "condition",
+  multiple = FALSE,
+  input = input
+)
+
+# Trigger tracker data update when button is clicked
+observeEvent(input$psUpdateTrackerData, {
+  # Flag that tracker data should be (re)loaded
+  tracker_cache_manager$request_data()
+  # Bump the reactive trigger so all downstream reactives recompute
+  refresh_trigger(refresh_trigger() + 1)
+})
+
+# Handle cancel button for tracker data loading
+observeEvent(input$psCancelTrackerData,
+  {
+    tracker_cache_manager$cancel_data()
+  },
+  ignoreNULL = TRUE,
+  ignoreInit = TRUE
+)
+
+# Alternative cancellation when switching trackers
+observeEvent(input$psTracker,
+  {
+    # Reset cache when switching trackers
+    tracker_cache_manager$reset_data()
+  },
+  ignoreNULL = TRUE,
+  ignoreInit = TRUE
+)
+
+# Status display for tracker data
+output$psTrackerStatus <- renderText({
+  data <- filteredTrackerData()
+  if (nrow(data) > 0) {
+    sprintf(
+      "Ready: %d participants, %d trials, %d samples",
+      length(unique(data$participant)),
+      length(unique(data$trialNum)),
+      nrow(data)
+    )
+  } else {
+    "No tracker data loaded. Click 'Update Tracker Data' to load data for the selected participants/trials."
+  }
+})
+
+# Compute power spectrum height based on split
+psPlotCount <- reactive({
+  if (is.null(input$psSplit) || input$psSplit == "None" || input$psSplit == "") {
+    return(1)
+  }
+  # Use get_mu_dyn_long for split count (has all the category columns)
+  data <- get_mu_dyn_long()
+  if (is.null(data) || nrow(data) == 0 || !input$psSplit %in% colnames(data)) {
+    return(1)
+  }
+  return(length(unique(data[[input$psSplit]])))
+})
+
+psPlotHeight <- reactive({
+  base_height <- max(500, input$plotheight)
+  if (is.null(input$psSplit) || input$psSplit == "None") {
+    return(base_height)
+  } else {
+    return(base_height * psPlotCount())
+  }
+})
+
+# Main power spectrum plot
+output$powerSpectrumPlot <- renderPlot({
+  # Check if plotting is enabled
+  if (!input$psEnablePlotting) {
+    return(ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = "Enable power spectrum plotting using the checkbox above",
+        hjust = 0.5, vjust = 0.5, size = 4, color = "blue"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("Power Spectrum Plotting Disabled"))
+  }
+  
+  req(input$psTracker, input$psVar, input$psGroup)
+  
+  # Use cached tracker data
+  cached_tracker_data <- filteredTrackerData()
+  
+  # Check if we have cached tracker data
+  if (nrow(cached_tracker_data) == 0) {
+    return(ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = "No tracker data loaded. Please click 'Update Tracker Data' to load data for the selected participants/trials.",
+        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("No Tracker Data Loaded"))
+  }
+  
+  # Get raw continuous data for power spectrum analysis
+  tryCatch({
+    ps_data <- compute_power_spectrum_data(
+      cached_tracker_data = cached_tracker_data,
+      tracker = input$psTracker,
+      var_name = input$psVar,
+      group_by = input$psGroup,
+      split_by = if (input$psSplit == "None") NULL else input$psSplit,
+      max_freq = input$psMaxFreq,
+      smooth_bandwidth = input$psSmoothBandwidth,
+      normalize = input$psNormalize
+    )
+    
+    if (is.null(ps_data) || nrow(ps_data) == 0) {
+      return(ggplot() +
+        annotate("text",
+          x = 0.5, y = 0.5,
+          label = "Could not compute power spectrum. Variable may not contain continuous time series data.",
+          hjust = 0.5, vjust = 0.5, size = 3, color = "red"
+        ) +
+        xlim(0, 1) +
+        ylim(0, 1) +
+        theme_void() +
+        ggtitle("Computation Failed"))
+    }
+    
+    # Create the power spectrum plot
+    plot_power_spectrum(
+      ps_data = ps_data,
+      stack = input$psStack,
+      show_individual = input$psShowIndividual,
+      split_by = if (input$psSplit == "None") NULL else input$psSplit,
+      base_size = input$baseSize
+    )
+    
+  }, error = function(e) {
+    ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = paste("Error computing power spectrum:", e$message),
+        hjust = 0.5, vjust = 0.5, size = 3, color = "red"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("Error")
+  })
+}, height = psPlotHeight)
+
+# Power statistics table
+output$powerStatsTable <- renderTable({
+  if (!input$psEnablePlotting) {
+    return(NULL)
+  }
+  
+  req(input$psTracker, input$psVar, input$psGroup)
+  
+  cached_tracker_data <- filteredTrackerData()
+  
+  if (nrow(cached_tracker_data) == 0) {
+    return(NULL)
+  }
+  
+  tryCatch({
+    ps_data <- compute_power_spectrum_data(
+      cached_tracker_data = cached_tracker_data,
+      tracker = input$psTracker,
+      var_name = input$psVar,
+      group_by = input$psGroup,
+      split_by = if (input$psSplit == "None") NULL else input$psSplit,
+      max_freq = input$psMaxFreq,
+      smooth_bandwidth = input$psSmoothBandwidth,
+      normalize = input$psNormalize
+    )
+    
+    if (is.null(ps_data) || nrow(ps_data) == 0) {
+      return(NULL)
+    }
+    
+    # Compute summary statistics
+    compute_power_stats(ps_data, input$psGroup, input$psSplit)
+    
+  }, error = function(e) {
+    data.frame(Error = paste("Could not compute statistics:", e$message))
+  })
+})
+```
+

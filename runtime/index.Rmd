@@ -74,7 +74,7 @@ source("source/complexity.R", local = FALSE)
 
 # Load or calculate task and complexity metrics using the global parallel setting
 allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, parallel = FALSE, stop_cluster = TRUE)
 
 ## Plotting code
 source("source/plotting.R", local = FALSE)
@@ -155,6 +155,11 @@ Raw tracker data {data-orientation=columns}
 Histograms 
 =====================================
 ```{r, child='pages/page5_histograms.Rmd'}
+```
+
+Power Spectrum {data-icon="fa-wave-square"}
+=====================================
+```{r, child='pages/page18_powerSpectrum.Rmd'}
 ```
 
 Scatterplots
