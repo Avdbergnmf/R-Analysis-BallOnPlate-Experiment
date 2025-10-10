@@ -1124,6 +1124,8 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   )
 
   # Calculate step frequency for adaptive frequency bands
+  # Note: stepTimes represent time between consecutive heel strikes (any foot)
+  # This gives double-stepping frequency, so we divide by 2 to get proper step frequency
   # If gait data is missing for training trials (7 or 8), try to use the other training trial
   step_freq <- NULL
   step_freq_data <- NULL
@@ -1148,12 +1150,15 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
     step_times <- apply_outlier_filtering(step_freq_data$stepTimes, step_freq_data, outlier_col_names)
     
     # Calculate step frequency (Hz) from median step time (seconds)
+    # stepTimes represent time between consecutive heel strikes (any foot), so this gives double-stepping frequency
+    # Divide by 2 to get proper step frequency (step cycles)
     step_times <- step_times[is.finite(step_times)]
     if (length(step_times) >= 5) {
       median_step_time <- median(step_times)
       if (is.finite(median_step_time) && median_step_time > 0) {
-        step_freq <- 1 / median_step_time
-        log_msg("INFO", "  Calculated step frequency:", round(step_freq, 3), "Hz (from median step time:", round(median_step_time, 3), "s)")
+        raw_step_freq <- 1 / median_step_time
+        step_freq <- raw_step_freq / 2  # Divide by 2 to get proper step frequency
+        log_msg("INFO", "  Calculated step frequency:", round(step_freq, 3), "Hz (from raw frequency:", round(raw_step_freq, 3), "Hz, median step time:", round(median_step_time, 3), "s)")
       }
     }
   }
