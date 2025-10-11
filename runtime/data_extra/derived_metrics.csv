@@ -10,3 +10,4 @@
 "complexity.hipPos_filt_sd","phase","baseline","complexity.hipPos_filt_sd at phase = baseline","complexity_hipPos_filt_sd_phase_baseline"
 "complexity.pelvisPos_filt_sd","phase","baseline","complexity.pelvisPos_filt_sd at phase = baseline","complexity_pelvisPos_filt_sd_phase_baseline"
 "complexity.pelvisPos_filt_sd","phase","familiarisation_walk","complexity.pelvisPos_filt_sd at phase = familiarisation_walk","complexity_pelvisPos_filt_sd_phase_familiarisation_walk"
+"stepWidths.sd","phase","baseline_task","stepWidths.sd at phase = baseline_task","stepWidths_sd_phase_baseline_task"
