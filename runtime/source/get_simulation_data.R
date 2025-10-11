@@ -57,6 +57,7 @@ get_simulation_parameters <- function() {
         danger = "Danger Level",
         dist_to_escape = "Distance to Escape",
         dist_to_escape_ratio = "Distance to Escape Ratio",
+        dist_to_escape_ratio_mean_corrected = "Distance to Escape Ratio (Corrected)",
         dist_to_escape_arcdeg6 = "Distance to Escape (arcDeg=6)",
         e_total_needed = "Total Energy Needed to Escape",
         time_to_escape = "Time to Escape",
@@ -101,6 +102,7 @@ get_simulation_variable_names <- function() {
         `y_escape` = "Escape Height",
         `dist_to_escape` = "Distance to Escape",
         `dist_to_escape_ratio` = "Distance to Escape Ratio",
+        `dist_to_escape_ratio_mean_corrected` = "Distance to Escape Ratio (Corrected)",
         `dist_to_escape_arcdeg6` = "Distance to Escape (arcDeg=6)",
         `vx` = "X Velocity (plate-relative)",
         `vx_world` = "X Velocity (world)",
@@ -133,8 +135,6 @@ get_simulation_variable_names <- function() {
         `time_diff` = "Time Gap",
         `is_respawn_gap` = "Is Respawn Event",
         `respawn_segment` = "Respawn Segment",
-        `is_post_respawn` = "Post-Respawn Flag",
-        `cumulative_gap_time` = "Cumulative Gap Time",
         `simulating` = "Ball on Plate Status"
     )
 }
@@ -223,29 +223,26 @@ get_simulation_data <- function(participant, trial) {
 #' @return Processed simulation data with enhanced metrics
 #' @export
 process_simulation_data <- function(sim_data, level_data) {
-    # Step 1: Detect respawn events and mark simulation data
+    # Step 1: Detect respawn events for ball fall counting
     sim_data <- detect_respawn_events(sim_data)
 
-    # Step 2: Add artificial datapoints at gap boundaries
-    sim_data <- add_artificial_gap_points(sim_data)
-
-    # Step 3: Assign arc degrees from task level data
+    # Step 2: Assign arc degrees from task level data
     sim_data <- assign_arc_degrees(sim_data, level_data)
 
-    # Step 4: Calculate world coordinates using CircularProfileShape
+    # Step 3: Calculate world coordinates using CircularProfileShape
     sim_data <- calculate_coordinates(sim_data)
 
-    # Step 5: Add simulation time column
+    # Step 4: Add simulation time column
     sim_data <- add_simulation_time(sim_data)
 
-    # Step 6: Apply post-processing for velocities and accelerations
+    # Step 5: Apply post-processing for velocities and accelerations
     sim_data <- post_process_df(sim_data)
 
-    # Step 7: Ensure qdd column exists
+    # Step 6: Ensure qdd column exists
     sim_data <- ensure_qdd_column(sim_data)
 
-    # Step 8: Add energy, power, and safety metrics
-    representative_arcDeg <- tail(sim_data$arcDeg, 1) ################### HERE
+    # Step 7: Add energy, power, and safety metrics
+    representative_arcDeg <- tail(sim_data$arcDeg, 1)
     representative_shape <- CircularProfileShape$new(
         R = 5.0, arcDeg = representative_arcDeg, L = 0,
         mu_d = 0.03, mu_s = 0.05, damping = 0, g = 9.81
@@ -255,9 +252,8 @@ process_simulation_data <- function(sim_data, level_data) {
     sim_data <- add_power_cols(sim_data)
     sim_data <- add_safety_cols(sim_data, representative_shape)
 
-    # Step 9: Zero out derived variables at gap boundaries and adjacent samples
-    indices_to_zero <- get_indices_to_zero(sim_data)
-    sim_data <- zero_variables_at_indices(sim_data, indices_to_zero)
+    # Step 8: Set first sample after each gap to NA to prevent velocity/acceleration spikes
+    sim_data <- zero_first_sample_after_gaps(sim_data)
 
     return(sim_data)
 }
@@ -317,63 +313,10 @@ detect_respawn_events <- function(data) {
             time_diff = c(0, diff(time)),
             is_respawn_gap = time_diff > 1.0,
             respawn_segment = cumsum(is_respawn_gap) + 1,
-            is_post_respawn = is_respawn_gap,
             simulating = TRUE
         )
 }
 
-#' Helper function to create artificial datapoints at gap boundaries
-#' @param data Data with respawn events detected
-#' @return Data with artificial datapoints added
-add_artificial_gap_points <- function(data) {
-    if (!any(data$is_respawn_gap)) {
-        return(data)
-    }
-
-    gap_indices <- which(data$is_respawn_gap)
-    artificial_rows <- list()
-
-    for (gap_idx in gap_indices) {
-        time_before_gap <- data$time[gap_idx - 1]
-        time_after_gap <- data$time[gap_idx]
-
-        # Artificial point at end of previous segment
-        end_point <- data[gap_idx - 1, ] %>%
-            mutate(
-                time = time_before_gap + 0.001,
-                p = 0, q = 0, qd = 0,
-                dt = 0.001,
-                time_diff = 0.001,
-                is_respawn_gap = FALSE,
-                is_post_respawn = FALSE,
-                simulating = FALSE
-            )
-
-        # Artificial point at start of next segment
-        start_point <- data[gap_idx, ] %>%
-            mutate(
-                time = time_after_gap - 0.001,
-                p = 0, q = 0, qd = 0,
-                dt = 0.001,
-                time_diff = time_after_gap - time_before_gap - 0.002,
-                is_respawn_gap = FALSE,
-                is_post_respawn = FALSE,
-                simulating = FALSE
-            )
-
-        artificial_rows <- c(artificial_rows, list(end_point, start_point))
-    }
-
-    # Combine and re-sort data
-    bind_rows(data, artificial_rows) %>%
-        arrange(time) %>%
-        mutate(
-            time_diff = c(0, diff(time)),
-            is_respawn_gap = time_diff > 1.0,
-            respawn_segment = cumsum(is_respawn_gap) + 1,
-            is_post_respawn = is_respawn_gap
-        )
-}
 
 #' Helper function to assign arcDeg values based on task level data
 #' Uses global `arcdeg_lookup_table` (defined in initialization.R) to map
@@ -420,8 +363,7 @@ assign_arc_degrees <- function(sim_data, level_data) {
 add_simulation_time <- function(data) {
     data %>%
         mutate(
-            cumulative_gap_time = cumsum(ifelse(is_respawn_gap, time_diff, 0)),
-            simulation_time = cumsum(dt) + cumulative_gap_time
+            simulation_time = cumsum(dt)
         )
 }
 
@@ -438,64 +380,67 @@ ensure_qdd_column <- function(data) {
     }
 }
 
-#' Helper function to identify indices that need variable zeroing
+#' Helper function to set samples around gaps to NA to prevent velocity/acceleration spikes
 #' @param data Enhanced simulation data
-#' @return Vector of indices to zero out
-get_indices_to_zero <- function(data) {
-    if (!"simulating" %in% colnames(data)) {
-        return(integer(0))
-    }
-
-    artificial_indices <- which(!data$simulating)
-    adjacent_indices <- c()
-
-    # Find real samples adjacent to artificial points (they create jumps to/from zero)
-    for (idx in artificial_indices) {
-        # Sample before artificial point
-        if (idx > 1 && data$simulating[idx - 1]) {
-            adjacent_indices <- c(adjacent_indices, idx - 1)
-        }
-        # Sample after artificial point
-        if (idx < nrow(data) && data$simulating[idx + 1]) {
-            adjacent_indices <- c(adjacent_indices, idx + 1)
-        }
-    }
-
-    unique(c(artificial_indices, adjacent_indices))
-}
-
-#' Helper function to zero out all variable types at specified indices
-#' @param data Enhanced simulation data
-#' @param indices_to_zero Vector of row indices to zero out
-#' @return Data with variables zeroed at specified indices
-zero_variables_at_indices <- function(data, indices_to_zero) {
-    if (length(indices_to_zero) == 0) {
+#' @return Data with samples around gaps set to NA
+zero_first_sample_after_gaps <- function(data) {
+    if (!"is_respawn_gap" %in% colnames(data)) {
         return(data)
     }
 
-    # Define variable groups
-    variable_groups <- list(
-        kinematic_local = c("vx", "vy", "ax", "ay", "qd", "qdd"),
-        kinematic_world = c("vx_world", "ax_world"),
-        energy_local = c("ke", "e"),
-        energy_world = c("ke_world", "e_world"),
-        power_local = c("power", "work"),
-        power_world = c("power_world", "work_world"),
-        power_plate = c("power_plate", "work_plate"),
-        safety = c("margin_E", "danger", "time_to_escape")
+    # Find indices of gaps
+    gap_indices <- which(data$is_respawn_gap)
+
+    if (length(gap_indices) == 0) {
+        return(data)
+    }
+
+    # Find indices of last sample before each gap and first sample after each gap
+    last_sample_before_gap_indices <- gap_indices - 1
+    first_sample_after_gap_indices <- gap_indices
+
+    # Remove any invalid indices (e.g., if gap is at first sample)
+    last_sample_before_gap_indices <- last_sample_before_gap_indices[last_sample_before_gap_indices > 0]
+
+    # Combine all indices that need to be set to NA
+    indices_to_zero <- unique(c(last_sample_before_gap_indices, first_sample_after_gap_indices))
+
+    # Define variables that should be set to NA around gaps
+    # These are variables that would have artificial jumps due to respawn
+    variables_to_zero <- c(
+        # Position variables (keep as they represent actual respawn position)
+        # "q", "x", "y", "x_world", "p", "pInput",
+
+        # Velocity variables (these would have huge spikes)
+        "qd", "vx", "vy", "vx_world", "pVel", "pVelAbsolute",
+
+        # Acceleration variables (these would have huge spikes)
+        "qdd", "ax", "ay", "ax_world", "pAcc", "pAccAbsolute",
+
+        # Energy variables (these would have jumps)
+        "ke", "ke_world", "pe", "e", "e_world",
+
+        # Power variables (these would have jumps)
+        "power", "power_world", "power_plate",
+
+        # Work variables (these would have jumps)
+        "work", "work_world", "work_plate",
+
+        # Safety variables (these would have jumps)
+        "margin_E", "danger", "time_to_escape", "dist_to_escape",
+        "dist_to_escape_ratio", "dist_to_escape_arcdeg6", "e_total_needed"
     )
 
-    # Zero out each group
-    for (group_vars in variable_groups) {
-        for (var in group_vars) {
-            if (var %in% colnames(data)) {
-                data[[var]][indices_to_zero] <- 0
-            }
+    # Set specified variables to NA at samples around gaps
+    for (var in variables_to_zero) {
+        if (var %in% colnames(data)) {
+            data[[var]][indices_to_zero] <- NA_real_
         }
     }
 
     return(data)
 }
+
 
 #' Get simulation variable choices with pretty names
 #'

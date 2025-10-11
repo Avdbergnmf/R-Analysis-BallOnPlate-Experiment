@@ -74,17 +74,14 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     # Get velocity/acceleration parameters that need absolute values
     abs_params <- c("vx", "vy", "vx_world", "ax", "ay", "ax_world")
 
-    # Compute attempt-level metrics and summary statistics
-    attempts <- compute_attempts_data(sim_data, min_attempt_duration)
-    avg_attempt_duration <- if (nrow(attempts) > 0) mean(attempts$duration, na.rm = TRUE) else NA_real_
-    n_attempts <- nrow(attempts)
+    # Count ball falls (respawns)
+    n_ball_falls <- length(unique(analysis_data$respawn_segment)) - 1
 
     # Compute basic simulation info
     sim_info <- analysis_data %>%
         summarise(
             sim_duration = max(simulation_time, na.rm = TRUE) - min(simulation_time, na.rm = TRUE),
             n_samples = n(),
-            n_respawns = length(unique(respawn_segment)) - 1,
             mean_arcDeg = mean(arcDeg, na.rm = TRUE),
             n_arcDeg_changes = length(unique(arcDeg)),
             final_work = if ("work" %in% colnames(analysis_data)) max(work) else NA_real_,
@@ -92,9 +89,7 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
             final_work_world = if ("work_world" %in% colnames(analysis_data)) max(work_world) else NA_real_
         ) %>%
         mutate(
-            n_ball_falls = n_respawns,
-            n_attempts = n_attempts,
-            avg_time_on_plate = avg_attempt_duration
+            n_ball_falls = n_ball_falls
         )
 
     # Compute metrics for all parameters in a single operation
@@ -116,6 +111,15 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     # Combine all metrics
     result <- bind_cols(sim_info, param_metrics)
 
+    # Add corrected dist_to_escape_ratio_mean (includes non-simulating samples as 0)
+    if ("dist_to_escape_ratio" %in% colnames(sim_data)) {
+        # Create corrected version: set non-simulating samples to 0, keep simulating samples as-is
+        corrected_escape_ratio <- ifelse(sim_data$simulating, sim_data$dist_to_escape_ratio, 0)
+        result$dist_to_escape_ratio_mean_corrected <- mean(corrected_escape_ratio, na.rm = TRUE)
+    } else {
+        result$dist_to_escape_ratio_mean_corrected <- NA_real_
+    }
+
     # add total score
     scores <- calculate_total_score(sim_data)
     result <- result %>%
@@ -132,73 +136,6 @@ get_metrics <- function(p, t) {
     return(compute_task_metrics(sim_data))
 }
 
-#' Retrieve attempt data for a participant and trial
-#'
-#' @param p Participant identifier
-#' @param t Trial number
-#' @param min_attempt_duration Minimum duration (s) for an attempt to be counted
-#' @return Tibble of attempt metrics
-#' @export
-get_attempts <- function(p, t, min_attempt_duration = 0) {
-    sim_data <- get_simulation_data(p, t)
-    attempts <- compute_attempts_data(sim_data, min_attempt_duration)
-    return(attempts)
-}
-
-#' Compute attempt-level metrics for a simulation
-#'
-#' @param sim_data Enhanced simulation data from get_simulation_data()
-#' @param min_attempt_duration Minimum duration (s) for an attempt to be counted
-#' @return Tibble with metrics for each attempt
-#' @export
-compute_attempts_data <- function(sim_data, min_attempt_duration = 0) {
-    if (is.null(sim_data) || nrow(sim_data) == 0) {
-        return(tibble())
-    }
-
-    analysis_data <- sim_data %>%
-        dplyr::filter(simulating == TRUE)
-
-    if (nrow(analysis_data) == 0) {
-        return(tibble())
-    }
-
-    params <- get_simulation_parameters()
-    param_names <- names(params)
-
-    # Filter to only include parameters that actually exist in the data
-    param_names <- intersect(param_names, colnames(analysis_data))
-
-    abs_params <- c("vx", "vy", "vx_world", "ax", "ay", "ax_world")
-
-    attempts <- analysis_data %>%
-        group_by(respawn_segment) %>%
-        summarise(
-            start_time = min(simulation_time, na.rm = TRUE),
-            end_time = max(simulation_time, na.rm = TRUE),
-            duration = end_time - start_time,
-            # Compute metrics for all data within each attempt (already filtered for simulating == TRUE)
-            across(
-                all_of(param_names),
-                list(
-                    mean = ~ if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE),
-                    sd = ~ sd(., na.rm = TRUE),
-                    cv = ~ {
-                        m <- if (cur_column() %in% abs_params) mean(abs(.), na.rm = TRUE) else mean(., na.rm = TRUE)
-                        s <- sd(., na.rm = TRUE)
-                        if (is.finite(m) && is.finite(s) && m != 0) s / m else NA_real_
-                    }
-                )
-            ),
-            .groups = "drop"
-        ) %>%
-        dplyr::filter(duration >= min_attempt_duration) %>%
-        arrange(start_time) %>%
-        mutate(attempt = row_number(), .before = 1)
-
-    return(attempts)
-}
-
 #' Get task metrics for all participants and trials
 #'
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
@@ -208,19 +145,6 @@ get_all_task_metrics <- function(loop_function) {
     return(loop_function(get_metrics, datasets_to_verify = c("task", "level")))
 }
 
-#' Get attempt metrics for all participants and trials
-#'
-#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
-#' @param min_attempt_duration Minimum duration (s) for an attempt to be counted
-#' @return Tibble with attempt metrics for all participant/trial combinations
-#' @export
-get_all_attempt_metrics <- function(loop_function, min_attempt_duration = 0) {
-    attempt_fun <- function(p, t) {
-        get_attempts(p, t, min_attempt_duration)
-    }
-
-    return(loop_function(attempt_fun, datasets_to_verify = c("task", "level")))
-}
 
 #' Process task metrics data with time slicing
 #'

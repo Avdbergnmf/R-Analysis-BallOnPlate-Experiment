@@ -290,7 +290,7 @@ get_simulation_variables <- function(data, exclude_patterns = NULL) {
     available_sim_vars <- intersect(simulation_vars, numeric_cols)
 
     # Add any other numeric variables that aren't metadata
-    metadata_cols <- c("participant", "trialNum", "condition", "phase", "respawn_segment")
+    metadata_cols <- c("participant", "trialNum", "condition", "phase")
     other_numeric <- setdiff(numeric_cols, metadata_cols)
 
     # Combine simulation variables with other numeric variables
@@ -315,7 +315,7 @@ get_simulation_categories <- function(data) {
     }
 
     # Define potential category columns
-    potential_categories <- c("participant", "condition", "trialNum", "phase", "arcDeg", "respawn_segment")
+    potential_categories <- c("participant", "condition", "trialNum", "phase", "arcDeg")
 
     # Return only categories that exist in the data
     available_categories <- intersect(potential_categories, colnames(data))
