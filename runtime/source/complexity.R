@@ -66,35 +66,216 @@ get_metric_name <- function(variable, metric) {
   paste0(variable, "_", metric)
 }
 
+
 #' Centralized NA column definitions for foot-placement control metrics
-#' @return List with NA values for position-only model metrics
-get_na_results_pos <- function() {
-  list(
+#' @param foot Foot side ("left", "right", "both", or NULL for both)
+#' @return List with NA values for specified foot(s)
+get_na_results_fp_control <- function(foot = "both") {
+  # Base metric names and values
+  base_metrics <- list(
     step_pos_x_residual_rmse = NA_real_,
     step_pos_x_beta0 = NA_real_,
     step_pos_x_beta1 = NA_real_,
     step_pos_x_r2 = NA_real_,
     step_pos_x_n = 0L
   )
+
+  if (is.null(foot) || foot == "both") {
+    # Return both left and right with mean metrics
+    result <- c(
+      # Left foot
+      setNames(base_metrics, paste0(names(base_metrics), "_left")),
+      # Right foot
+      setNames(base_metrics, paste0(names(base_metrics), "_right")),
+      # Mean metrics (subset)
+      step_pos_x_residual_rmse_mean = NA_real_,
+      step_pos_x_beta1_mean = NA_real_,
+      step_pos_x_r2_mean = NA_real_,
+      step_pos_x_n_total = 0L
+    )
+  } else if (foot == "left") {
+    # Return only left foot
+    result <- setNames(base_metrics, paste0(names(base_metrics), "_left"))
+  } else if (foot == "right") {
+    # Return only right foot
+    result <- setNames(base_metrics, paste0(names(base_metrics), "_right"))
+  } else {
+    stop("Invalid foot argument. Must be 'left', 'right', 'both', or NULL")
+  }
+
+  return(result)
 }
 
-#' Centralized NA column definitions for foot-placement control metrics
-#' @return List with NA values for position+velocity model metrics
-get_na_results_posvel <- function() {
-  list(
-    step_posvel_x_residual_rmse = NA_real_,
-    step_posvel_x_beta0 = NA_real_,
-    step_posvel_x_beta1 = NA_real_,
-    step_posvel_x_beta2 = NA_real_,
-    step_posvel_x_r2 = NA_real_,
-    step_posvel_x_n = 0L
+#' Build per-foot FP datasets with contralateral check
+#' @param trial_hs_df Heel-strike data frame for one participant & trial
+#' @param foot Foot side ("Left" or "Right")
+#' @return Data frame with columns FP (response) and P (predictor)
+build_fp_rows_per_foot <- function(trial_hs_df, foot) {
+  # Filter to heel strikes for the specified foot
+  foot_strikes <- trial_hs_df[trial_hs_df$foot == foot, ]
+
+  if (nrow(foot_strikes) == 0) {
+    return(data.frame(FP = numeric(0), P = numeric(0)))
+  }
+
+  # Sort by time to ensure proper ordering
+  foot_strikes <- foot_strikes[order(foot_strikes$time), ]
+
+  FP_vec <- numeric(0)
+  P_vec <- numeric(0)
+
+  # Sign convention: +1 for Right, -1 for Left
+  s <- if (foot == "Right") 1 else -1
+
+  # Iterate through heel strikes for this foot
+  for (i in seq_len(nrow(foot_strikes))) {
+    current_time <- foot_strikes$time[i]
+
+    # Find immediate previous heel-strike row by time
+    prev_strikes <- trial_hs_df[trial_hs_df$time < current_time, ]
+    if (nrow(prev_strikes) == 0) next
+
+    # Get the most recent previous heel strike
+    prev_i <- which.max(prev_strikes$time)
+    prev_strike <- prev_strikes[prev_i, ]
+
+    # Check if previous heel strike is contralateral
+    is_contralateral <- if (foot == "Right") prev_strike$foot == "Left" else prev_strike$foot == "Right"
+    if (!is_contralateral) next
+
+    # Check that neither current nor previous heel strike is flagged
+    current_outlier <- if ("outlierSteps" %in% colnames(foot_strikes)) foot_strikes$outlierSteps[i] else FALSE
+    current_suspect <- if ("suspect" %in% colnames(foot_strikes)) foot_strikes$suspect[i] else FALSE
+    prev_outlier <- if ("outlierSteps" %in% colnames(prev_strike)) prev_strike$outlierSteps else FALSE
+    prev_suspect <- if ("suspect" %in% colnames(prev_strike)) prev_strike$suspect else FALSE
+
+    if (current_outlier || current_suspect || prev_outlier || prev_suspect) next
+
+    # Check that we have valid position data
+    if (!is.finite(foot_strikes$pos_x[i]) || !is.finite(prev_strike$pos_x) ||
+      !is.finite(foot_strikes$hip_pos_x[i]) || !is.finite(prev_strike$hip_pos_x)) {
+      next
+    }
+
+    # Compute response and predictor
+    FP <- s * (foot_strikes$pos_x[i] - prev_strike$pos_x)
+    P <- s * (prev_strike$hip_pos_x - prev_strike$pos_x)
+
+    FP_vec <- c(FP_vec, FP)
+    P_vec <- c(P_vec, P)
+  }
+
+  return(data.frame(FP = FP_vec, P = P_vec))
+}
+
+#' Fit position-only FP control model
+#' @param FP Foot placement response vector
+#' @param P Position predictor vector
+#' @return Named list with rmse, beta0, beta1, r2, and n
+fit_fp_pos_only <- function(FP, P) {
+  n <- length(FP)
+  if (n < 20) {
+    return(list(
+      rmse = NA_real_,
+      beta0 = NA_real_,
+      beta1 = NA_real_,
+      r2 = NA_real_,
+      n = n
+    ))
+  }
+
+  tryCatch(
+    {
+      # Fit FP ~ 1 + P via lm.fit()
+      X <- cbind(1, P)
+      fit <- lm.fit(X, FP)
+
+      beta0 <- fit$coefficients[1]
+      beta1 <- fit$coefficients[2]
+
+      # Check for singular fit
+      if (!is.finite(beta0) || !is.finite(beta1)) {
+        return(list(
+          rmse = NA_real_,
+          beta0 = NA_real_,
+          beta1 = NA_real_,
+          r2 = NA_real_,
+          n = n
+        ))
+      }
+
+      # Compute residuals and RMSE (with df correction)
+      predicted <- beta0 + beta1 * P
+      residuals <- FP - predicted
+
+      # Model RMSE: sqrt(sum(residuals^2) / (n - p)) where p = 2 (intercept + slope)
+      rmse <- sqrt(sum(residuals^2) / (n - 2))
+
+      # Compute R²
+      ss_res <- sum(residuals^2)
+      ss_tot <- sum((FP - mean(FP))^2)
+      r2 <- if (ss_tot > 0) 1 - ss_res / ss_tot else 0
+
+      return(list(
+        rmse = rmse,
+        beta0 = beta0,
+        beta1 = beta1,
+        r2 = r2,
+        n = n
+      ))
+    },
+    error = function(e) {
+      return(list(
+        rmse = NA_real_,
+        beta0 = NA_real_,
+        beta1 = NA_real_,
+        r2 = NA_real_,
+        n = n
+      ))
+    }
   )
 }
 
-#' Centralized NA column definitions for both foot-placement control models
-#' @return Combined list with NA values for both position-only and position+velocity models
-get_na_results_fp_control <- function() {
-  c(get_na_results_pos(), get_na_results_posvel())
+#' Compute per-foot FP control metrics
+#' @param trial_hs_df Heel-strike data frame for one participant & trial
+#' @return Named list with per-foot and mean metrics
+compute_fp_control_metrics_per_foot <- function(trial_hs_df) {
+  # Build FP datasets for both feet
+  left_data <- build_fp_rows_per_foot(trial_hs_df, "Left")
+  right_data <- build_fp_rows_per_foot(trial_hs_df, "Right")
+
+  # Fit position-only models for each foot
+  left_results <- fit_fp_pos_only(left_data$FP, left_data$P)
+  right_results <- fit_fp_pos_only(right_data$FP, right_data$P)
+
+  # Create named outputs for left foot
+  left_metrics <- list(
+    step_pos_x_residual_rmse_left = left_results$rmse,
+    step_pos_x_beta0_left = left_results$beta0,
+    step_pos_x_beta1_left = left_results$beta1,
+    step_pos_x_r2_left = left_results$r2,
+    step_pos_x_n_left = left_results$n
+  )
+
+  # Create named outputs for right foot
+  right_metrics <- list(
+    step_pos_x_residual_rmse_right = right_results$rmse,
+    step_pos_x_beta0_right = right_results$beta0,
+    step_pos_x_beta1_right = right_results$beta1,
+    step_pos_x_r2_right = right_results$r2,
+    step_pos_x_n_right = right_results$n
+  )
+
+  # Compute mean metrics (ignore NAs)
+  mean_metrics <- list(
+    step_pos_x_residual_rmse_mean = mean(c(left_results$rmse, right_results$rmse), na.rm = TRUE),
+    step_pos_x_beta1_mean = mean(c(left_results$beta1, right_results$beta1), na.rm = TRUE),
+    step_pos_x_r2_mean = mean(c(left_results$r2, right_results$r2), na.rm = TRUE),
+    step_pos_x_n_total = left_results$n + right_results$n
+  )
+
+  # Return combined results
+  c(left_metrics, right_metrics, mean_metrics)
 }
 
 #' Sample Entropy (Richman & Moorman 2000)
@@ -711,239 +892,7 @@ sample_time_series <- function(times, values, query_times, method = "nearest") {
   return(sampled)
 }
 
-#' Helper to fit FP control model and return metrics
-#' @param FP_vec Foot placement response vector
-#' @param P_vec Position predictor vector
-#' @param dP_vec Velocity predictor vector (optional)
-#' @param prefix Prefix for metric names (e.g., "step_pos_x" or "step_posvel_x")
-#' @param log_msg Logging function
-#' @return Named list with metrics
-fit_fp_model <- function(FP_vec, P_vec, dP_vec = NULL, prefix, log_msg) {
-  na_results <- list(
-    residual_rmse = NA_real_,
-    beta0 = NA_real_,
-    beta1 = NA_real_,
-    beta2 = if (!is.null(dP_vec)) NA_real_ else NULL,
-    r2 = NA_real_,
-    n = 0L
-  )
-  names(na_results) <- paste0(prefix, "_", names(na_results))
-  na_results <- na_results[!sapply(na_results, is.null)]
 
-  n_usable <- length(FP_vec)
-  if (n_usable < 20) {
-    return(na_results)
-  }
-
-  tryCatch(
-    {
-      # Build design matrix
-      if (!is.null(dP_vec)) {
-        X <- cbind(1, P_vec, dP_vec)
-        model_type <- "pos+vel"
-      } else {
-        X <- cbind(1, P_vec)
-        model_type <- "pos only"
-      }
-
-      fit <- lm.fit(X, FP_vec)
-      beta0 <- fit$coefficients[1]
-      beta1 <- fit$coefficients[2]
-      beta2 <- if (!is.null(dP_vec)) fit$coefficients[3] else NULL
-
-      # Check for singular fit
-      if (!is.finite(beta0) || !is.finite(beta1) || (!is.null(beta2) && !is.finite(beta2))) {
-        log_msg("WARN", "  Singular model fit for", prefix, paste0("(", model_type, ")"))
-        return(na_results)
-      }
-
-      # Compute residuals and model RMSE (using degrees of freedom)
-      predicted <- if (!is.null(dP_vec)) {
-        beta0 + beta1 * P_vec + beta2 * dP_vec
-      } else {
-        beta0 + beta1 * P_vec
-      }
-      residuals <- FP_vec - predicted
-
-      # Model RMSE: sqrt(sum(residuals^2) / (n - p)) where p = number of parameters
-      n <- length(residuals)
-      p <- if (!is.null(dP_vec)) 3 else 2 # intercept + position (+ velocity)
-      rmse <- sqrt(sum(residuals^2) / (n - p))
-
-      # Compute R²
-      ss_res <- sum(residuals^2)
-      ss_tot <- sum((FP_vec - mean(FP_vec))^2)
-      r2 <- if (ss_tot > 0) 1 - ss_res / ss_tot else 0
-
-      # Sanity check for extreme values (very permissive, just catch numerical issues)
-      if (!is.finite(rmse)) {
-        log_msg("WARN", "  Non-finite RMSE for", prefix)
-        return(na_results)
-      }
-
-      if (rmse > 1) { # could make 10, but left at 1 for now to check.
-        log_msg("WARN", "  Very large RMSE for", prefix, "(RMSE =", round(rmse, 4), "m) - possible data issue")
-      }
-
-      # Log results
-      if (!is.null(beta2)) {
-        log_msg(
-          "INFO", " ", prefix, paste0("(", model_type, "):"), "n =", n_usable, ", RMSE =", round(rmse, 4),
-          ", β₁ =", round(beta1, 3), ", β₂ =", round(beta2, 3), ", R² =", round(r2, 3)
-        )
-      } else {
-        log_msg(
-          "INFO", " ", prefix, paste0("(", model_type, "):"), "n =", n_usable, ", RMSE =", round(rmse, 4),
-          ", β₁ =", round(beta1, 3), ", R² =", round(r2, 3)
-        )
-      }
-
-      # Return results
-      results <- list(
-        residual_rmse = rmse,
-        beta0 = beta0,
-        beta1 = beta1,
-        beta2 = beta2,
-        r2 = r2,
-        n = as.integer(n_usable)
-      )
-      names(results) <- paste0(prefix, "_", names(results))
-      results[!sapply(results, is.null)]
-    },
-    error = function(e) {
-      log_msg("WARN", "  Error in", prefix, "model fit:", e$message)
-      return(na_results)
-    }
-  )
-}
-
-#' Compute foot-placement control residuals metrics per trial
-#' @param trial_data Data frame with heel-strike level data (from allGaitParams)
-#' @param pelvis_time Numeric vector of pelvis time series
-#' @param pelvis_val Numeric vector of pelvis ML position values
-#' @param outlier_col_names Vector of outlier column names for filtering
-#' @param log_msg Logging function
-#' @return Named list with metrics for both position-only and position+velocity models
-compute_fp_control_metrics <- function(trial_data, pelvis_time, pelvis_val,
-                                       outlier_col_names, log_msg) {
-  # Use centralized NA results for both models
-  na_results <- get_na_results_fp_control()
-
-  # Check if pelvis data is available
-  if (length(pelvis_time) == 0 || length(pelvis_val) == 0) {
-    log_msg("WARN", "  Pelvis data unavailable for foot-placement control analysis")
-    return(na_results)
-  }
-
-  # Detect required columns in trial_data (with proper column name mapping)
-  # Expected: "foot" (with "Right"/"Left" values), "time" (HS time), and "pos_x" (heel ML position at HS)
-  required_cols <- c("foot", "time", "pos_x")
-
-  if (!all(required_cols %in% colnames(trial_data))) {
-    missing_cols <- required_cols[!required_cols %in% colnames(trial_data)]
-    log_msg("WARN", "  Missing required columns for foot-placement control:", paste(missing_cols, collapse = ", "))
-    return(na_results)
-  }
-
-  # Apply outlier filtering to create valid step mask
-  n_steps <- nrow(trial_data)
-  valid_mask <- rep(TRUE, n_steps)
-
-  # Find outlier column
-  outlier_col_found <- NULL
-  for (col_name in outlier_col_names) {
-    if (col_name %in% colnames(trial_data)) {
-      outlier_col_found <- col_name
-      break
-    }
-  }
-
-  if (!is.null(outlier_col_found)) {
-    outlier_mask <- trial_data[[outlier_col_found]]
-    if (is.logical(outlier_mask)) {
-      valid_mask <- valid_mask & !outlier_mask
-    } else {
-      valid_mask <- valid_mask & (outlier_mask == FALSE)
-    }
-  }
-
-  # Also filter out steps with missing critical data
-  valid_mask <- valid_mask &
-    is.finite(trial_data$time) &
-    is.finite(trial_data$pos_x)
-
-  if (sum(valid_mask) < 20) {
-    log_msg("WARN", "  Insufficient valid steps for foot-placement control (", sum(valid_mask), " < 20)")
-    return(na_results)
-  }
-
-  # Filter to valid steps
-  trial_valid <- trial_data[valid_mask, ]
-  n_valid <- nrow(trial_valid)
-
-  # Compute pelvis velocity (using central differences)
-  if (length(pelvis_time) < 3) {
-    log_msg("WARN", "  Insufficient pelvis data for velocity calculation")
-    return(na_results)
-  }
-
-  n_pel <- length(pelvis_val)
-  pelvis_vel <- numeric(n_pel)
-
-  # Forward difference for first point
-  pelvis_vel[1] <- (pelvis_val[2] - pelvis_val[1]) / (pelvis_time[2] - pelvis_time[1])
-
-  # Central differences for middle points
-  for (k in 2:(n_pel - 1)) {
-    dt <- pelvis_time[k + 1] - pelvis_time[k - 1]
-    pelvis_vel[k] <- if (dt > 0) (pelvis_val[k + 1] - pelvis_val[k - 1]) / dt else NA_real_
-  }
-
-  # Backward difference for last point
-  pelvis_vel[n_pel] <- (pelvis_val[n_pel] - pelvis_val[n_pel - 1]) / (pelvis_time[n_pel] - pelvis_time[n_pel - 1])
-
-  # Build predictor vectors by looping through steps
-  FP_vec <- numeric(0) # Foot placement response
-  P_vec <- numeric(0) # Position predictor
-  dP_vec <- numeric(0) # Velocity predictor
-
-  for (i in seq_len(n_valid)) {
-    # Get sign based on foot side
-    s_i <- if (trial_valid$foot[i] == "Right") 1 else if (trial_valid$foot[i] == "Left") -1 else next
-
-    # Find most recent contralateral heel strike
-    contra_side <- if (s_i == 1) "Left" else "Right"
-    j <- which(trial_valid$foot == contra_side & trial_valid$time < trial_valid$time[i])
-    if (length(j) == 0) next
-    j <- j[length(j)]
-
-    # Get heel positions
-    x_landing <- trial_valid$pos_x[i]
-    x_contra <- trial_valid$pos_x[j]
-    if (!is.finite(x_landing) || !is.finite(x_contra)) next
-
-    # Sample pelvis at step start time
-    pelvis_pos <- sample_time_series(pelvis_time, pelvis_val, trial_valid$time[j])
-    pelvis_v <- sample_time_series(pelvis_time, pelvis_vel, trial_valid$time[j])
-    if (!is.finite(pelvis_pos) || !is.finite(pelvis_v)) next
-
-    # Compute signed predictors and response
-    FP_vec <- c(FP_vec, s_i * (x_landing - x_contra))
-    P_vec <- c(P_vec, s_i * (pelvis_pos - x_contra))
-    dP_vec <- c(dP_vec, s_i * pelvis_v)
-  }
-
-  # Fit both models and combine results
-  if (length(FP_vec) < 20) {
-    log_msg("WARN", "  Insufficient usable steps after pairing (", length(FP_vec), " < 20)")
-    return(na_results)
-  }
-
-  results_pos <- fit_fp_model(FP_vec, P_vec, dP_vec = NULL, prefix = "step_pos_x", log_msg)
-  results_posvel <- fit_fp_model(FP_vec, P_vec, dP_vec = dP_vec, prefix = "step_posvel_x", log_msg)
-
-  c(results_pos, results_posvel)
-}
 
 #' Extract signal from simulation data
 #' @param participant Participant identifier
@@ -1212,40 +1161,32 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
     log_msg("INFO", "  Skipping discrete gait metrics (no gait data available)")
   }
 
-  # Compute foot-placement control residuals (if we have gait data)
+  # Compute per-foot foot-placement control residuals (if we have gait data)
   if (has_gait_data) {
-    log_msg("DEBUG", "  Computing foot-placement control residuals")
+    log_msg("DEBUG", "  Computing per-foot foot-placement control residuals")
 
-    # Get pelvis ML position time series from UDP tracker
-    pelvis_signal <- get_tracker_signal(participant, trial, "udp", "PelvisPos", "Pelvis position for FP control")
-
-    if (pelvis_signal$n_valid > 0) {
-      # Compute both position-only and position+velocity metrics
-      fp_metrics <- compute_fp_control_metrics(
-        trial_data,
-        pelvis_signal$time,
-        pelvis_signal$values,
-        outlier_col_names,
-        log_msg
-      )
+    # Check if heel-strike data has hip position annotations
+    if ("hip_pos_x" %in% colnames(trial_data)) {
+      # Compute per-foot position-only metrics
+      fp_metrics <- compute_fp_control_metrics_per_foot(trial_data)
 
       # Add metrics to result
       for (name in names(fp_metrics)) {
         result[[name]] <- fp_metrics[[name]]
       }
     } else {
-      log_msg("DEBUG", "  No pelvis data available for foot-placement control")
-      # Add NA columns for both models using centralized definitions
-      na_results <- get_na_results_fp_control()
-      for (name in names(na_results)) {
-        result[[name]] <- na_results[[name]]
+      log_msg("DEBUG", "  No hip position data available for foot-placement control")
+      # Add NA columns for per-foot metrics using centralized function
+      na_metrics <- get_na_results_fp_control("both")
+      for (name in names(na_metrics)) {
+        result[[name]] <- na_metrics[[name]]
       }
     }
   } else {
-    # No gait data, add NA columns for both models using centralized definitions
-    na_results <- get_na_results_fp_control()
-    for (name in names(na_results)) {
-      result[[name]] <- na_results[[name]]
+    # No gait data, add NA columns for per-foot metrics using centralized function
+    na_metrics <- get_na_results_fp_control("both")
+    for (name in names(na_metrics)) {
+      result[[name]] <- na_metrics[[name]]
     }
   }
 
