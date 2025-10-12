@@ -73,8 +73,16 @@ source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
 source("source/risk_model.R", local = FALSE)
 
+# Load risk model into global workspace for parallel processing (only if it exists)
+if (file.exists(risk_model_path)) {
+  GLOBAL_RISK_MODEL <<- load_risk_model(risk_model_path)
+  cat("Risk model loaded from:", risk_model_path, "\n")
+} else {
+  cat("No risk model found at:", risk_model_path, "- use dashboard to load one\n")
+}
+
 # Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = TRUE)
 allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 
 ## Plotting code

@@ -214,7 +214,8 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
             participant = as.factor(participant),
             trialNum = as.ordered(trial),
             condition = condition_number(participant_value),
-            phase = get_trial_phase(participant_value, trial)
+            phase = get_trial_phase(participant_value, trial),
+            taskNum = task_num_lookup(trial)
         )
 
     # Process the simulation data (now with task columns and identifiers available)
@@ -244,6 +245,7 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
 process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, tau = 0.2) {
     # Step 1: Detect respawn events for ball fall counting
     sim_data <- detect_respawn_events(sim_data)
+
 
     # Step 2: Assign arc degrees from task level data
     sim_data <- assign_arc_degrees(sim_data, level_data)
@@ -430,14 +432,14 @@ zero_first_sample_after_gaps <- function(data) {
     }
 
     # Find indices of last sample before each gap and first sample after each gap
-    last_sample_before_gap_indices <- gap_indices - 1
+    # last_sample_before_gap_indices <- gap_indices - 1
     first_sample_after_gap_indices <- gap_indices
 
     # Remove any invalid indices (e.g., if gap is at first sample)
-    last_sample_before_gap_indices <- last_sample_before_gap_indices[last_sample_before_gap_indices > 0]
+    # last_sample_before_gap_indices <- last_sample_before_gap_indices[last_sample_before_gap_indices > 0]
 
     # Combine all indices that need to be set to NA
-    indices_to_zero <- unique(c(last_sample_before_gap_indices, first_sample_after_gap_indices))
+    indices_to_zero <- unique(c(first_sample_after_gap_indices))
 
     # Define variables that should be set to NA around gaps
     # These are variables that would have artificial jumps due to respawn
@@ -515,8 +517,15 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2) {
         return(data)
     }
 
-    # Load risk model
-    model <- load_risk_model(risk_model_path)
+    # Use global risk model if available, otherwise skip risk predictions
+    if (exists("GLOBAL_RISK_MODEL", envir = .GlobalEnv) && !is.null(get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))) {
+        model <- get("GLOBAL_RISK_MODEL", envir = .GlobalEnv)
+    } else {
+        # No global model available - skip risk predictions
+        data$drop_risk <- NA_real_
+        data$velocity_towards_edge <- NA_real_
+        return(data)
+    }
 
     if (is.null(model)) {
         # Failed to load risk model, add NA columns

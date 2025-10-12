@@ -88,10 +88,15 @@ compute_velocities_from_qd <- function(df) {
 
 post_process_df <- function(df) {
   # Drop invalid samples with non-positive or missing dt to avoid divide-by-zero
+  # BUT preserve any samples that have is_last_sample_of_segment = TRUE
   remove_mask <- is.na(df$dt) | df$dt < 0.001
-  removed_n <- sum(remove_mask, na.rm = TRUE)
-  if (removed_n > 0) {
-    # cat(sprintf("[INFO] post_process_df: removed %d samples with non-positive/NA dt.\n", removed_n))
+
+  # Never remove samples with is_last_sample_of_segment = TRUE
+  if ("is_last_sample_of_segment" %in% names(df)) {
+    remove_mask <- remove_mask & !(df$is_last_sample_of_segment == TRUE)
+  }
+
+  if (sum(remove_mask, na.rm = TRUE) > 0) {
     df <- df[!remove_mask, , drop = FALSE]
   }
 

@@ -26,18 +26,33 @@ checkboxInput("enable_risk_predictions", "Enable Risk Predictions",
 
 # Tau parameter for risk predictions
 numericInput("risk_tau", "Risk Prediction Time Horizon (seconds)",
-  value = 0.2, min = 0, max = 5, step = 0.1, width = "100%"
+  value = 0.0, min = 0, max = 5, step = 0.1, width = "100%"
 )
 
 # Sampling frequency for model training
 numericInput("sampling_freq", "Sampling Frequency for Training (Hz)",
-  value = 90, min = 1, max = 200, step = 1, width = "100%"
+  value = 20, min = 1, max = 200, step = 1, width = "100%"
 )
 
-# Risk model training
-actionButton("train_risk_model", "Train Drop Risk Model",
-  class = "btn-primary", style = "margin-top: 10px;"
+# Risk model management
+selectizeInput("risk_model_file", "Risk Model File",
+  choices = NULL, selected = NULL, multiple = FALSE
 )
+actionButton("load_risk_model", "Load Selected Model",
+  class = "btn-success", style = "margin-top: 5px;"
+)
+actionButton("train_risk_model", "Train New Model",
+  class = "btn-primary", style = "margin-top: 5px;"
+)
+
+# Hazard samples management
+selectizeInput("hazard_samples_file", "Hazard Samples File",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+actionButton("load_hazard_samples", "Load Hazard Samples & Apply Model",
+  class = "btn-info", style = "margin-top: 5px;"
+)
+
 textOutput("risk_model_status")
 ```
 
@@ -160,6 +175,87 @@ output$sim_tsPlot <- renderPlotly({
   )
 })
 
+# Update risk model file choices
+observe({
+  # Get all .rds files in the data_extra directory
+  if (dir.exists(dataExtraFolder)) {
+    model_files <- list.files(dataExtraFolder, pattern = "\\.rds$", full.names = FALSE)
+    # Filter for risk model files
+    risk_model_files <- model_files[grepl("risk_model", model_files, ignore.case = TRUE)]
+
+    if (length(risk_model_files) > 0) {
+      # Set default to the main risk model file if it exists
+      default_file <- if ("risk_model_v1.rds" %in% risk_model_files) "risk_model_v1.rds" else risk_model_files[1]
+      updateSelectizeInput(session, "risk_model_file",
+        choices = risk_model_files,
+        selected = default_file
+      )
+    } else {
+      updateSelectizeInput(session, "risk_model_file",
+        choices = "No risk model files found",
+        selected = NULL
+      )
+    }
+  }
+})
+
+# Update hazard samples file choices
+observe({
+  # Get all .rds files in the data_extra directory
+  if (dir.exists(dataExtraFolder)) {
+    model_files <- list.files(dataExtraFolder, pattern = "\\.rds$", full.names = FALSE)
+    # Filter for hazard samples files
+    hazard_files <- model_files[grepl("hazard_samples", model_files, ignore.case = TRUE)]
+
+    if (length(hazard_files) > 0) {
+      # Set default to the main hazard samples file if it exists
+      default_file <- if ("hazard_samples.rds" %in% hazard_files) "hazard_samples.rds" else hazard_files[1]
+      updateSelectizeInput(session, "hazard_samples_file",
+        choices = hazard_files,
+        selected = default_file
+      )
+    } else {
+      updateSelectizeInput(session, "hazard_samples_file",
+        choices = "No hazard samples files found",
+        selected = NULL
+      )
+    }
+  }
+})
+
+# Load selected risk model
+observeEvent(input$load_risk_model, {
+  req(input$risk_model_file)
+
+  if (input$risk_model_file == "No risk model files found") {
+    output$risk_model_status <- renderText("No risk model files available to load")
+    return()
+  }
+
+  tryCatch(
+    {
+      model_path <- file.path(dataExtraFolder, input$risk_model_file)
+      model <- load_risk_model(model_path)
+
+      if (!is.null(model)) {
+        # Load into global workspace
+        GLOBAL_RISK_MODEL <<- model
+        output$risk_model_status <- renderText(
+          sprintf(
+            "✓ Risk model loaded successfully: %s (class: %s)",
+            input$risk_model_file, class(model)[1]
+          )
+        )
+      } else {
+        output$risk_model_status <- renderText("✗ Failed to load risk model")
+      }
+    },
+    error = function(e) {
+      output$risk_model_status <- renderText(paste("✗ Error loading risk model:", e$message))
+    }
+  )
+})
+
 # Risk model training
 observeEvent(input$train_risk_model, {
   # Use the current sidebar filters for participants and trials
@@ -211,13 +307,16 @@ observeEvent(input$train_risk_model, {
       )
 
       if (!is.null(model)) {
+        # Load the new model into global workspace
+        GLOBAL_RISK_MODEL <<- model
+
         # Get model summary for status
         model_summary <- summary(model)
         n_obs <- nrow(model@frame)
 
         output$risk_model_status <- renderText(
           sprintf(
-            "Risk model trained successfully! Used %d participants, %d trials, %d observations. Model saved to %s",
+            "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
             length(unique(valid_combinations$participant)),
             nrow(valid_combinations),
             n_obs,
@@ -230,6 +329,114 @@ observeEvent(input$train_risk_model, {
     },
     error = function(e) {
       output$risk_model_status <- renderText(paste("Error training risk model:", e$message))
+    }
+  )
+})
+
+# Load hazard samples and apply model
+observeEvent(input$load_hazard_samples, {
+  req(input$hazard_samples_file, input$risk_model_file)
+
+  if (input$hazard_samples_file == "No hazard samples files found") {
+    output$risk_model_status <- renderText("No hazard samples files available to load")
+    return()
+  }
+
+  if (input$risk_model_file == "No risk model files found") {
+    output$risk_model_status <- renderText("No risk model files available to load")
+    return()
+  }
+
+  tryCatch(
+    {
+      # Load risk model first
+      model_path <- file.path(dataExtraFolder, input$risk_model_file)
+      model <- load_risk_model(model_path)
+
+      if (is.null(model)) {
+        output$risk_model_status <- renderText("Failed to load risk model")
+        return()
+      }
+
+      # Always load original hazard samples and compute predictions fresh
+      output$risk_model_status <- renderText("Loading hazard samples and computing predictions...")
+
+      # Load original hazard samples
+      hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
+      hazard_samples <- readRDS(hazard_samples_path)
+
+      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+        output$risk_model_status <- renderText("Failed to load hazard samples or samples are empty")
+        return()
+      }
+
+      # Apply pooled standardized risk computation
+      output$risk_model_status <- renderText("Computing pooled standardized risks...")
+
+      # Isolate reactive values to prevent re-execution
+      tau_value <- isolate(input$risk_tau)
+
+      # Always annotate hazard samples with fresh predictions
+      output$risk_model_status <- renderText("Adding predictions to hazard samples...")
+
+      # Annotate hazard samples with fixed-effects predictions
+      hazard_samples <- annotate_hazard_predictions(
+        model = model,
+        hazard_samples = hazard_samples,
+        include_re = FALSE,
+        out_path = risk_hazard_samples_preds_path
+      )
+
+      # Use the compute_pooled_standardized_risks function
+      results <- compute_pooled_standardized_risks(
+        model = model,
+        hazard_samples = hazard_samples,
+        tau = tau_value,
+        save_csv_path = risk_standardized_path # Save to the same CSV as training
+      )
+
+      # Store results globally for potential use
+      GLOBAL_HAZARD_PREDICTIONS <<- list(
+        hazard_samples = hazard_samples,
+        standardized_risks = results$standardized_risks,
+        analysis_results = results$analysis_results,
+        model = model
+      )
+
+      # Show success popup with plot
+      n_combinations <- nrow(results$standardized_risks)
+      n_participants <- length(unique(hazard_samples$participant))
+      n_samples <- nrow(hazard_samples)
+
+      # Always computed fresh predictions
+      prediction_method <- "Computed fresh predictions and saved annotated version"
+
+      # Create popup message with plot
+      showModal(modalDialog(
+        title = "✓ Pooled Standardized Risks Computed Successfully!",
+        paste0(
+          "Results: ", n_combinations, " condition × phase combinations from ",
+          n_samples, " samples (", n_participants, " participants)\n\n",
+          "Method: ", prediction_method, "\n\n",
+          "Detailed results printed to console and saved to files.\n",
+          "Analysis results stored in GLOBAL_HAZARD_PREDICTIONS"
+        ),
+        plotOutput("risk_analysis_plot", height = "400px"),
+        easyClose = TRUE,
+        size = "l",
+        footer = modalButton("Close")
+      ))
+
+      # Render the plot in the modal
+      output$risk_analysis_plot <- renderPlot({
+        results$analysis_results$plot
+      })
+
+      # Clear the status text
+      output$risk_model_status <- renderText("")
+    },
+    error = function(e) {
+      output$risk_model_status <- renderText(paste("Error applying model to hazard samples:", e$message))
     }
   )
 })

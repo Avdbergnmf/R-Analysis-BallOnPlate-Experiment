@@ -184,6 +184,20 @@ initialize_global_parameters <- function() {
     risk_model_file <<- "risk_model_v1.rds"
     risk_model_path <<- file.path(dataExtraFolder, risk_model_file)
 
+    # Risk model hazard samples file path
+    risk_hazard_samples_file <<- "hazard_samples.rds"
+    risk_hazard_samples_path <<- file.path(dataExtraFolder, risk_hazard_samples_file)
+
+    # Risk model standardized results file path
+    risk_standardized_file <<- "risk_standardized_means.csv"
+    risk_standardized_path <<- file.path(dataExtraFolder, risk_standardized_file)
+
+    # Risk model hazard samples with predictions file paths
+    risk_hazard_samples_preds_file <<- "hazard_samples_with_preds.rds"
+    risk_hazard_samples_preds_path <<- file.path(dataExtraFolder, risk_hazard_samples_preds_file)
+    risk_hazard_samples_preds_re_file <<- "hazard_samples_with_preds_re.rds"
+    risk_hazard_samples_preds_re_path <<- file.path(dataExtraFolder, risk_hazard_samples_preds_re_file)
+
     # -----------------------------------------------------------------------------
     # LEVEL → ARC-DEG LOOKUP (used to correct mis-recorded 'deg' in level tracker)
     # -----------------------------------------------------------------------------
@@ -402,6 +416,7 @@ initialize_global_data <- function() {
                 warning("participants not defined, using default xOptions2D")
                 xOptions2D <<- c("time", "pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z")
             }
+
 
             cat(sprintf("[%s] Global data initialization complete (optimized).\n", format(Sys.time(), "%H:%M:%S")))
 
