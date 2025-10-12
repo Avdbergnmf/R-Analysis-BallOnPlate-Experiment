@@ -839,22 +839,29 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
             newdf$phase <- factor(ph, levels = phase_levels)
 
             # predict fixed-effects hazard; exclude random effect smooth
-            p <- predict(model, newdata = newdf, type = "response", exclude = "s(participant)")
-
-            # equal-weight participants (mean per pid, then mean across pids)
-            by_pid <- tapply(p, newdf$participant, mean, na.rm = TRUE)
-            mean_h <- mean(unlist(by_pid), na.rm = TRUE)
-
-            # optional drops/min (only meaningful for tau == 0)
-            drops_per_min <- if (!is.na(dt) && is.finite(dt) && tau == 0) mean_h * (60 / dt) else NA_real_
+            eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)")
+            # per-bin prob (for backward compat with 'mean_hazard'):
+            p <- 1 - exp(-exp(eta))
+            mean_h <- mean(tapply(p, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            # sampling-invariant rate and 1-second risk:
+            if (is.finite(dt) && dt > 0) {
+                lambda <- exp(eta) / dt
+                risk1s <- 1 - exp(-lambda)
+                exp_dpm <- 60 * mean(tapply(lambda, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+                risk_1s <- mean(tapply(risk1s, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            } else {
+                exp_dpm <- NA_real_
+                risk_1s <- NA_real_
+            }
 
             res_list[[paste(cn, ph, sep = "|")]] <- data.frame(
                 condition = cn,
                 phase = ph,
-                n_participants = length(by_pid),
+                n_participants = length(unique(newdf$participant)),
                 mean_hazard = mean_h,
                 dt_estimate = dt,
-                exp_drops_per_min = drops_per_min
+                exp_drops_per_min = exp_dpm,
+                risk_1s = risk_1s
             )
         }
     }
@@ -912,10 +919,9 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
     phase_levels <- unique(as.character(std_means$phase))
     cat("[ANALYSIS] cond_levels =", cond_levels, "\n")
     cat("[ANALYSIS] phase_levels =", phase_levels, "\n")
-    # 1) Condition × Phase interaction (hazard model) - LRT needs ML fits
-    cat("[ANALYSIS] Testing condition × phase interaction...\n")
 
-    # Refit models with ML for valid LRT (fREML LRT is not valid)
+    # 1) Condition × Phase interaction (hazard model) - try ML LRT, else Wald
+    cat("[ANALYSIS] Testing condition × phase interaction...\n")
     m_full_ml <- tryCatch(update(model, method = "ML"), error = function(e) NULL)
     m_noint_ml <- tryCatch(update(model, . ~ . - condition:phase, method = "ML"), error = function(e) NULL)
 
@@ -927,13 +933,12 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
         NULL
     }
 
-    # 1b) Fallback: Wald test for the interaction block (no refit)
+    # Fallback: Wald test
     wald_interaction <- NULL
     if (is.null(interaction_test)) {
         cat("[ANALYSIS] Using Wald test for interaction...\n")
         cf <- coef(model)
         V <- model$Vp
-        # parametric column names that correspond to condition:phase dummies
         idx <- grep("condition.*:phase", names(cf))
         idx <- idx[is.finite(cf[idx])]
         if (length(idx) > 0) {
@@ -962,7 +967,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
             phase = as.character(phase)
         )
 
-    # Ensure the expected phase names exist
     needed_phases <- c("baseline_task", "retention", "transfer")
     if (!all(needed_phases %in% unique(mm$phase))) {
         warning(
@@ -1003,20 +1007,19 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
 
     # 3) Parametric bootstrap CIs (guarded)
     cat("[ANALYSIS] Computing parametric bootstrap CIs...\n")
-    # Reference X from pooled data
+    means_CI <- NULL
+    DiD_boot <- NULL
+    within_ci <- NULL
+
     if (!all(c("e", "v", "participant") %in% names(hazard_samples))) {
         warning("[ANALYSIS] Missing e/v/participant in hazard_samples; skipping bootstrap.")
-        means_CI <- DiD_boot <- NULL
     } else {
         ref_df <- hazard_samples[, c("e", "v", "participant")]
         ref_df$participant <- factor(ref_df$participant)
 
-        # Use std_means levels to ensure non-empty grids
         cond_levels_b <- unique(mm$condition)
         phase_levels_b <- unique(mm$phase)
 
-        # Utilities
-        # Build fixed-effects lpmatrix safely
         make_eta <- function(beta_vec, cond, ph) {
             newdf <- ref_df
             newdf$condition <- factor(cond, levels = cond_levels_b)
@@ -1033,17 +1036,18 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
 
         beta_hat <- coef(model)
         V <- model$Vp
+
         if (is.null(V) || any(!is.finite(V))) {
             warning("[ANALYSIS] No valid covariance matrix; skipping bootstrap.")
-            means_CI <- DiD_boot <- NULL
         } else {
-            B <- 100L # Reduced from 1000 to 100 for reasonable speed
+            B <- 100L # increase to 1000 for final runs
             cat(sprintf("[ANALYSIS] Starting parametric bootstrap with %d iterations...\n", B))
             flush.console()
 
             get_all_means <- function(beta_vec) {
                 grid <- expand.grid(
-                    condition = cond_levels_b, phase = phase_levels_b,
+                    condition = cond_levels_b,
+                    phase = phase_levels_b,
                     KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
                 )
                 grid$mean_hazard <- mapply(
@@ -1054,7 +1058,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
             }
 
             set.seed(123)
-            # Draws with fallback if V not PD
             beta_draw <- function() {
                 out <- try(mvtnorm::rmvnorm(1, mean = beta_hat, sigma = V), silent = TRUE)
                 if (inherits(out, "try-error")) beta_hat else as.numeric(out)
@@ -1065,20 +1068,21 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
             flush.console()
 
             for (b in seq_len(B)) {
-                if (b %% 10 == 0 || b == B) { # Update every 10 iterations for smaller B
+                if (b %% 10 == 0 || b == B) {
                     cat(sprintf("[ANALYSIS] Bootstrap progress: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
                     flush.console()
                 }
                 boot_list[[b]] <- get_all_means(beta_draw())
             }
+
             cat("[ANALYSIS] Bootstrap completed, computing confidence intervals...\n")
             flush.console()
             boot_arr <- dplyr::bind_rows(boot_list, .id = "boot_id")
 
             if (!nrow(boot_arr)) {
                 warning("[ANALYSIS] Bootstrap produced no rows; skipping CIs.")
-                means_CI <- DiD_boot <- NULL
             } else {
+                # Means + CIs
                 means_CI <- boot_arr |>
                     dplyr::group_by(condition, phase) |>
                     dplyr::summarise(
@@ -1088,6 +1092,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                         .groups = "drop"
                     )
 
+                # DiD bootstrap
                 did_from_df <- function(df, condA, condB, phase) {
                     wide <- df |>
                         tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard)
@@ -1097,6 +1102,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                     as.numeric((wide[wide$condition == condA, phase] - wide[wide$condition == condA, "baseline_task"]) -
                         (wide[wide$condition == condB, phase] - wide[wide$condition == condB, "baseline_task"]))
                 }
+
                 did_names <- rbind(
                     c("perturbation_visualization", "control", "retention"),
                     c("perturbation_visualization", "control", "transfer"),
@@ -1104,17 +1110,19 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                     c("perturbation", "control", "transfer")
                 )
                 pts <- apply(did_names, 1, \(r) did_from_df(std_means, r[1], r[2], r[3]))
+
                 cat("[ANALYSIS] Computing DiD bootstrap samples...\n")
                 flush.console()
                 did_boot_mat <- sapply(seq_len(B), function(b) {
-                    if (b %% 20 == 0 || b == B) { # More frequent updates for smaller B
+                    if (b %% 20 == 0 || b == B) {
                         cat(sprintf("[ANALYSIS] DiD bootstrap progress: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
                         flush.console()
                     }
                     dfb <- boot_list[[b]]
                     apply(did_names, 1, \(r) did_from_df(dfb, r[1], r[2], r[3]))
                 })
-                # Bootstrap p-values for DiD contrasts
+
+                # Bootstrap p-values for DiD (two-sided) + Holm
                 did_pvals <- apply(did_boot_mat, 1, function(x) {
                     x <- x[is.finite(x)]
                     if (!length(x)) {
@@ -1122,14 +1130,12 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                     }
                     2 * min(mean(x >= 0), mean(x <= 0))
                 })
-
-                # Holm-adjust within the DiD family
                 did_pvals_holm <- p.adjust(did_pvals, method = "holm")
 
                 DiD_boot <- tibble::tibble(
                     contrast = c(
                         "PV vs Control (Retention)", "PV vs Control (Transfer)",
-                        "P vs Control (Retention)", "P vs Control (Transfer)"
+                        "P vs Control (Retention)",  "P vs Control (Transfer)"
                     ),
                     point = as.numeric(pts),
                     lo = apply(did_boot_mat, 1, \(x) stats::quantile(x, .025, na.rm = TRUE)),
@@ -1139,23 +1145,21 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                     p_boot_holm = as.numeric(did_pvals_holm)
                 )
 
-                # Bootstrap p-values for within-condition deltas
+                # Within-condition deltas: CIs + p-values
                 cat("[ANALYSIS] Computing bootstrap p-values for within-condition changes...\n")
                 flush.console()
 
-                # Build deltas for every bootstrap draw
                 within_boot_list <- lapply(boot_list, function(dfb) {
                     wide <- dfb |>
                         tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard)
                     tibble::tibble(
-                        condition    = wide$condition,
-                        d_retention  = wide$retention - wide$baseline_task,
-                        d_transfer   = wide$transfer - wide$baseline_task
+                        condition   = wide$condition,
+                        d_retention = wide$retention - wide$baseline_task,
+                        d_transfer  = wide$transfer - wide$baseline_task
                     )
                 })
                 within_boot <- dplyr::bind_rows(within_boot_list, .id = "boot_id")
 
-                # Point estimates from std_means
                 delta_point <- std_means |>
                     dplyr::select(condition, phase, mean_hazard) |>
                     tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard) |>
@@ -1165,7 +1169,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                         d_transfer  = transfer - baseline_task
                     )
 
-                # Get p-values per condition and delta type
                 p_within <- within_boot |>
                     tidyr::pivot_longer(cols = c(d_retention, d_transfer), names_to = "delta", values_to = "val") |>
                     dplyr::group_by(condition, delta) |>
@@ -1176,12 +1179,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                         },
                         .groups = "drop"
                     ) |>
-                    # Add Holm correction within each delta family across conditions
                     dplyr::group_by(delta) |>
                     dplyr::mutate(p_boot_holm = p.adjust(p_boot, method = "holm")) |>
                     dplyr::ungroup()
 
-                # Nice table of within-condition deltas with CIs + p's
                 within_ci <- within_boot |>
                     tidyr::pivot_longer(cols = c(d_retention, d_transfer), names_to = "delta", values_to = "val") |>
                     dplyr::group_by(condition, delta) |>
@@ -1192,13 +1193,14 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                         .groups = "drop"
                     ) |>
                     dplyr::left_join(
-                        delta_point |> tidyr::pivot_longer(cols = c(d_retention, d_transfer), names_to = "delta", values_to = "point"),
+                        delta_point |>
+                            tidyr::pivot_longer(cols = c(d_retention, d_transfer), names_to = "delta", values_to = "point"),
                         by = c("condition", "delta")
                     ) |>
                     dplyr::left_join(p_within, by = c("condition", "delta"))
-            }
-        }
-    }
+            } # end non-empty boot_arr
+        } # end valid V
+    } # end bootstrap branch
 
     # 4) Optional plot (only if means_CI exists)
     if (!is.null(means_CI)) {
@@ -1239,6 +1241,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
     cat("[ANALYSIS] Analysis complete!\n")
     return(results)
 }
+
 
 # Helper function to save analysis to text file
 save_analysis_to_txt <- function(results, txt_path) {
