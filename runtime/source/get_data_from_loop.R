@@ -364,16 +364,25 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         log_output(sprintf("[%s] Using existing cluster with %d cores\n", format(Sys.time(), "%H:%M:%S"), length(cl)))
     }
 
-    # Export only essential variables - minimize memory copying
-    # Only export what's absolutely necessary for the worker functions
+    # Export essential variables and global variables needed by worker functions
     essential_vars <- c("get_data_function")
+
+    # Add global variables that might be needed by get_simulation_data and risk_model functions
+    global_vars <- c("risk_model_path", "dataExtraFolder", "risk_model_file")
 
     # Check which variables actually exist before exporting
     available_vars <- ls(envir = environment())
+    available_globals <- ls(envir = .GlobalEnv)
+
     vars_to_export <- intersect(essential_vars, available_vars)
+    globals_to_export <- intersect(global_vars, available_globals)
 
     if (length(vars_to_export) > 0) {
         clusterExport(cl, vars_to_export, envir = environment())
+    }
+
+    if (length(globals_to_export) > 0) {
+        clusterExport(cl, globals_to_export, envir = .GlobalEnv)
     }
 
     # Start parallel processing
@@ -383,7 +392,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Use list building instead of .combine = rbind for much better performance
     data_list <- foreach(
         i = 1:nrow(valid_combinations),
-        .packages = c("data.table", "dplyr", "pracma", "signal", "zoo"),
+        .packages = c("data.table", "dplyr", "pracma", "signal", "zoo", "mgcv"),
         .options.snow = list(preschedule = FALSE) # Better load balancing
     ) %dopar% {
         tryCatch(
