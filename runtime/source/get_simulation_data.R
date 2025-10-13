@@ -82,7 +82,16 @@ get_simulation_parameters <- function() {
         drop_lambda = "Drop Rate (Per-Second/Lambda)",
         drop_risk_1s = "Drop Risk (1-Second)",
         velocity_towards_edge = "Velocity Towards Edge",
-        edge_pressure = "Edge Pressure"
+        approach_pressure = "Approach Pressure",
+        retreat_pressure = "Retreat Pressure",
+        retreat_share = "Retreat Share",
+        retreat_speed_cond = "Retreat Speed (Conditional)",
+        approach_speed_cond = "Approach Speed (Conditional)",
+        v_e = "Escape Distance Velocity",
+        edge_pressure = "Edge Pressure",
+        log_v_to_edge = "Log1p(Velocity Towards Edge)",
+        post_log_v_to_edge = "Log1p(Velocity Towards Edge Mean)",
+        post_log_edge_pressure = "Log1p(Edge Pressure Mean)"
     )
 }
 
@@ -151,7 +160,16 @@ get_simulation_variable_names <- function() {
         `drop_lambda` = "Drop Rate (Per-Second/Lambda)",
         `drop_risk_1s` = "Drop Risk (1-Second)",
         `velocity_towards_edge` = "Velocity Towards Edge",
-        `edge_pressure` = "Edge Pressure"
+        `approach_pressure` = "Approach Pressure",
+        `retreat_pressure` = "Retreat Pressure",
+        `retreat_share` = "Retreat Share",
+        `retreat_speed_cond` = "Retreat Speed (Conditional)",
+        `approach_speed_cond` = "Approach Speed (Conditional)",
+        `v_e` = "Escape Distance Velocity",
+        `edge_pressure` = "Edge Pressure",
+        `log_v_to_edge` = "Log1p(Velocity Towards Edge)",
+        `post_log_v_to_edge` = "Log1p(Velocity Towards Edge Mean)",
+        `post_log_edge_pressure` = "Log1p(Edge Pressure Mean)"
     )
 }
 
@@ -277,6 +295,9 @@ process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, t
 
     sim_data <- add_energy_cols(sim_data, g = representative_shape$g)
     sim_data <- add_safety_cols(sim_data, representative_shape)
+
+    # Step 7.5: Add escape distance velocity metric (depends on dist_to_escape_ratio from safety cols)
+    sim_data <- add_escape_distance_velocity(sim_data)
 
     # Step 8: Set first sample after each gap to NA to prevent velocity/acceleration spikes
     sim_data <- zero_first_sample_after_gaps(sim_data)
@@ -424,6 +445,91 @@ ensure_qdd_column <- function(data) {
     }
 }
 
+#' Helper function to add velocity towards edge metrics
+#' @param data Simulation data with q and qd columns
+#' @return Data with velocity_towards_edge, approach_pressure, retreat_pressure, retreat_share, retreat_speed_cond, approach_speed_cond, and log_v_to_edge columns added
+add_velocity_towards_edge_metrics <- function(data) {
+    if (sum(data$simulating) > 0) {
+        # Calculate velocity towards edge: qd * sign(q)
+        q_magnitude <- abs(data$q)
+        q_direction <- ifelse(q_magnitude > 0, data$q / q_magnitude, 0)
+        v_towards_edge <- data$qd * q_direction
+
+        # Add velocity_towards_edge column
+        data$velocity_towards_edge <- NA_real_
+        data$velocity_towards_edge[data$simulating] <- v_towards_edge[data$simulating]
+
+        # Add approach_pressure column: pmax(velocity_towards_edge, 0) - captures how aggressively participants drive toward edges
+        approach_pressure <- pmax(v_towards_edge, 0)
+        data$approach_pressure <- NA_real_
+        data$approach_pressure[data$simulating] <- approach_pressure[data$simulating]
+
+        # Add retreat_pressure column: -pmin(velocity_towards_edge, 0) - captures retreat behavior
+        retreat_pressure <- -pmin(v_towards_edge, 0)
+        data$retreat_pressure <- NA_real_
+        data$retreat_pressure[data$simulating] <- retreat_pressure[data$simulating]
+
+        # Add retreat_share column: mean(v_towards_edge < 0) - frequency of retreat behavior
+        retreat_share <- as.numeric(v_towards_edge < 0)
+        data$retreat_share <- NA_real_
+        data$retreat_share[data$simulating] <- retreat_share[data$simulating]
+
+        # Add retreat_speed_cond column: -v_towards_edge[v_towards_edge < 0] - conditional retreat speed
+        retreat_speed_cond <- ifelse(v_towards_edge < 0, -v_towards_edge, NA_real_)
+        data$retreat_speed_cond <- NA_real_
+        data$retreat_speed_cond[data$simulating] <- retreat_speed_cond[data$simulating]
+
+        # Add approach_speed_cond column: v_towards_edge[v_towards_edge > 0] - conditional approach speed
+        approach_speed_cond <- ifelse(v_towards_edge > 0, v_towards_edge, NA_real_)
+        data$approach_speed_cond <- NA_real_
+        data$approach_speed_cond[data$simulating] <- approach_speed_cond[data$simulating]
+
+        # Add log(v_to_edge) column: log1p(velocity_towards_edge) to handle zeros properly
+        data$log_v_to_edge <- NA_real_
+        data$log_v_to_edge[data$simulating] <- log1p(v_towards_edge[data$simulating])
+
+        # Log the results
+        cat(sprintf(
+            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added approach_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(approach_pressure[data$simulating], na.rm = TRUE), max(approach_pressure[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added retreat_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(retreat_pressure[data$simulating], na.rm = TRUE), max(retreat_pressure[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added retreat_share for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(retreat_share[data$simulating], na.rm = TRUE), max(retreat_share[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added retreat_speed_cond for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(retreat_speed_cond[data$simulating], na.rm = TRUE), max(retreat_speed_cond[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added approach_speed_cond for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(approach_speed_cond[data$simulating], na.rm = TRUE), max(approach_speed_cond[data$simulating], na.rm = TRUE)
+        ))
+        cat(sprintf(
+            "[RISK] Added log_v_to_edge (log1p) for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(log1p(v_towards_edge[data$simulating]), na.rm = TRUE), max(log1p(v_towards_edge[data$simulating]), na.rm = TRUE)
+        ))
+    } else {
+        data$velocity_towards_edge <- NA_real_
+        data$approach_pressure <- NA_real_
+        data$retreat_pressure <- NA_real_
+        data$retreat_share <- NA_real_
+        data$retreat_speed_cond <- NA_real_
+        data$approach_speed_cond <- NA_real_
+        data$log_v_to_edge <- NA_real_
+        cat("[RISK] No on-platform samples found, all velocity metrics set to NA\n")
+    }
+    return(data)
+}
+
 #' Helper function to add edge-pressure metric
 #' @param data Simulation data with velocity_towards_edge and dist_to_escape_ratio
 #' @return Data with edge_pressure column added
@@ -447,6 +553,62 @@ add_edge_pressure_metric <- function(data) {
             cat("[RISK] No on-platform samples found, edge_pressure set to NA\n")
         } else {
             cat("[RISK] dist_to_escape_ratio not available, edge_pressure set to NA\n")
+        }
+    }
+    return(data)
+}
+
+#' Helper function to add escape distance velocity metric
+#' @param data Simulation data with dist_to_escape_ratio and dt columns
+#' @return Data with v_e column added
+add_escape_distance_velocity <- function(data) {
+    if (sum(data$simulating) > 0 && "dist_to_escape_ratio" %in% colnames(data) && "dt" %in% colnames(data)) {
+        # Calculate v_e = d(dist_to_escape_ratio)/dt using finite differences
+        # Forward difference: (f(t+dt) - f(t)) / dt
+
+        # Initialize v_e column
+        data$v_e <- NA_real_
+
+        # Only calculate for on-platform samples
+        simulating_mask <- data$simulating
+        n_simulating <- sum(simulating_mask)
+
+        if (n_simulating > 1) {
+            # Get indices of simulating samples
+            simulating_indices <- which(simulating_mask)
+
+            # Create masks for current and next samples
+            curr_mask <- simulating_indices[1:(n_simulating - 1)]
+            next_mask <- simulating_indices[2:n_simulating]
+
+            # Check if samples are consecutive (no gaps between them)
+            consecutive_mask <- (next_mask - curr_mask) == 1
+
+            # Calculate finite differences vectorized
+            ratio_curr <- data$dist_to_escape_ratio[curr_mask]
+            ratio_next <- data$dist_to_escape_ratio[next_mask]
+            dt_vals <- data$dt[curr_mask]
+
+            # Only calculate where we have consecutive samples and valid data
+            valid_mask <- consecutive_mask &
+                !is.na(ratio_curr) & !is.na(ratio_next) &
+                !is.na(dt_vals) & dt_vals > 0
+
+            if (sum(valid_mask) > 0) {
+                data$v_e[curr_mask[valid_mask]] <- (ratio_next[valid_mask] - ratio_curr[valid_mask]) / dt_vals[valid_mask]
+            }
+        }
+
+        cat(sprintf(
+            "[RISK] Added v_e (escape distance velocity) for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(!is.na(data$v_e)), min(data$v_e, na.rm = TRUE), max(data$v_e, na.rm = TRUE)
+        ))
+    } else {
+        data$v_e <- NA_real_
+        if (sum(data$simulating) == 0) {
+            cat("[RISK] No on-platform samples found, v_e set to NA\n")
+        } else {
+            cat("[RISK] dist_to_escape_ratio or dt not available, v_e set to NA\n")
         }
     }
     return(data)
@@ -590,27 +752,11 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
         nrow(data), enable_risk
     ))
 
-    # Always add velocity_towards_edge column
-    if (sum(data$simulating) > 0) {
-        q_magnitude <- abs(data$q)
-        q_direction <- ifelse(q_magnitude > 0, data$q / q_magnitude, 0)
-        v_towards_edge <- data$qd * q_direction
+    # Add velocity towards edge metrics using helper function
+    data <- add_velocity_towards_edge_metrics(data)
 
-        data$velocity_towards_edge <- NA_real_
-        data$velocity_towards_edge[data$simulating] <- v_towards_edge[data$simulating]
-
-        cat(sprintf(
-            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
-        ))
-
-        # Add edge-pressure metric using helper function
-        data <- add_edge_pressure_metric(data)
-    } else {
-        data$velocity_towards_edge <- NA_real_
-        data$edge_pressure <- NA_real_
-        cat("[RISK] No on-platform samples found, velocity_towards_edge and edge_pressure set to NA\n")
-    }
+    # Add edge-pressure metric using helper function
+    data <- add_edge_pressure_metric(data)
 
     # Initialize all risk columns
     data$drop_risk_bin <- NA_real_
@@ -887,27 +1033,11 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
         nrow(data), enable_risk
     ))
 
-    # Always add velocity_towards_edge column
-    if (sum(data$simulating) > 0) {
-        q_magnitude <- abs(data$q)
-        q_direction <- ifelse(q_magnitude > 0, data$q / q_magnitude, 0)
-        v_towards_edge <- data$qd * q_direction
+    # Add velocity towards edge metrics using helper function
+    data <- add_velocity_towards_edge_metrics(data)
 
-        data$velocity_towards_edge <- NA_real_
-        data$velocity_towards_edge[data$simulating] <- v_towards_edge[data$simulating]
-
-        cat(sprintf(
-            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
-        ))
-
-        # Add edge-pressure metric using helper function
-        data <- add_edge_pressure_metric(data)
-    } else {
-        data$velocity_towards_edge <- NA_real_
-        data$edge_pressure <- NA_real_
-        cat("[RISK] No on-platform samples found, velocity_towards_edge and edge_pressure set to NA\n")
-    }
+    # Add edge-pressure metric using helper function
+    data <- add_edge_pressure_metric(data)
 
     # Initialize all risk columns
     data$drop_risk_bin <- NA_real_

@@ -482,7 +482,7 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
 #' @param use_factors Whether to include condition/phase factors in prediction (default FALSE)
 #' @return List with individual_predictions and hazard_samples
 #' @export
-score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = FALSE) {
+score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = TRUE) {
     if (is.null(model)) {
         return(list(
             individual_predictions = numeric(0),

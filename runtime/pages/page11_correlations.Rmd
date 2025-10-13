@@ -1,9 +1,10 @@
 ### Options
 
 ```{r}
-selectizeInput("par", "Parametric data", 
-            choices = c("parametric", "nonparametric", "bayes", "robust"), 
-            selected = "parametric", multiple = FALSE)
+selectizeInput("par", "Parametric data",
+  choices = c("parametric", "nonparametric", "bayes", "robust"),
+  selected = "parametric", multiple = FALSE
+)
 
 checkboxInput("getSummarizedData", "Calculate mean, sd, cv", value = TRUE)
 checkboxInput("averageData", "Average data across condition", value = TRUE)
@@ -13,8 +14,30 @@ numericInput("heatmap_bins", "Bins heatmaps", min = 0, max = Inf, value = 30, st
 
 # Add selectors for x and y inputs for the correlation plot
 selectizeInput("xVar", "X Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
+selectizeInput("xVarTransform", "Transform X Variable",
+  choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
+  selected = "none", multiple = FALSE
+)
 selectizeInput("yVar", "Y Variable for Correlation Plot", choices = NULL, selected = NULL, multiple = FALSE)
+selectizeInput("yVarTransform", "Transform Y Variable",
+  choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
+  selected = "none", multiple = FALSE
+)
 checkboxInput("interactive_correlation", "Interactive plot", value = FALSE)
+```
+
+```{r}
+bsTooltip("xVarTransform",
+  "Apply transformation to the X variable. Log10 transformation can help with skewed data. Logit transformation is for proportions (values between 0 and 1).",
+  placement = "right",
+  trigger = "hover"
+)
+
+bsTooltip("yVarTransform",
+  "Apply transformation to the Y variable. Log10 transformation can help with skewed data. Logit transformation is for proportions (values between 0 and 1).",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 Column
@@ -48,13 +71,47 @@ imageOutput("homoscedasticity_plot")
 ```
 
 ```{r, context="server"}
+# Helper function to apply transformations to correlation data
+apply_correlation_transforms <- function(data, x_var, y_var, x_transform, y_transform) {
+  # Apply transformation to X variable
+  if (x_transform != "none" && x_var %in% colnames(data)) {
+    data <- apply_depvar_transform(data, x_var, x_transform)
+    if (is.null(data)) {
+      return(NULL)
+    }
+  }
+
+  # Apply transformation to Y variable
+  if (y_transform != "none" && y_var %in% colnames(data)) {
+    data <- apply_depvar_transform(data, y_var, y_transform)
+    if (is.null(data)) {
+      return(NULL)
+    }
+  }
+
+  return(data)
+}
+
+# Helper function to create axis labels with transformation info
+create_axis_label <- function(var_name, transform_type) {
+  if (transform_type == "none") {
+    return(var_name)
+  } else if (transform_type == "log10") {
+    return(paste0("log10(", var_name, ")"))
+  } else if (transform_type == "logit") {
+    return(paste0("logit(", var_name, ")"))
+  } else {
+    return(var_name)
+  }
+}
+
 get_correlation_data <- reactive({
   if (input$getSummarizedData) {
     data <- get_mu_dyn_long()
     if (input$averageData) {
       data <- summarize_across_conditions(data)
     }
-    if (input$diffData){
+    if (input$diffData) {
       # Calculate differences between phases for questionnaire data
       # For phase-based analysis, we might want to calculate differences between specific phases
       # e.g., training vs baseline, retention vs baseline, etc.
@@ -67,8 +124,7 @@ get_correlation_data <- reactive({
         data <- data
       }
     }
-  }
-  else {
+  } else {
     data <- filteredParams()
   }
 
@@ -100,57 +156,81 @@ create_dynamic_variable_observer(
 
 output$correlation_text <- renderPrint({
   dt <- get_correlation_data()
+
+  # Apply transformations
+  dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
+  if (is.null(dt)) {
+    cat("Transformation failed. Check notifications for details.\n")
+    return()
+  }
+
   # Minimal validation & simpler output
   if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
-      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
-      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
-    cat("Insufficient or invalid data for correlation analysis.\n"); return()
+    !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+    length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    cat("Insufficient or invalid data for correlation analysis.\n")
+    return()
   }
   cat("--- CORRELATION RESULTS ---\n")
   method <- switch(input$par,
-                   parametric = "pearson",
-                   nonparametric = "spearman",
-                   bayes = "bayes",
-                   robust = "robust")
+    parametric = "pearson",
+    nonparametric = "spearman",
+    bayes = "bayes",
+    robust = "robust"
+  )
   cat("Method:", method, "\n")
-  
+
   # Calculate correlation
-  tryCatch({
-    if (method == "bayes") {
-      correlation <- correlationBF(dt[[input$xVar]], dt[[input$yVar]])
-      result_text <- paste("Bayesian correlation between", input$xVar, "and", input$yVar, ":", correlation)
-      cat(result_text, "\n")
-    } else if (method == "robust") {
-      correlation <- pbcor(dt[[input$xVar]], dt[[input$yVar]])
-      result_text <- paste("Robust correlation between", input$xVar, "and", input$yVar, ":", correlation)
-      cat(result_text, "\n")
-    } else {
-      correlation <- cor.test(dt[[input$xVar]], dt[[input$yVar]], method = method)
-      cat("r:", correlation$estimate, " p:", correlation$p.value, " CI:",
-          correlation$conf.int[1], "-", correlation$conf.int[2], "\n")
-      # Additional info: strength + significance
-      est_val <- as.numeric(correlation$estimate)
-      strength <- if (abs(est_val) > 0.7) "strong" else if (abs(est_val) > 0.5) "moderate" else "weak"
-      cat("The correlation is", strength, "\n")
-      if (is.finite(correlation$p.value) && correlation$p.value < 0.05) {
-        cat("The correlation is statistically significant.\n")
+  tryCatch(
+    {
+      if (method == "bayes") {
+        correlation <- correlationBF(dt[[input$xVar]], dt[[input$yVar]])
+        result_text <- paste("Bayesian correlation between", input$xVar, "and", input$yVar, ":", correlation)
+        cat(result_text, "\n")
+      } else if (method == "robust") {
+        correlation <- pbcor(dt[[input$xVar]], dt[[input$yVar]])
+        result_text <- paste("Robust correlation between", input$xVar, "and", input$yVar, ":", correlation)
+        cat(result_text, "\n")
       } else {
-        cat("The correlation is not statistically significant.\n")
+        correlation <- cor.test(dt[[input$xVar]], dt[[input$yVar]], method = method)
+        cat(
+          "r:", correlation$estimate, " p:", correlation$p.value, " CI:",
+          correlation$conf.int[1], "-", correlation$conf.int[2], "\n"
+        )
+        # Additional info: strength + significance
+        est_val <- as.numeric(correlation$estimate)
+        strength <- if (abs(est_val) > 0.7) "strong" else if (abs(est_val) > 0.5) "moderate" else "weak"
+        cat("The correlation is", strength, "\n")
+        if (is.finite(correlation$p.value) && correlation$p.value < 0.05) {
+          cat("The correlation is statistically significant.\n")
+        } else {
+          cat("The correlation is not statistically significant.\n")
+        }
       }
+    },
+    error = function(e) {
+      cat("Could not calculate correlation:", e$message, "\n")
     }
-  }, error = function(e) {
-    cat("Could not calculate correlation:", e$message, "\n")
-  })
+  )
 })
 
 # Detailed assumption checks output
 output$correlation_assumptions <- renderPrint({
   dt <- get_correlation_data()
+
+  # Apply transformations
+  dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
+  if (is.null(dt)) {
+    cat("Transformation failed. Check notifications for details.\n")
+    return()
+  }
+
   # Basic validity
   if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
-      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
-      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
-    cat("Insufficient or invalid data for assumption checks.\n"); return()
+    !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+    length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    cat("Insufficient or invalid data for assumption checks.\n")
+    return()
   }
 
   cat("---CHECKING PARAMETRIC ASSUMPTIONS---\n")
@@ -158,80 +238,108 @@ output$correlation_assumptions <- renderPrint({
 
   # Shapiro-Wilk normality tests (only if within valid range)
   if (nrow(dt) >= 3 && nrow(dt) <= 5000) {
-    tryCatch({
-      shapiro_x <- shapiro.test(dt[[input$xVar]])
-      shapiro_y <- shapiro.test(dt[[input$yVar]])
-      cat("Shapiro-Wilk test (X variable):\n"); print(shapiro_x)
-      cat("\nShapiro-Wilk test (Y variable):\n"); print(shapiro_y)
-    }, error = function(e) {
-      cat("Could not perform Shapiro tests:", e$message, "\n")
-    })
+    tryCatch(
+      {
+        shapiro_x <- shapiro.test(dt[[input$xVar]])
+        shapiro_y <- shapiro.test(dt[[input$yVar]])
+        cat("Shapiro-Wilk test (X variable):\n")
+        print(shapiro_x)
+        cat("\nShapiro-Wilk test (Y variable):\n")
+        print(shapiro_y)
+      },
+      error = function(e) {
+        cat("Could not perform Shapiro tests:", e$message, "\n")
+      }
+    )
   } else {
     cat("Shapiro test skipped (requires 3-5000 data points with variation)\n")
   }
 
   # Breusch-Pagan test for homoscedasticity
-  tryCatch({
-    model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
-    bp_test <- bptest(model)
-    cat("\nBreusch-Pagan Test for Homoscedasticity:\n"); print(bp_test)
-    if (bp_test$p.value > 0.05) {
-      cat("Interpretation: p-value =", bp_test$p.value, "> 0.05 → assume homoscedasticity.\n")
-    } else {
-      cat("Interpretation: p-value =", bp_test$p.value, "< 0.05 → possible heteroscedasticity.\n")
+  tryCatch(
+    {
+      model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
+      bp_test <- bptest(model)
+      cat("\nBreusch-Pagan Test for Homoscedasticity:\n")
+      print(bp_test)
+      if (bp_test$p.value > 0.05) {
+        cat("Interpretation: p-value =", bp_test$p.value, "> 0.05 → assume homoscedasticity.\n")
+      } else {
+        cat("Interpretation: p-value =", bp_test$p.value, "< 0.05 → possible heteroscedasticity.\n")
+      }
+    },
+    error = function(e) {
+      cat("Could not perform Breusch-Pagan test:", e$message, "\n")
     }
-  }, error = function(e) {
-    cat("Could not perform Breusch-Pagan test:", e$message, "\n")
-  })
+  )
 
   cat("\nAlso check residuals vs fitted plot for visual assessment.\n")
 })
 
-output$homoscedasticity_plot <- renderSVG({ reactive({
-  dt <- get_correlation_data()
-  
-  # Check if we have sufficient data
-  if (nrow(dt) < 2 || !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]])) {
-    plot.new()
-    text(0.5, 0.5, "Insufficient data for homoscedasticity plot\n(need ≥2 numeric observations)", 
-         cex = 1.2, col = "red", adj = 0.5)
-    return()
-  }
-  
-  # Check for variation
-  if (length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
-    plot.new()
-    text(0.5, 0.5, "No variation in data\n(all values identical)", 
-         cex = 1.2, col = "red", adj = 0.5)
-    return()
-  }
-  
-  tryCatch({
-    # Fit a linear model
-    model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
-    
-    # Get fitted values and residuals
-    fitted_vals <- fitted(model)
-    residuals <- resid(model)
-    
-    # Plot residuals vs. fitted values
-    plot(fitted_vals, residuals,
-         main = "Residuals vs Fitted Values",
-         xlab = "Fitted Values",
-         ylab = "Residuals",
-         pch = 19, col = "darkgrey")
-    
-    # Add a horizontal line at 0
-    abline(h = 0, col = "red", lwd = 2)
-    
-    # Add Loess smoothing line to check for any pattern in residuals
-    lines(lowess(fitted_vals, residuals), col = "blue", lwd = 2)
-  }, error = function(e) {
-    plot.new()
-    text(0.5, 0.5, paste("Error creating plot:", e$message), 
-         cex = 1, col = "red", adj = 0.5)
+output$homoscedasticity_plot <- renderSVG({
+  reactive({
+    dt <- get_correlation_data()
+
+    # Apply transformations
+    dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
+    if (is.null(dt)) {
+      plot.new()
+      text(0.5, 0.5, "Transformation failed. Check notifications for details.",
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    # Check if we have sufficient data
+    if (nrow(dt) < 2 || !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]])) {
+      plot.new()
+      text(0.5, 0.5, "Insufficient data for homoscedasticity plot\n(need ≥2 numeric observations)",
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    # Check for variation
+    if (length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+      plot.new()
+      text(0.5, 0.5, "No variation in data\n(all values identical)",
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    tryCatch(
+      {
+        # Fit a linear model
+        model <- lm(dt[[input$yVar]] ~ dt[[input$xVar]])
+
+        # Get fitted values and residuals
+        fitted_vals <- fitted(model)
+        residuals <- resid(model)
+
+        # Plot residuals vs. fitted values
+        plot(fitted_vals, residuals,
+          main = "Residuals vs Fitted Values",
+          xlab = "Fitted Values",
+          ylab = "Residuals",
+          pch = 19, col = "darkgrey"
+        )
+
+        # Add a horizontal line at 0
+        abline(h = 0, col = "red", lwd = 2)
+
+        # Add Loess smoothing line to check for any pattern in residuals
+        lines(lowess(fitted_vals, residuals), col = "blue", lwd = 2)
+      },
+      error = function(e) {
+        plot.new()
+        text(0.5, 0.5, paste("Error creating plot:", e$message),
+          cex = 1, col = "red", adj = 0.5
+        )
+      }
+    )
   })
-}) })
+})
 
 
 output$correlation_plot_ui <- renderUI({
@@ -242,61 +350,82 @@ output$correlation_plot_ui <- renderUI({
   }
 })
 
-output$correlation_plot_svg <- renderSVG({ reactive({
-  dt <- get_correlation_data()
-  
-  # Check if we have sufficient data
-  if (nrow(dt) < 2) {
-    plot.new()
-    text(0.5, 0.5, paste("Insufficient data for correlation plot\nCurrent rows:", nrow(dt), "\nNeed ≥2 observations"), 
-         cex = 1.2, col = "red", adj = 0.5)
-    return()
-  }
-  
-  # Ensure the selected variables exist in the dataset
-  if (!input$xVar %in% names(dt) || !input$yVar %in% names(dt)) {
-    plot.new()
-    text(0.5, 0.5, "Selected variables not found in the dataset", cex = 1.5, col = "red")
-    return()
-  }
-  
-  # Check if variables are numeric
-  if (!is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]])) {
-    plot.new()
-    text(0.5, 0.5, "Selected variables must be numeric", cex = 1.5, col = "red")
-    return()
-  }
-  
-  # Check for variation
-  if (length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
-    plot.new()
-    text(0.5, 0.5, "No variation in selected variables\n(all values identical)", 
-         cex = 1.2, col = "red", adj = 0.5)
-    return()
-  }
-  
-  plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
-}) })
+output$correlation_plot_svg <- renderSVG({
+  reactive({
+    dt <- get_correlation_data()
+
+    # Apply transformations
+    dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
+    if (is.null(dt)) {
+      plot.new()
+      text(0.5, 0.5, "Transformation failed. Check notifications for details.",
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    # Check if we have sufficient data
+    if (nrow(dt) < 2) {
+      plot.new()
+      text(0.5, 0.5, paste("Insufficient data for correlation plot\nCurrent rows:", nrow(dt), "\nNeed ≥2 observations"),
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    # Ensure the selected variables exist in the dataset
+    if (!input$xVar %in% names(dt) || !input$yVar %in% names(dt)) {
+      plot.new()
+      text(0.5, 0.5, "Selected variables not found in the dataset", cex = 1.5, col = "red")
+      return()
+    }
+
+    # Check if variables are numeric
+    if (!is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]])) {
+      plot.new()
+      text(0.5, 0.5, "Selected variables must be numeric", cex = 1.5, col = "red")
+      return()
+    }
+
+    # Check for variation
+    if (length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+      plot.new()
+      text(0.5, 0.5, "No variation in selected variables\n(all values identical)",
+        cex = 1.2, col = "red", adj = 0.5
+      )
+      return()
+    }
+
+    plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
+  })
+})
 
 output$correlation_plotly <- renderPlotly({
   dt <- get_correlation_data()
+
+  # Apply transformations
+  dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
+  if (is.null(dt)) {
+    return(plotly::plot_ly() %>% layout(title = "Transformation failed. Check notifications for details."))
+  }
+
   if (nrow(dt) < 2 || !input$xVar %in% names(dt) || !input$yVar %in% names(dt) ||
-      !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
-      length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
+    !is.numeric(dt[[input$xVar]]) || !is.numeric(dt[[input$yVar]]) ||
+    length(unique(dt[[input$xVar]])) < 2 || length(unique(dt[[input$yVar]])) < 2) {
     return(plotly::plot_ly() %>% layout(title = "Insufficient/invalid data"))
   }
   hover_text <- paste0(
     "Participant: ", if ("participant" %in% names(dt)) as.character(dt$participant) else "?",
-    "<br>", input$xVar, ": ", signif(dt[[input$xVar]], 4),
-    "<br>", input$yVar, ": ", signif(dt[[input$yVar]], 4)
+    "<br>", create_axis_label(input$xVar, input$xVarTransform), ": ", signif(dt[[input$xVar]], 4),
+    "<br>", create_axis_label(input$yVar, input$yVarTransform), ": ", signif(dt[[input$yVar]], 4)
   )
   plotly::plot_ly(
     data = dt,
-    x = ~get(input$xVar), y = ~get(input$yVar), type = 'scatter', mode = 'markers',
-    text = hover_text, hoverinfo = 'text', marker = list(size = 8, color = 'steelblue')
+    x = ~ get(input$xVar), y = ~ get(input$yVar), type = "scatter", mode = "markers",
+    text = hover_text, hoverinfo = "text", marker = list(size = 8, color = "steelblue")
   ) %>% layout(
-    xaxis = list(title = input$xVar),
-    yaxis = list(title = input$yVar),
+    xaxis = list(title = create_axis_label(input$xVar, input$xVarTransform)),
+    yaxis = list(title = create_axis_label(input$yVar, input$yVarTransform)),
     width = input$plotwidth,
     height = input$plotheight
   )

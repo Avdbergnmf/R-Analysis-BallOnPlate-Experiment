@@ -145,6 +145,32 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
         result$dist_to_escape_ratio_mean_corrected <- NA_real_
     }
 
+    # Add post-log metrics (log1p of means to handle zeros properly)
+    # post_log_v_to_edge: log1p of velocity_towards_edge_mean
+    if ("velocity_towards_edge_mean" %in% colnames(result)) {
+        v_to_edge_mean <- result$velocity_towards_edge_mean
+        if (!is.na(v_to_edge_mean)) {
+            result$post_log_v_to_edge <- log1p(v_to_edge_mean)
+        } else {
+            result$post_log_v_to_edge <- NA_real_
+        }
+    } else {
+        result$post_log_v_to_edge <- NA_real_
+    }
+
+    # post_log_edge_pressure: log1p of edge_pressure_mean
+    if ("edge_pressure_mean" %in% colnames(result)) {
+        edge_pressure_mean <- result$edge_pressure_mean
+        if (!is.na(edge_pressure_mean)) {
+            result$post_log_edge_pressure <- log1p(edge_pressure_mean)
+        } else {
+            result$post_log_edge_pressure <- NA_real_
+        }
+    } else {
+        result$post_log_edge_pressure <- NA_real_
+    }
+
+
     # add total score
     scores <- calculate_total_score(sim_data)
     result <- result %>%
