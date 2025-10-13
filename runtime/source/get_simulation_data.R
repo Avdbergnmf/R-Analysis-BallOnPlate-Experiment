@@ -87,8 +87,10 @@ get_simulation_parameters <- function() {
         retreat_share = "Retreat Share",
         retreat_speed_cond = "Retreat Speed (Conditional)",
         approach_speed_cond = "Approach Speed (Conditional)",
+        absqd = "Absolute Arc-length Velocity",
         v_e = "Escape Distance Velocity",
         edge_pressure = "Edge Pressure",
+        edge_pressure_clamped = "Edge Pressure (Clamped)",
         log_v_to_edge = "Log1p(Velocity Towards Edge)",
         post_log_v_to_edge = "Log1p(Velocity Towards Edge Mean)",
         post_log_edge_pressure = "Log1p(Edge Pressure Mean)"
@@ -165,8 +167,10 @@ get_simulation_variable_names <- function() {
         `retreat_share` = "Retreat Share",
         `retreat_speed_cond` = "Retreat Speed (Conditional)",
         `approach_speed_cond` = "Approach Speed (Conditional)",
+        `absqd` = "Absolute Arc-length Velocity",
         `v_e` = "Escape Distance Velocity",
         `edge_pressure` = "Edge Pressure",
+        `edge_pressure_clamped` = "Edge Pressure (Clamped)",
         `log_v_to_edge` = "Log1p(Velocity Towards Edge)",
         `post_log_v_to_edge` = "Log1p(Velocity Towards Edge Mean)",
         `post_log_edge_pressure` = "Log1p(Edge Pressure Mean)"
@@ -488,6 +492,10 @@ add_velocity_towards_edge_metrics <- function(data) {
         data$log_v_to_edge <- NA_real_
         data$log_v_to_edge[data$simulating] <- log1p(v_towards_edge[data$simulating])
 
+        # Add absqd column: absolute value of qd (velocity magnitude)
+        data$absqd <- NA_real_
+        data$absqd[data$simulating] <- abs(data$qd[data$simulating])
+
         # Log the results
         cat(sprintf(
             "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
@@ -517,6 +525,10 @@ add_velocity_towards_edge_metrics <- function(data) {
             "[RISK] Added log_v_to_edge (log1p) for %d on-platform samples (range: %.4f to %.4f)\n",
             sum(data$simulating), min(log1p(v_towards_edge[data$simulating]), na.rm = TRUE), max(log1p(v_towards_edge[data$simulating]), na.rm = TRUE)
         ))
+        cat(sprintf(
+            "[RISK] Added absqd for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(abs(data$qd[data$simulating]), na.rm = TRUE), max(abs(data$qd[data$simulating]), na.rm = TRUE)
+        ))
     } else {
         data$velocity_towards_edge <- NA_real_
         data$approach_pressure <- NA_real_
@@ -525,6 +537,7 @@ add_velocity_towards_edge_metrics <- function(data) {
         data$retreat_speed_cond <- NA_real_
         data$approach_speed_cond <- NA_real_
         data$log_v_to_edge <- NA_real_
+        data$absqd <- NA_real_
         cat("[RISK] No on-platform samples found, all velocity metrics set to NA\n")
     }
     return(data)
@@ -532,27 +545,40 @@ add_velocity_towards_edge_metrics <- function(data) {
 
 #' Helper function to add edge-pressure metric
 #' @param data Simulation data with velocity_towards_edge and dist_to_escape_ratio
-#' @return Data with edge_pressure column added
+#' @return Data with edge_pressure, edge_pressure_clamped, and edge_pressure_unclamped columns added
 add_edge_pressure_metric <- function(data) {
     if (sum(data$simulating) > 0 && "dist_to_escape_ratio" %in% colnames(data)) {
-        # Calculate edge pressure: positive velocity towards edge * (1 - distance ratio)
+        # Calculate edge pressure: velocity towards edge * (1 - distance ratio)
         # Higher values indicate more pressure (closer to edge + moving towards edge)
         v_towards_edge <- data$velocity_towards_edge
-        edge_pressure <- pmax(0, v_towards_edge) * (1 - data$dist_to_escape_ratio)
+
+        # Main edge_pressure: includes negative velocities (no pmax)
+        edge_pressure <- v_towards_edge * (1 - data$dist_to_escape_ratio)
+
+        # Clamped version: only positive velocities (pmax(0, v_towards_edge))
+        edge_pressure_clamped <- pmax(0, v_towards_edge) * (1 - data$dist_to_escape_ratio)
 
         data$edge_pressure <- NA_real_
         data$edge_pressure[data$simulating] <- edge_pressure[data$simulating]
+
+        data$edge_pressure_clamped <- NA_real_
+        data$edge_pressure_clamped[data$simulating] <- edge_pressure_clamped[data$simulating]
 
         cat(sprintf(
             "[RISK] Added edge_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
             sum(data$simulating), min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)
         ))
+        cat(sprintf(
+            "[RISK] Added edge_pressure_clamped for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(edge_pressure_clamped[data$simulating], na.rm = TRUE), max(edge_pressure_clamped[data$simulating], na.rm = TRUE)
+        ))
     } else {
         data$edge_pressure <- NA_real_
+        data$edge_pressure_clamped <- NA_real_
         if (sum(data$simulating) == 0) {
-            cat("[RISK] No on-platform samples found, edge_pressure set to NA\n")
+            cat("[RISK] No on-platform samples found, edge pressure metrics set to NA\n")
         } else {
-            cat("[RISK] dist_to_escape_ratio not available, edge_pressure set to NA\n")
+            cat("[RISK] dist_to_escape_ratio not available, edge pressure metrics set to NA\n")
         }
     }
     return(data)
