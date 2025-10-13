@@ -81,7 +81,8 @@ get_simulation_parameters <- function() {
         drop_risk_bin = "Drop Risk (Per-Bin/Tau)",
         drop_lambda = "Drop Rate (Per-Second/Lambda)",
         drop_risk_1s = "Drop Risk (1-Second)",
-        velocity_towards_edge = "Velocity Towards Edge"
+        velocity_towards_edge = "Velocity Towards Edge",
+        edge_pressure = "Edge Pressure"
     )
 }
 
@@ -149,7 +150,8 @@ get_simulation_variable_names <- function() {
         `drop_risk_bin` = "Drop Risk (Per-Bin/Tau)",
         `drop_lambda` = "Drop Rate (Per-Second/Lambda)",
         `drop_risk_1s` = "Drop Risk (1-Second)",
-        `velocity_towards_edge` = "Velocity Towards Edge"
+        `velocity_towards_edge` = "Velocity Towards Edge",
+        `edge_pressure` = "Edge Pressure"
     )
 }
 
@@ -422,6 +424,34 @@ ensure_qdd_column <- function(data) {
     }
 }
 
+#' Helper function to add edge-pressure metric
+#' @param data Simulation data with velocity_towards_edge and dist_to_escape_ratio
+#' @return Data with edge_pressure column added
+add_edge_pressure_metric <- function(data) {
+    if (sum(data$simulating) > 0 && "dist_to_escape_ratio" %in% colnames(data)) {
+        # Calculate edge pressure: positive velocity towards edge * (1 - distance ratio)
+        # Higher values indicate more pressure (closer to edge + moving towards edge)
+        v_towards_edge <- data$velocity_towards_edge
+        edge_pressure <- pmax(0, v_towards_edge) * (1 - data$dist_to_escape_ratio)
+
+        data$edge_pressure <- NA_real_
+        data$edge_pressure[data$simulating] <- edge_pressure[data$simulating]
+
+        cat(sprintf(
+            "[RISK] Added edge_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)
+        ))
+    } else {
+        data$edge_pressure <- NA_real_
+        if (sum(data$simulating) == 0) {
+            cat("[RISK] No on-platform samples found, edge_pressure set to NA\n")
+        } else {
+            cat("[RISK] dist_to_escape_ratio not available, edge_pressure set to NA\n")
+        }
+    }
+    return(data)
+}
+
 #' Helper function to set samples around gaps to NA to prevent velocity/acceleration spikes
 #' @param data Enhanced simulation data
 #' @return Data with samples around gaps set to NA
@@ -573,9 +603,13 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
             "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
             sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
         ))
+
+        # Add edge-pressure metric using helper function
+        data <- add_edge_pressure_metric(data)
     } else {
         data$velocity_towards_edge <- NA_real_
-        cat("[RISK] No on-platform samples found, velocity_towards_edge set to NA\n")
+        data$edge_pressure <- NA_real_
+        cat("[RISK] No on-platform samples found, velocity_towards_edge and edge_pressure set to NA\n")
     }
 
     # Initialize all risk columns
@@ -666,7 +700,7 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
                 }
 
                 # Use direct model prediction (standardized by default)
-                risk_scores <- score_trial_with_model(data, model, tau, standardized = FALSE)
+                risk_scores <- score_trial_with_model(data, model, tau, standardized = FALSE, use_factors = FALSE)
 
                 # Check if we got valid predictions
                 if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
@@ -866,9 +900,13 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
             sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
         ))
+
+        # Add edge-pressure metric using helper function
+        data <- add_edge_pressure_metric(data)
     } else {
         data$velocity_towards_edge <- NA_real_
-        cat("[RISK] No on-platform samples found, velocity_towards_edge set to NA\n")
+        data$edge_pressure <- NA_real_
+        cat("[RISK] No on-platform samples found, velocity_towards_edge and edge_pressure set to NA\n")
     }
 
     # Initialize all risk columns
