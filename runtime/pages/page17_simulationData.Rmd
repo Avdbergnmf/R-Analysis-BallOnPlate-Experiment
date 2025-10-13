@@ -24,6 +24,11 @@ checkboxInput("enable_risk_predictions", "Enable Risk Predictions",
   value = FALSE, width = "100%"
 )
 
+# Direct model prediction toggle (for dashboard testing)
+checkboxInput("allow_direct_model", "Allow Direct Model Prediction",
+  value = FALSE, width = "100%"
+)
+
 # Tau parameter for risk predictions
 numericInput("risk_tau", "Risk Prediction Time Horizon (seconds)",
   value = 0.0, min = 0, max = 5, step = 0.1, width = "100%"
@@ -87,7 +92,8 @@ sim_data <- reactive({
     participant,
     trial,
     enable_risk = input$enable_risk_predictions,
-    tau = input$risk_tau
+    tau = input$risk_tau,
+    allow_direct_model = input$allow_direct_model
   )
 })
 
@@ -391,7 +397,6 @@ observeEvent(input$load_hazard_samples, {
       results <- compute_pooled_standardized_risks(
         model = model,
         hazard_samples = hazard_samples,
-        tau = tau_value,
         save_csv_path = risk_standardized_path # Save to the same CSV as training
       )
 

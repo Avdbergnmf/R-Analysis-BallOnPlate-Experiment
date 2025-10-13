@@ -10,6 +10,26 @@ library(tibble)
 library(mvtnorm)
 library(ggplot2)
 
+# Extract just the e and v features from sim_data (without tau processing)
+extract_risk_features <- function(sim_data) {
+    if (is.null(sim_data) || nrow(sim_data) == 0) {
+        return(data.frame(e = numeric(0), v = numeric(0)))
+    }
+
+    # Compute features (same logic as build_hazard_samples)
+    q_mag <- abs(sim_data$q)
+    q_dir <- ifelse(q_mag > 0, sim_data$q / q_mag, 0)
+    v_raw <- sim_data$qd * q_dir
+    qlo <- stats::quantile(v_raw, 0.01, na.rm = TRUE)
+    qhi <- stats::quantile(v_raw, 0.99, na.rm = TRUE)
+
+    # Return just the features
+    data.frame(
+        e = pmax(0, pmin(1, sim_data$dist_to_escape_ratio)),
+        v = pmin(pmax(v_raw, qlo), qhi)
+    )
+}
+
 build_hazard_samples <- function(sim_data, tau = 0.2) {
     if (is.null(sim_data) || nrow(sim_data) == 0) {
         return(data.frame())
@@ -23,12 +43,8 @@ build_hazard_samples <- function(sim_data, tau = 0.2) {
         sim_data$respawn_segment <- 1L # fallback: single segment
     }
 
-    # --- features (compute winsorization limits once) ---
-    q_mag <- abs(sim_data$q)
-    q_dir <- ifelse(q_mag > 0, sim_data$q / q_mag, 0)
-    v_raw <- sim_data$qd * q_dir
-    qlo <- stats::quantile(v_raw, 0.01, na.rm = TRUE)
-    qhi <- stats::quantile(v_raw, 0.99, na.rm = TRUE)
+    # Extract risk features using helper function
+    features <- extract_risk_features(sim_data)
 
     # Columns to keep
     base_cols <- c(
@@ -37,11 +53,9 @@ build_hazard_samples <- function(sim_data, tau = 0.2) {
     )
 
     # Build feature frame
-    haz <- transform(
-        sim_data,
-        e = pmax(0, pmin(1, dist_to_escape_ratio)),
-        v = pmin(pmax(v_raw, qlo), qhi)
-    )
+    haz <- sim_data
+    haz$e <- features$e
+    haz$v <- features$v
 
     # --- positives: last sample of each respawn_segment (+/- tau window if tau > 0) ---
     # Ensure flag exists; if not, infer last by time
@@ -256,9 +270,10 @@ resample_simulation_per_episode <- function(sim_data, target_freq = 20, debug = 
 #' Train risk model from hazard samples
 #'
 #' @param hazard_samples Data frame from build_hazard_samples()
+#' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
 #' @return Fitted GLM/GLMER model object
 #' @export
-train_risk_model <- function(hazard_samples) {
+train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
     if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
         return(NULL)
     }
@@ -280,30 +295,92 @@ train_risk_model <- function(hazard_samples) {
         hazard_samples$participant <- as.factor(hazard_samples$participant)
     }
 
+    # Create condition×phase interaction factor for factor-by smooths (if enabled)
+    if (use_by_interaction && "condition" %in% names(hazard_samples) && "phase" %in% names(hazard_samples)) {
+        cat("Creating condition×phase interaction factor for shape differences...\n")
+        hazard_samples$cond_phase <- interaction(hazard_samples$condition, hazard_samples$phase, drop = TRUE)
+        cat(sprintf(
+            "  - Created %d unique condition×phase combinations: %s\n",
+            length(levels(hazard_samples$cond_phase)),
+            paste(levels(hazard_samples$cond_phase), collapse = ", ")
+        ))
+    } else if (!use_by_interaction) {
+        cat("Factor-by smooths disabled by use_by_interaction=FALSE. Using simple smooths.\n")
+    } else {
+        cat("WARNING: condition or phase columns not found. Using simple smooths only.\n")
+    }
+
     # Remove any rows with missing values
-    complete_rows <- complete.cases(hazard_samples[, c("e", "v", "participant", "drop_within_tau")])
+    required_cols <- c("e", "v", "participant", "drop_within_tau")
+    if ("cond_phase" %in% names(hazard_samples)) {
+        required_cols <- c(required_cols, "cond_phase")
+    }
+    complete_rows <- complete.cases(hazard_samples[, required_cols])
     if (sum(!complete_rows) > 0) {
         cat(sprintf("Removing %d rows with missing values...\n", sum(!complete_rows)))
         hazard_samples <- hazard_samples[complete_rows, ]
     }
 
-    # Mixed-effects model with participant random effects using mgcv::bam (multithreaded)
-    cat("Fitting mixed-effects GAM model with mgcv::bam (multithreaded)...\n")
-    # n_cores <- parallel::detectCores()
-    # cat(sprintf("Using %d CPU cores for parallel processing\n", n_cores))
+    # Mixed-effects model with global smooths and parametric condition×phase effects
+    if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
+        cat("Fitting mixed-effects GAM model with global smooths and parametric effects...\n")
+        cat("Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')\n")
+        cat("  - Global shapes: s(e) + s(v) capture average state-risk mapping\n")
+        cat("  - Parametric effects: condition*phase captures level differences across groups\n")
+    } else {
+        cat("Fitting mixed-effects GAM model with simple smooths...\n")
+        cat("Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')\n")
+    }
 
     tryCatch(
         {
-            model <- bam(
-                drop_within_tau ~ s(e, k = 5) + s(v, k = 5) + condition * phase + s(participant, bs = "re"),
-                family = binomial(link = "cloglog"),
-                data = hazard_samples,
-                method = "fREML",
-                discrete = TRUE, # big speed win
-                nthreads = parallel::detectCores() # use all cores
-            )
+            if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
+                # Model with global smooths and parametric condition×phase effects (no factor-by smooths)
+                model <- bam(
+                    drop_within_tau ~
+                        s(e, k = 5) + # global shape for e
+                        s(v, k = 5) + # global shape for v
+                        # removed: s(e, k = 5, by = cond_phase) + # e deviations by condition×phase
+                        condition * phase + # parametric intercepts/contrasts
+                        s(participant, bs = "re"), # participant random effects
+                    family = binomial(link = "cloglog"),
+                    data = hazard_samples,
+                    method = "fREML",
+                    discrete = TRUE, # big speed win
+                    select = TRUE, # shrink unnecessary by-smooths toward 0
+                    nthreads = parallel::detectCores() # use all cores
+                )
+            } else {
+                # Simple smooths (either disabled or no condition×phase data)
+                model <- bam(
+                    drop_within_tau ~
+                        s(e, k = 5) +
+                        s(v, k = 5) +
+                        condition * phase + # parametric intercepts/contrasts
+                        s(participant, bs = "re"), # participant random effects
+                    family = binomial(link = "cloglog"),
+                    data = hazard_samples,
+                    method = "fREML",
+                    discrete = TRUE,
+                    select = TRUE, # shrink unnecessary terms toward 0
+                    nthreads = parallel::detectCores()
+                )
+            }
             cat("Model fitting completed successfully!\n")
             cat(sprintf("Model class: %s\n", class(model)[1]))
+
+            # Log model structure for debugging
+            if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
+                cat(sprintf(
+                    "Model includes %d condition×phase combinations: %s\n",
+                    length(levels(hazard_samples$cond_phase)),
+                    paste(levels(hazard_samples$cond_phase), collapse = ", ")
+                ))
+                cat("Model structure: Global shapes + condition×phase deviations\n")
+            } else {
+                cat("Model structure: Simple smooths only\n")
+            }
+
             return(model)
         },
         error = function(e) {
@@ -323,10 +400,10 @@ train_risk_model <- function(hazard_samples) {
 #' @param prefer Preferred prediction type: "p_hat_fe" (fixed-effects) or "p_hat_re" (subject-specific)
 #' @return Data frame with one row containing risk metrics
 #' @export
-score_trial_with_model <- function(sim_data, model, tau = 0.2,
-                                   use_saved = TRUE,
-                                   preds_path = NULL,
-                                   prefer = c("p_hat_fe", "p_hat_re")) {
+# ARCHIVED: Score trial with saved predictions (kept for reference)
+score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2,
+                                               preds_path = NULL,
+                                               prefer = c("p_hat_fe", "p_hat_re")) {
     if (is.null(model)) {
         return(list(
             individual_predictions = numeric(0),
@@ -344,7 +421,7 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2,
 
     # Try to load saved predictions
     haz_all <- NULL
-    if (use_saved && file.exists(preds_path)) {
+    if (file.exists(preds_path)) {
         tryCatch(
             {
                 haz_all <- readRDS(preds_path)
@@ -367,10 +444,11 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2,
     # If we have saved predictions, filter and return
     if (!is.null(haz_all)) {
         sel <- rep(TRUE, nrow(haz_all))
-        if ("participant" %in% names(haz_all)) sel <- sel & (haz_all$participant == pid)
-        if ("trial" %in% names(haz_all)) sel <- sel & (haz_all$trial == trial)
+        if ("participant" %in% names(haz_all)) sel <- sel & (as.character(haz_all$participant) == as.character(pid))
+        if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
 
         haz_trial <- haz_all[sel, , drop = FALSE]
+        cat(sprintf("[SCORE] Filtered to %d rows for participant %s, trial %s\n", nrow(haz_trial), pid, trial))
         if (nrow(haz_trial) > 0) {
             # Pick preferred prediction column
             pred_col <- prefer[prefer %in% names(haz_trial)][1]
@@ -391,6 +469,33 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2,
 
     # Fallback: compute predictions on the fly for this trial only
     cat(sprintf("[SCORE] Computing predictions on-the-fly for participant %s, trial %s\n", pid, trial))
+    return(score_trial_with_model(sim_data, model, tau))
+}
+
+#' Score trial with risk model (on-the-fly computation only)
+#'
+#' @param sim_data Simulation data from get_simulation_data()
+#' @param model Fitted model from train_risk_model()
+#' @param tau Time horizon for drop prediction (default 0.2 seconds)
+#' @param standardized Whether to standardize predictions to reference condition/phase
+#' @return List with individual_predictions and hazard_samples
+#' @export
+score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE) {
+    if (is.null(model)) {
+        return(list(
+            individual_predictions = numeric(0),
+            hazard_samples = data.frame()
+        ))
+    }
+
+    # Identify this participant/trial
+    pid <- unique(sim_data$participant)
+    if (length(pid) != 1) pid <- pid[1]
+
+    trial <- unique(sim_data$trial)
+    if (length(trial) != 1) trial <- trial[1]
+
+    cat(sprintf("[SCORE] Computing predictions on-the-fly for participant %s, trial %s\n", pid, trial))
 
     hazard_samples <- build_hazard_samples(sim_data, tau)
     if (nrow(hazard_samples) == 0) {
@@ -401,25 +506,96 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2,
         ))
     }
 
-    # Minimal factor alignment
+    # Factor alignment with optional standardization
     hazard_samples$participant <- factor(hazard_samples$participant <- pid)
-    if ("condition" %in% names(model$model) && "condition" %in% names(hazard_samples)) {
-        hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
+
+    if (standardized) {
+        # Standardize to reference levels for state-occupancy risk
+        ref_condition <- "control"
+        ref_phase <- "baseline_task"
+
+        cat(sprintf(
+            "[SCORE] Standardizing predictions to reference levels: condition='%s', phase='%s'\n",
+            ref_condition, ref_phase
+        ))
+
+        if ("condition" %in% names(model$model)) {
+            model_cond_levels <- levels(model$model$condition)
+            if (!is.null(model_cond_levels) && ref_condition %in% model_cond_levels) {
+                hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
+            } else {
+                cat(sprintf(
+                    "[SCORE] WARNING: Reference condition '%s' not in model levels: %s\n",
+                    ref_condition, paste(model_cond_levels, collapse = ", ")
+                ))
+                # Use first available level as fallback
+                if (!is.null(model_cond_levels) && length(model_cond_levels) > 0) {
+                    hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
+                    cat(sprintf("[SCORE] Using fallback condition: '%s'\n", model_cond_levels[1]))
+                }
+            }
+        }
+
+        if ("phase" %in% names(model$model)) {
+            model_phase_levels <- levels(model$model$phase)
+            if (!is.null(model_phase_levels) && ref_phase %in% model_phase_levels) {
+                hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
+            } else {
+                cat(sprintf(
+                    "[SCORE] WARNING: Reference phase '%s' not in model levels: %s\n",
+                    ref_phase, paste(model_phase_levels, collapse = ", ")
+                ))
+                # Use first available level as fallback
+                if (!is.null(model_phase_levels) && length(model_phase_levels) > 0) {
+                    hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
+                    cat(sprintf("[SCORE] Using fallback phase: '%s'\n", model_phase_levels[1]))
+                }
+            }
+        }
+    } else {
+        # Original behavior - use actual condition/phase
+        if ("condition" %in% names(model$model) && "condition" %in% names(hazard_samples)) {
+            hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
+        }
+        if ("phase" %in% names(model$model) && "phase" %in% names(hazard_samples)) {
+            hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
+        }
     }
-    if ("phase" %in% names(model$model) && "phase" %in% names(hazard_samples)) {
-        hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
+
+    # Create cond_phase interaction factor for factor-by smooths (if model uses it)
+    if ("cond_phase" %in% names(model$model)) {
+        if (standardized) {
+            # For standardized predictions, use reference condition×phase
+            expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
+        } else {
+            # For non-standardized predictions, use actual condition×phase
+            expected_cond_phase <- paste(hazard_samples$condition, hazard_samples$phase, sep = ".")
+        }
+
+        model_cond_phase_levels <- levels(model$model$cond_phase)
+        if (expected_cond_phase %in% model_cond_phase_levels) {
+            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+        } else {
+            cat(sprintf(
+                "[SCORE] WARNING: Condition×phase combination '%s' not in model training levels: %s\n",
+                expected_cond_phase, paste(model_cond_phase_levels, collapse = ", ")
+            ))
+            # Use first available level as fallback
+            if (!is.null(model_cond_phase_levels) && length(model_cond_phase_levels) > 0) {
+                hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
+                cat(sprintf("[SCORE] Using fallback cond_phase: '%s'\n", model_cond_phase_levels[1]))
+            }
+        }
     }
 
     # Predict probabilities for each sample
-    # Handle different model types
-    if (inherits(model, "bam") || inherits(model, "gam")) {
-        # For mgcv::bam/gam, use exclude to predict without random effects
+    # Only expect bam models
+    if (inherits(model, "bam")) {
+        # For mgcv::bam, use exclude to predict without random effects
         p_t <- predict(model, newdata = hazard_samples, type = "response", exclude = "s(participant)")
-    } else if (inherits(model, "glmmTMB")) {
-        # For glmmTMB, use re.form = NA to predict without random effects
-        p_t <- predict(model, newdata = hazard_samples, type = "response", re.form = NA)
     } else {
-        # Fallback for other model types
+        # Warn for unexpected model types
+        warning(sprintf("Unexpected model type: %s. Only mgcv::bam models are supported.", class(model)[1]))
         p_t <- predict(model, newdata = hazard_samples, type = "response")
     }
 
@@ -436,8 +612,13 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2,
 #'
 #' @param model Fitted model from train_risk_model()
 #' @param file_path Path to save the RDS file
+#' @param tau Time horizon used for training (optional, for metadata)
 #' @export
-save_risk_model <- function(model, file_path) {
+save_risk_model <- function(model, file_path, tau = NULL) {
+    # Add tau as an attribute if provided
+    if (!is.null(tau)) {
+        attr(model, "tau") <- tau
+    }
     saveRDS(model, file_path)
 }
 
@@ -460,11 +641,13 @@ load_risk_model <- function(file_path) {
 #' @param participants Vector of participant IDs
 #' @param trials Vector of trial numbers
 #' @param tau Time horizon for drop prediction (default 0.2 seconds)
+#' @param sampling_freq Sampling frequency for resampling (default 90 Hz)
 #' @param file_path Path to save the RDS file (default uses global risk_model_path)
+#' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
 #' @return Fitted model object
 #' @export
 train_and_save_risk_model <- function(participants, trials, tau = 0.2,
-                                      sampling_freq = 90, file_path = NULL) {
+                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE) {
     tryCatch({
         # Use global risk model path if not specified
         if (is.null(file_path)) {
@@ -545,7 +728,7 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
 
         # Train risk model
         cat("Step 2/3: Fitting mixed-effects GLM model...\n")
-        model <- train_risk_model(all_hazard_samples)
+        model <- train_risk_model(all_hazard_samples, use_by_interaction = use_by_interaction)
 
         if (is.null(model)) {
             cat("Failed to train risk model\n")
@@ -554,7 +737,7 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
 
         # Save risk model
         cat("Step 3/3: Saving model and hazard samples to disk...\n")
-        save_risk_model(model, file_path)
+        save_risk_model(model, file_path, tau = tau)
 
         # Save hazard samples alongside the model
         ensure_global_data_initialized()
@@ -575,6 +758,8 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             cat(sprintf("ERROR: Hazard samples file was not created at %s\n", risk_hazard_samples_path))
         }
 
+        # Stuff for pooled standardized risks analysis, abandoned this as things were getting too complicated
+
         # ── NEW: Add per-sample predictions to saved hazard samples ──
         cat("Step 4/5: Adding per-sample predictions to hazard samples...\n")
         ensure_global_data_initialized()
@@ -589,12 +774,13 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
         # annotate_hazard_predictions(model, all_hazard_samples, include_re = TRUE,
         #                             out_path = risk_hazard_samples_preds_re_path)
 
+
+        # Abandoned this as things were getting too complicated
         # ── NEW: pooled standardized predictions by Condition × Phase ──
         cat("Step 5/5: Computing pooled standardized risks by Condition × Phase...\n")
         std_means <- compute_pooled_standardized_risks(
             model,
             all_hazard_samples,
-            tau = tau,
             save_csv_path = risk_standardized_path
         )
 
@@ -746,6 +932,27 @@ annotate_hazard_predictions <- function(model,
     colname <- if (include_re) "p_hat_re" else "p_hat_fe"
     hazard_samples[[colname]] <- p_hat
 
+    # Also add eta (linear predictor) for rate calculations
+    eta_colname <- if (include_re) "eta_re" else "eta_fe"
+    eta_args <- list(type = "link")
+    if (!include_re) eta_args$exclude <- "s(participant)"
+
+    eta_hat <- numeric(nrow(hazard_samples))
+    for (i in seq_along(split_idx)) {
+        ix <- split_idx[[i]]
+        newdf <- hazard_samples[ix, , drop = FALSE]
+
+        tryCatch(
+            {
+                eta_result <- do.call(predict, c(list(object = model, newdata = newdf), eta_args))
+                eta_hat[ix] <- eta_result
+            },
+            error = function(e) {
+                eta_hat[ix] <- NA_real_
+            }
+        )
+    }
+    hazard_samples[[eta_colname]] <- eta_hat
 
     # Save and return
     saveRDS(hazard_samples, out_path)
@@ -756,17 +963,20 @@ annotate_hazard_predictions <- function(model,
 # ─────────────────────────────────────────────────────────────────────────────
 # Pooled, state-conditional standardized mean risks by Condition × Phase
 # ─────────────────────────────────────────────────────────────────────────────
-# ─────────────────────────────────────────────────────────────────────────────
-# Pooled, state-conditional standardized mean risks by Condition × Phase
-# ─────────────────────────────────────────────────────────────────────────────
-compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
-                                              save_csv_path = NULL) {
-    cat("[DEBUG] compute_pooled_standardized_risks called with tau =", tau, "\n")
+compute_pooled_standardized_risks <- function(model, hazard_samples, save_csv_path = NULL) {
+    cat("[DEBUG] compute_pooled_standardized_risks called\n")
 
     # sanity
     need <- c("e", "v", "participant", "condition", "phase")
     miss <- setdiff(need, names(hazard_samples))
     if (length(miss) > 0) stop("hazard_samples missing: ", paste(miss, collapse = ", "))
+
+    # Get tau from model attributes (CRITICAL for rate calculations)
+    tau <- attr(model, "tau")
+    if (is.null(tau) || tau <= 0) {
+        stop("Model missing valid tau attribute. Expected tau > 0 for rate calculations.")
+    }
+    cat(sprintf("[STANDARDIZED] Using model tau = %.3f seconds for rate calculations\n", tau))
 
     # factor levels to match the model
     hazard_samples$participant <- factor(hazard_samples$participant)
@@ -789,7 +999,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
     ref_df <- hazard_samples[, c("e", "v", "participant")]
     ref_df$participant <- factor(ref_df$participant)
 
-    # estimate bin width Δt from within-segment time differences (if available)
+    # estimate bin width Δt from within-segment time differences (for info only, not used in calculations)
     dt <- NA_real_
     if (all(c("time", "respawn_segment") %in% names(hazard_samples))) {
         dt_vec <- hazard_samples |>
@@ -802,6 +1012,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
             ) |>
             dplyr::pull(dt_med)
         dt <- stats::median(dt_vec[is.finite(dt_vec) & dt_vec > 0], na.rm = TRUE)
+        cat(sprintf("[STANDARDIZED] Estimated dt = %.3f seconds (for info only)\n", dt))
     }
 
     # Condition levels
@@ -832,27 +1043,146 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
 
     res_list <- list()
 
+    cat(sprintf(
+        "[STANDARDIZED] Computing standardized mapping scores for %d condition × %d phase combinations\n",
+        length(cond_levels), length(phase_levels)
+    ))
+    cat("[STANDARDIZED] Using fixed reference state distribution (e, v, participant) with standardized condition×phase labels\n")
+
+    # Ensure we have valid levels to work with
+    if (length(cond_levels) == 0) {
+        cat("[STANDARDIZED] ERROR: No valid condition levels found\n")
+        return(NULL)
+    }
+    if (length(phase_levels) == 0) {
+        cat("[STANDARDIZED] ERROR: No valid phase levels found\n")
+        return(NULL)
+    }
+
+    # Debug: Show model's factor levels
+    if ("condition" %in% names(model$model)) {
+        cat(sprintf("[STANDARDIZED] Model condition levels: %s\n", paste(levels(model$model$condition), collapse = ", ")))
+    }
+    if ("phase" %in% names(model$model)) {
+        cat(sprintf("[STANDARDIZED] Model phase levels: %s\n", paste(levels(model$model$phase), collapse = ", ")))
+    }
+    if ("cond_phase" %in% names(model$model)) {
+        cat(sprintf("[STANDARDIZED] Model cond_phase levels: %s\n", paste(levels(model$model$cond_phase), collapse = ", ")))
+    }
+
+    # Process all condition × phase combinations
+    res_list <- list()
+
     for (cn in cond_levels) {
         for (ph in phase_levels) {
-            newdf <- ref_df
-            newdf$condition <- factor(cn, levels = cond_levels)
-            newdf$phase <- factor(ph, levels = phase_levels)
+            cat(sprintf("[STANDARDIZED] Processing: condition='%s', phase='%s'\n", cn, ph))
 
-            # predict fixed-effects hazard; exclude random effect smooth
-            eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)")
-            # per-bin prob (for backward compat with 'mean_hazard'):
-            p <- 1 - exp(-exp(eta))
-            mean_h <- mean(tapply(p, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
-            # sampling-invariant rate and 1-second risk:
-            if (is.finite(dt) && dt > 0) {
-                lambda <- exp(eta) / dt
-                risk1s <- 1 - exp(-lambda)
-                exp_dpm <- 60 * mean(tapply(lambda, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
-                risk_1s <- mean(tapply(risk1s, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            # Create standardized prediction data using fixed reference states
+            newdf <- ref_df
+
+            # CRITICAL: Align factor levels with model's training levels
+            # This ensures we only use combinations that existed in training
+            skip_combination <- FALSE
+
+            if ("condition" %in% names(model$model)) {
+                model_cond_levels <- levels(model$model$condition)
+                # If model levels are empty, use the levels we determined earlier
+                if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
+                    cat("[STANDARDIZED] Model condition levels are empty, using fallback levels\n")
+                    model_cond_levels <- cond_levels
+                }
+
+                if (cn %in% model_cond_levels) {
+                    newdf$condition <- factor(cn, levels = model_cond_levels)
+                } else {
+                    cat(sprintf(
+                        "[STANDARDIZED] WARNING: Condition '%s' not in model training levels: %s\n",
+                        cn, paste(model_cond_levels, collapse = ", ")
+                    ))
+                    skip_combination <- TRUE
+                }
             } else {
-                exp_dpm <- NA_real_
-                risk_1s <- NA_real_
+                newdf$condition <- factor(cn, levels = cond_levels)
             }
+
+            if ("phase" %in% names(model$model)) {
+                model_phase_levels <- levels(model$model$phase)
+                # If model levels are empty, use the levels we determined earlier
+                if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
+                    cat("[STANDARDIZED] Model phase levels are empty, using fallback levels\n")
+                    model_phase_levels <- phase_levels
+                }
+
+                if (ph %in% model_phase_levels) {
+                    newdf$phase <- factor(ph, levels = model_phase_levels)
+                } else {
+                    cat(sprintf(
+                        "[STANDARDIZED] WARNING: Phase '%s' not in model training levels: %s\n",
+                        ph, paste(model_phase_levels, collapse = ", ")
+                    ))
+                    skip_combination <- TRUE
+                }
+            } else {
+                newdf$phase <- factor(ph, levels = phase_levels)
+            }
+
+            # Skip prediction if factor levels don't match
+            if (skip_combination) {
+                cat("[STANDARDIZED] Skipping prediction due to factor level mismatch\n")
+                next
+            }
+
+            # Create cond_phase interaction factor for factor-by smooths
+            if ("cond_phase" %in% names(model$model)) {
+                # Create the interaction factor using the same method as training
+                newdf$cond_phase <- interaction(newdf$condition, newdf$phase, drop = TRUE)
+
+                # Get the model's cond_phase levels
+                model_cond_phase_levels <- levels(model$model$cond_phase)
+
+                # Debug: Show what we're trying to create vs what the model expects
+                cat(sprintf("[STANDARDIZED] Created cond_phase: %s\n", paste(levels(newdf$cond_phase), collapse = ", ")))
+                cat(sprintf("[STANDARDIZED] Model expects cond_phase: %s\n", paste(model_cond_phase_levels, collapse = ", ")))
+
+                # Check if our created levels match the model's levels
+                if (!all(levels(newdf$cond_phase) %in% model_cond_phase_levels)) {
+                    cat(sprintf(
+                        "[STANDARDIZED] WARNING: Some cond_phase levels not in model training levels\n"
+                    ))
+                    # Try to align the levels
+                    newdf$cond_phase <- factor(newdf$cond_phase, levels = model_cond_phase_levels)
+                }
+            }
+
+            # Skip prediction if cond_phase levels don't match
+            if (skip_combination) {
+                cat("[STANDARDIZED] Skipping prediction due to cond_phase level mismatch\n")
+                next
+            }
+
+            cat(sprintf("[STANDARDIZED] Computing standardized risk for condition='%s', phase='%s'\n", cn, ph))
+
+            # Predict fixed-effects hazard; exclude random effect smooth for population-level mapping
+            # Use parallel processing for faster prediction (same as training)
+            n_cores <- parallel::detectCores()
+            cat(sprintf("[STANDARDIZED] Using %d cores for parallel prediction\n", n_cores))
+            cat(sprintf("[STANDARDIZED] Predicting on %d rows...\n", nrow(newdf)))
+
+            # Add timing
+            start_time <- Sys.time()
+            eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)", nthreads = n_cores)
+            end_time <- Sys.time()
+            cat(sprintf("[STANDARDIZED] Prediction completed in %.2f seconds\n", as.numeric(end_time - start_time, units = "secs")))
+
+            # per-τ drop probability (for backward compat with 'mean_hazard'):
+            p_tau <- 1 - exp(-exp(eta))
+            mean_h <- mean(tapply(p_tau, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+
+            # sampling-invariant rate and 1-second risk using model's tau:
+            lambda <- exp(eta) / tau # per-second hazard rate
+            risk1s <- 1 - exp(-lambda) # 1-second risk
+            exp_dpm <- 60 * mean(tapply(lambda, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            risk_1s <- mean(tapply(risk1s, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
 
             res_list[[paste(cn, ph, sep = "|")]] <- data.frame(
                 condition = cn,
@@ -868,6 +1198,17 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, tau = 0,
 
     out <- do.call(rbind, res_list)
     rownames(out) <- NULL
+
+    cat(sprintf("[STANDARDIZED] Successfully computed standardized risks for %d condition×phase combinations\n", nrow(out)))
+    if (nrow(out) > 0) {
+        cat("[STANDARDIZED] Computed combinations:\n")
+        for (i in seq_len(nrow(out))) {
+            cat(sprintf(
+                "  - %s × %s: risk_1s = %.6f, mean_hazard = %.6f\n",
+                out$condition[i], out$phase[i], out$risk_1s[i], out$mean_hazard[i]
+            ))
+        }
+    }
 
     if (!is.null(save_csv_path)) {
         utils::write.csv(out, save_csv_path, row.names = FALSE)
@@ -991,7 +1332,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
     DiD <- tibble::tibble(
         contrast = c(
             "PV vs Control (Retention)", "PV vs Control (Transfer)",
-            "P  vs Control (Retention)", "P  vs Control (Transfer)"
+            "P  vs Control (Retention)", "P  vs Control (Transfer)",
+            "P  vs PV (Retention)", "P  vs PV (Transfer)"
         ),
         DiD = c(
             (get_mh("perturbation_visualization", "retention") - get_mh("perturbation_visualization", "baseline_task")) -
@@ -1001,7 +1343,11 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
             (get_mh("perturbation", "retention") - get_mh("perturbation", "baseline_task")) -
                 (get_mh("control", "retention") - get_mh("control", "baseline_task")),
             (get_mh("perturbation", "transfer") - get_mh("perturbation", "baseline_task")) -
-                (get_mh("control", "transfer") - get_mh("control", "baseline_task"))
+                (get_mh("control", "transfer") - get_mh("control", "baseline_task")),
+            (get_mh("perturbation", "retention") - get_mh("perturbation", "baseline_task")) -
+                (get_mh("perturbation_visualization", "retention") - get_mh("perturbation_visualization", "baseline_task")),
+            (get_mh("perturbation", "transfer") - get_mh("perturbation", "baseline_task")) -
+                (get_mh("perturbation_visualization", "transfer") - get_mh("perturbation_visualization", "baseline_task"))
         )
     )
 
@@ -1020,20 +1366,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
         cond_levels_b <- unique(mm$condition)
         phase_levels_b <- unique(mm$phase)
 
-        make_eta <- function(beta_vec, cond, ph) {
-            newdf <- ref_df
-            newdf$condition <- factor(cond, levels = cond_levels_b)
-            newdf$phase <- factor(ph, levels = phase_levels_b)
-            X <- predict(model, newdata = newdf, type = "lpmatrix", exclude = "s(participant)")
-            as.vector(X %*% beta_vec)
-        }
-        std_mean_for <- function(beta_vec, cond, ph) {
-            eta <- make_eta(beta_vec, cond, ph)
-            p <- 1 - exp(-exp(eta)) # inverse cloglog
-            by_pid <- tapply(p, ref_df$participant, mean, na.rm = TRUE)
-            mean(unlist(by_pid), na.rm = TRUE)
-        }
-
         beta_hat <- coef(model)
         V <- model$Vp
 
@@ -1041,39 +1373,210 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
             warning("[ANALYSIS] No valid covariance matrix; skipping bootstrap.")
         } else {
             B <- 100L # increase to 1000 for final runs
-            cat(sprintf("[ANALYSIS] Starting parametric bootstrap with %d iterations...\n", B))
+            cat(sprintf("[ANALYSIS] Starting optimized parametric bootstrap with %d iterations...\n", B))
+            cat("[ANALYSIS] OPTIMIZATIONS: Vectorized bootstrap + rowsum aggregation + outer combo loop\n")
+            cat("[ANALYSIS] METRIC: Computing 1-second risk only (risk_1s)\n")
+            cat("[ANALYSIS] EXPECTED BENEFITS: Memory efficient + 10-50x faster + full condition×phase coverage\n")
             flush.console()
 
-            get_all_means <- function(beta_vec) {
+            # Get tau from model attributes for rate calculations
+            tau_model <- attr(model, "tau")
+            if (is.null(tau_model)) {
+                tau_model <- 0.2 # fallback
+                cat("[ANALYSIS] No tau found in model, using fallback: 0.2s\n")
+            }
+
+            # 1) BEFORE THE LOOP: Cache reference frame and participant indices
+            cat("[ANALYSIS] Caching reference frame and participant indices...\n")
+            ref_df <- hazard_samples[, c("e", "v", "participant")]
+            ref_df$participant <- factor(ref_df$participant)
+
+            # Create participant index and counts (reused for every combo)
+            pid <- as.integer(factor(ref_df$participant))
+            n_g <- tabulate(pid) # length = #participants
+            G <- length(n_g) # number of participants
+
+            cat(sprintf("[ANALYSIS] Reference frame: %d rows, %d participants\n", nrow(ref_df), G))
+
+            # Precompute Cholesky decomposition for coefficient sampling
+            set.seed(123)
+            p <- length(beta_hat)
+            L <- chol(V)
+
+            # Draw all coefficients at once (p × B matrix)
+            Z_matrix <- matrix(rnorm(p * B), p, B)
+            Beta_matrix <- beta_hat + L %*% Z_matrix # p × B
+
+            # Storage for final results (B-length vectors per combo)
+            combo_results <- list()
+
+            # 2) OUTER LOOP: Process each condition×phase combination
+            for (cond in cond_levels_b) {
+                for (ph in phase_levels_b) {
+                    key <- paste(cond, ph, sep = "|")
+                    cat(sprintf("[ANALYSIS] Processing combo: %s\n", key))
+
+                    # Create newdf by copying ref_df and setting condition/phase
+                    newdf <- ref_df
+                    newdf$condition <- factor(cond, levels = cond_levels_b)
+                    newdf$phase <- factor(ph, levels = phase_levels_b)
+
+                    # Add cond_phase factor for factor-by smooths
+                    if ("cond_phase" %in% names(model$model)) {
+                        expected_cond_phase <- paste(cond, ph, sep = ".")
+                        model_cond_phase_levels <- levels(model$model$cond_phase)
+                        if (expected_cond_phase %in% model_cond_phase_levels) {
+                            newdf$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+                        } else {
+                            cat(sprintf(
+                                "[ANALYSIS] WARNING: Skipping combo '%s' - cond_phase '%s' not in model levels\n",
+                                key, expected_cond_phase
+                            ))
+                            next
+                        }
+                    }
+
+                    # 3) VECTORIZED BOOTSTRAP: Precompute design matrix once per combo
+                    X <- predict(model, newdata = newdf, type = "lpmatrix", exclude = "s(participant)")
+
+                    # Compute all linear predictors at once (n × B)
+                    Eta <- X %*% Beta_matrix # n × B
+
+                    # Convert to 1-second risk only (the metric we care about)
+                    Lambda <- exp(Eta) / tau_model # per-second hazard rate (n × B)
+                    Risk1s <- 1 - exp(-Lambda) # 1-second risk (n × B)
+
+                    # 4) AGGREGATE BY PARTICIPANT WITH ROWSUM (the fast bit)
+                    # Sum by participant across ALL bootstrap columns in one shot
+                    S_1s <- rowsum(Risk1s, pid) # (G × B) sums for 1-second risk
+
+                    # Turn sums into participant means
+                    M_1s <- sweep(S_1s, 1, n_g, "/") # divide each row g by its n_g
+
+                    # Equal-weight participants to get the combo's pooled mean per bootstrap
+                    overall_1s <- colMeans(M_1s) # length B
+
+                    # 5) STORE RESULTS (only 1-second risk)
+                    combo_results[[key]] <- overall_1s
+
+                    cat(sprintf("[ANALYSIS] Completed combo %s: %d bootstrap samples\n", key, B))
+                }
+            }
+
+            # OLD CHUNKED PROCESSING REMOVED - REPLACED WITH VECTORIZED APPROACH ABOVE
+
+            # Convert to expected format for downstream analysis
+            cat("[ANALYSIS] Converting results to expected format...\n")
+            boot_list <- vector("list", B)
+            for (b in seq_len(B)) {
+                if (b %% 20 == 0 || b == B) {
+                    cat(sprintf("[ANALYSIS] Converting bootstrap iteration: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
+                    flush.console()
+                }
+
+                # Extract results for this bootstrap iteration
                 grid <- expand.grid(
                     condition = cond_levels_b,
                     phase = phase_levels_b,
                     KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
                 )
-                grid$mean_hazard <- mapply(
-                    function(cn, ph) std_mean_for(beta_vec, cn, ph),
-                    grid$condition, grid$phase
-                )
-                grid
+
+                grid$mean_hazard <- sapply(seq_len(nrow(grid)), function(i) {
+                    key <- paste(grid$condition[i], grid$phase[i], sep = "|")
+                    if (key %in% names(combo_results)) {
+                        combo_results[[key]][b] # Direct access to 1-second risk vector
+                    } else {
+                        NA_real_
+                    }
+                })
+
+                boot_list[[b]] <- grid
             }
 
-            set.seed(123)
-            beta_draw <- function() {
-                out <- try(mvtnorm::rmvnorm(1, mean = beta_hat, sigma = V), silent = TRUE)
-                if (inherits(out, "try-error")) beta_hat else as.numeric(out)
-            }
+            # OLD CODE REMOVED - END OF REPLACEMENT
+            if (FALSE) { # This block is disabled - old chunked processing
+                for (chunk_idx in seq_len(n_chunks)) {
+                    start_row <- (chunk_idx - 1) * chunk_n + 1
+                    end_row <- min(chunk_idx * chunk_n, n_rows)
+                    chunk_rows <- start_row:end_row
 
-            boot_list <- vector("list", B)
-            cat(sprintf("[ANALYSIS] Running %d bootstrap iterations...\n", B))
-            flush.console()
+                    # Build prediction data for this chunk
+                    newdf_chunk <- ref_df[chunk_rows, , drop = FALSE]
+                    newdf_chunk$condition <- factor(cond, levels = cond_levels_b)
+                    newdf_chunk$phase <- factor(ph, levels = phase_levels_b)
 
-            for (b in seq_len(B)) {
-                if (b %% 10 == 0 || b == B) {
-                    cat(sprintf("[ANALYSIS] Bootstrap progress: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
-                    flush.console()
+                    # Add cond_phase factor for factor-by smooths
+                    if ("cond_phase" %in% names(model$model)) {
+                        expected_cond_phase <- paste(cond, ph, sep = ".")
+                        model_cond_phase_levels <- levels(model$model$cond_phase)
+                        if (expected_cond_phase %in% model_cond_phase_levels) {
+                            newdf_chunk$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+                        } else {
+                            cat(sprintf(
+                                "[ANALYSIS] WARNING: Skipping chunk for combo '%s' - cond_phase '%s' not in model levels\n",
+                                key, expected_cond_phase
+                            ))
+                            next
+                        }
+                    }
+
+                    # Get design matrix for this chunk
+                    X_chunk <- predict(model,
+                        newdata = newdf_chunk, type = "lpmatrix",
+                        exclude = "s(participant)", newdata.guaranteed = TRUE
+                    )
+
+                    # Process beta draws in batches
+                    for (batch_start in seq(1, B, by = b_batch)) {
+                        batch_end <- min(batch_start + b_batch - 1, B)
+                        batch_size <- batch_end - batch_start + 1
+                        batch_cols <- batch_start:batch_end
+
+                        # Draw coefficients for this batch
+                        Z_batch <- matrix(rnorm(p * batch_size), p, batch_size)
+                        Beta_batch <- beta_hat + L %*% Z_batch
+
+                        # Compute linear predictors for this chunk×batch
+                        Eta_chunk <- X_chunk %*% Beta_batch # chunk_n × batch_size
+
+                        # Compute risk_1s directly (the metric we care about)
+                        lambda_chunk <- exp(Eta_chunk) / tau_model
+                        p1_chunk <- 1 - exp(-lambda_chunk) # chunk_n × batch_size
+
+                        # Efficient aggregation using rowsum (fast C code)
+                        pid_idx_chunk <- as.numeric(newdf_chunk$participant)
+
+                        # Sum p1_chunk by participant
+                        S <- rowsum(p1_chunk, group = pid_idx_chunk) # n_participants × batch_size
+
+                        # Count samples per participant (only need to do this once per chunk)
+                        if (batch_start == 1) {
+                            C <- rowsum(matrix(1, nrow = nrow(p1_chunk), ncol = 1), group = pid_idx_chunk)
+                            cnt_P[participant_map %in% rownames(S)] <- cnt_P[participant_map %in% rownames(S)] + as.numeric(C)
+                        }
+
+                        # Accumulate sums
+                        participant_indices <- match(rownames(S), participant_map)
+                        sum_BxP[batch_cols, participant_indices] <- sum_BxP[batch_cols, participant_indices] + t(S)
+                    }
+
+                    if (chunk_idx %% 5 == 0 || chunk_idx == n_chunks) {
+                        cat(sprintf(
+                            "[ANALYSIS] Completed chunk %d/%d for combo %s\n",
+                            chunk_idx, n_chunks, key
+                        ))
+                    }
                 }
-                boot_list[[b]] <- get_all_means(beta_draw())
-            }
+
+                # Final aggregation: divide by counts and take mean across participants
+                participant_means <- sum_BxP / cnt_P # B × n_participants
+                overall_means <- rowMeans(participant_means, na.rm = TRUE) # B-length vector
+
+                # Store only the B-length result vector
+                combo_results[[key]] <- overall_means
+
+                cat(sprintf("[ANALYSIS] Completed combo %s: %d bootstrap samples\n", key, length(overall_means)))
+            } # End of disabled old code block
 
             cat("[ANALYSIS] Bootstrap completed, computing confidence intervals...\n")
             flush.console()
@@ -1107,7 +1610,9 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                     c("perturbation_visualization", "control", "retention"),
                     c("perturbation_visualization", "control", "transfer"),
                     c("perturbation", "control", "retention"),
-                    c("perturbation", "control", "transfer")
+                    c("perturbation", "control", "transfer"),
+                    c("perturbation", "perturbation_visualization", "retention"),
+                    c("perturbation", "perturbation_visualization", "transfer")
                 )
                 pts <- apply(did_names, 1, \(r) did_from_df(std_means, r[1], r[2], r[3]))
 
@@ -1135,7 +1640,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
                 DiD_boot <- tibble::tibble(
                     contrast = c(
                         "PV vs Control (Retention)", "PV vs Control (Transfer)",
-                        "P vs Control (Retention)",  "P vs Control (Transfer)"
+                        "P vs Control (Retention)", "P vs Control (Transfer)",
+                        "P vs PV (Retention)", "P vs PV (Transfer)"
                     ),
                     point = as.numeric(pts),
                     lo = apply(did_boot_mat, 1, \(x) stats::quantile(x, .025, na.rm = TRUE)),
@@ -1202,8 +1708,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
         } # end valid V
     } # end bootstrap branch
 
-    # 4) Optional plot (only if means_CI exists)
-    if (!is.null(means_CI)) {
+    # 4) Optional plot (only if means_CI exists and has data)
+    if (!is.null(means_CI) && nrow(means_CI) > 0) {
         cat("[ANALYSIS] Creating visualization...\n")
         p <- ggplot2::ggplot(
             means_CI,
@@ -1222,6 +1728,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
     }
 
     results <- list(
+        std_means = std_means,
         interaction_test = interaction_test,
         wald_interaction = wald_interaction,
         within_condition_changes = delta,
@@ -1245,7 +1752,26 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
 
 # Helper function to save analysis to text file
 save_analysis_to_txt <- function(results, txt_path) {
+    # Check if file already exists and create unique filename if needed
+    if (file.exists(txt_path)) {
+        # Extract directory, base name, and extension
+        dir_path <- dirname(txt_path)
+        base_name <- tools::file_path_sans_ext(basename(txt_path))
+        ext <- tools::file_ext(txt_path)
+
+        # Create timestamp for unique filename
+        timestamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+        new_filename <- paste0(base_name, "_", timestamp, ".", ext)
+        txt_path <- file.path(dir_path, new_filename)
+
+        cat(sprintf("[ANALYSIS] File already exists, saving to: %s\n", txt_path))
+    }
+
     sink(txt_path)
+
+    # Executive summary at the very top
+    render_exec_summary(results, stdout())
+
     cat("=== RISK MODEL STATISTICAL ANALYSIS ===\n\n")
 
     cat("1. CONDITION × PHASE INTERACTION TEST\n")
@@ -1302,9 +1828,242 @@ save_analysis_to_txt <- function(results, txt_path) {
     message(sprintf("[ANALYSIS] Results saved to: %s", txt_path))
 }
 
+#' Render executive summary tables
+#'
+#' @param results List containing analysis results
+#' @param file_con Connection to write to (e.g., from sink())
+#' @export
+render_exec_summary <- function(results, file_con) {
+    # Helper formatters
+    fmt_num <- function(x) sprintf("%.6f", x)
+    fmt_ci <- function(lo, hi) sprintf("[%.6f, %.6f]", lo, hi)
+    fmt_p <- function(p) {
+        if (is.na(p)) {
+            return("NA")
+        }
+        if (p < 0.001) {
+            return("<0.001")
+        }
+        sprintf("%.3f", p)
+    }
+
+    # Determine metric label
+    metric_label <- if (!is.null(results$std_means) && "risk_1s" %in% names(results$std_means)) {
+        "standardized 1-second risk (population-level; RE excluded)"
+    } else {
+        "per-bin hazard (cloglog; population-level; RE excluded)"
+    }
+
+    cat("=== EXECUTIVE SUMMARY ===\n\n", file = file_con)
+    cat(sprintf("Metric: %s\n\n", metric_label), file = file_con)
+
+    # A) Within-condition learning deltas
+    cat("A) Within-condition learning (Δ vs baseline)\n", file = file_con)
+    if (!is.null(results$within_condition_CI) && nrow(results$within_condition_CI) > 0) {
+        within_df <- results$within_condition_CI
+
+        # Standardize ordering: conditions first, then deltas
+        condition_order <- c("control", "perturbation", "perturbation_visualization")
+        condition_order <- condition_order[condition_order %in% within_df$condition]
+        if (length(condition_order) == 0) condition_order <- unique(within_df$condition)
+
+        delta_order <- c("d_retention", "d_transfer")
+        delta_order <- delta_order[delta_order %in% within_df$delta]
+        if (length(delta_order) == 0) delta_order <- unique(within_df$delta)
+
+        # Pretty delta labels
+        delta_labels <- c(
+            "d_retention" = "Retention − Baseline",
+            "d_transfer" = "Transfer − Baseline"
+        )
+
+        # Create ordered table
+        within_ordered <- within_df[order(
+            match(within_df$condition, condition_order),
+            match(within_df$delta, delta_order)
+        ), ]
+
+        # Print table
+        cat("Condition           | Delta              | Effect    | 95% CI              | p_boot  | p_Holm\n", file = file_con)
+        cat("--------------------|--------------------|-----------|---------------------|---------|--------\n", file = file_con)
+
+        for (i in seq_len(nrow(within_ordered))) {
+            row <- within_ordered[i, ]
+            cond <- row$condition
+            delta <- delta_labels[row$delta]
+            effect <- fmt_num(row$point)
+            ci <- fmt_ci(row$lo, row$hi)
+            p_boot <- fmt_p(row$p_boot)
+            p_holm <- fmt_p(row$p_boot_holm)
+
+            cat(sprintf(
+                "%-19s | %-18s | %-9s | %-19s | %-7s | %s\n",
+                cond, delta, effect, ci, p_boot, p_holm
+            ), file = file_con)
+        }
+    } else {
+        cat("(not available)\n", file = file_con)
+    }
+
+    cat("\n", file = file_con)
+
+    # B) Difference-in-Differences
+    cat("B) Difference-in-Differences\n", file = file_con)
+    if (!is.null(results$bootstrap_DiD_CI) && nrow(results$bootstrap_DiD_CI) > 0) {
+        did_df <- results$bootstrap_DiD_CI
+
+        # Standardize ordering: exact six rows if present
+        contrast_order <- c(
+            "PV vs Control (Retention)",
+            "PV vs Control (Transfer)",
+            "P vs Control (Retention)",
+            "P vs Control (Transfer)",
+            "P vs PV (Retention)",
+            "P vs PV (Transfer)"
+        )
+
+        # Filter to only existing contrasts
+        did_ordered <- did_df[did_df$contrast %in% contrast_order, ]
+        did_ordered <- did_ordered[order(match(did_ordered$contrast, contrast_order)), ]
+
+        if (nrow(did_ordered) > 0) {
+            # Print table
+            cat("Contrast                    | Effect    | 95% CI              | p_boot  | p_Holm\n", file = file_con)
+            cat("----------------------------|-----------|---------------------|---------|--------\n", file = file_con)
+
+            for (i in seq_len(nrow(did_ordered))) {
+                row <- did_ordered[i, ]
+                contrast <- row$contrast
+                effect <- fmt_num(row$point)
+                ci <- fmt_ci(row$lo, row$hi)
+                p_boot <- fmt_p(row$p_boot)
+                p_holm <- fmt_p(row$p_boot_holm)
+
+                cat(sprintf(
+                    "%-27s | %-9s | %-19s | %-7s | %s\n",
+                    contrast, effect, ci, p_boot, p_holm
+                ), file = file_con)
+            }
+        } else {
+            cat("(not available)\n", file = file_con)
+        }
+    } else {
+        cat("(not available)\n", file = file_con)
+    }
+
+    cat("\n----------------------------------------\n\n", file = file_con)
+}
+
 # Helper function to print analysis summary to console
 print_analysis_summary <- function(results) {
     cat("\n=== ANALYSIS SUMMARY ===\n")
+
+    # Concise executive summary for console
+    cat("\n--- EXECUTIVE SUMMARY ---\n")
+
+    # Determine metric label
+    metric_label <- if (!is.null(results$std_means) && "risk_1s" %in% names(results$std_means)) {
+        "standardized 1-second risk (population-level; RE excluded)"
+    } else {
+        "per-bin hazard (cloglog; population-level; RE excluded)"
+    }
+    cat(sprintf("Metric: %s\n\n", metric_label))
+
+    # A) Within-condition learning deltas (concise)
+    cat("A) Within-condition learning (Δ vs baseline)\n")
+    if (!is.null(results$within_condition_CI) && nrow(results$within_condition_CI) > 0) {
+        within_df <- results$within_condition_CI
+
+        # Standardize ordering
+        condition_order <- c("control", "perturbation", "perturbation_visualization")
+        condition_order <- condition_order[condition_order %in% within_df$condition]
+        if (length(condition_order) == 0) condition_order <- unique(within_df$condition)
+
+        delta_order <- c("d_retention", "d_transfer")
+        delta_order <- delta_order[delta_order %in% within_df$delta]
+        if (length(delta_order) == 0) delta_order <- unique(within_df$delta)
+
+        # Pretty delta labels
+        delta_labels <- c(
+            "d_retention" = "Retention − Baseline",
+            "d_transfer" = "Transfer − Baseline"
+        )
+
+        # Create ordered table
+        within_ordered <- within_df[order(
+            match(within_df$condition, condition_order),
+            match(within_df$delta, delta_order)
+        ), ]
+
+        # Print concise table
+        cat("Condition           | Delta              | Effect    | 95% CI              | p_boot  | p_Holm\n")
+        cat("--------------------|--------------------|-----------|---------------------|---------|--------\n")
+
+        for (i in seq_len(nrow(within_ordered))) {
+            row <- within_ordered[i, ]
+            cond <- row$condition
+            delta <- delta_labels[row$delta]
+            effect <- sprintf("%.6f", row$point)
+            ci <- sprintf("[%.6f, %.6f]", row$lo, row$hi)
+            p_boot <- if (is.na(row$p_boot)) "NA" else if (row$p_boot < 0.001) "<0.001" else sprintf("%.3f", row$p_boot)
+            p_holm <- if (is.na(row$p_boot_holm)) "NA" else if (row$p_boot_holm < 0.001) "<0.001" else sprintf("%.3f", row$p_boot_holm)
+
+            cat(sprintf(
+                "%-19s | %-18s | %-9s | %-19s | %-7s | %s\n",
+                cond, delta, effect, ci, p_boot, p_holm
+            ))
+        }
+    } else {
+        cat("(not available)\n")
+    }
+
+    cat("\n")
+
+    # B) Difference-in-Differences (concise)
+    cat("B) Difference-in-Differences\n")
+    if (!is.null(results$bootstrap_DiD_CI) && nrow(results$bootstrap_DiD_CI) > 0) {
+        did_df <- results$bootstrap_DiD_CI
+
+        # Standardize ordering
+        contrast_order <- c(
+            "PV vs Control (Retention)",
+            "PV vs Control (Transfer)",
+            "P vs Control (Retention)",
+            "P vs Control (Transfer)",
+            "P vs PV (Retention)",
+            "P vs PV (Transfer)"
+        )
+
+        # Filter to only existing contrasts
+        did_ordered <- did_df[did_df$contrast %in% contrast_order, ]
+        did_ordered <- did_ordered[order(match(did_ordered$contrast, contrast_order)), ]
+
+        if (nrow(did_ordered) > 0) {
+            # Print concise table
+            cat("Contrast                    | Effect    | 95% CI              | p_boot  | p_Holm\n")
+            cat("----------------------------|-----------|---------------------|---------|--------\n")
+
+            for (i in seq_len(nrow(did_ordered))) {
+                row <- did_ordered[i, ]
+                contrast <- row$contrast
+                effect <- sprintf("%.6f", row$point)
+                ci <- sprintf("[%.6f, %.6f]", row$lo, row$hi)
+                p_boot <- if (is.na(row$p_boot)) "NA" else if (row$p_boot < 0.001) "<0.001" else sprintf("%.3f", row$p_boot)
+                p_holm <- if (is.na(row$p_boot_holm)) "NA" else if (row$p_boot_holm < 0.001) "<0.001" else sprintf("%.3f", row$p_boot_holm)
+
+                cat(sprintf(
+                    "%-27s | %-9s | %-19s | %-7s | %s\n",
+                    contrast, effect, ci, p_boot, p_holm
+                ))
+            }
+        } else {
+            cat("(not available)\n")
+        }
+    } else {
+        cat("(not available)\n")
+    }
+
+    cat("\n--- DETAILED ANALYSIS ---\n")
 
     # Interaction test
     if (!is.null(results$interaction_test)) {

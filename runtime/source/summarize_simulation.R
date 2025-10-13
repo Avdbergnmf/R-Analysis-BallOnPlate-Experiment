@@ -71,6 +71,19 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
     # Filter to only include parameters that actually exist in the data
     param_names <- intersect(param_names, colnames(analysis_data))
 
+    # Debug: Check risk columns
+    risk_cols <- c("drop_risk_bin", "drop_lambda", "drop_risk_1s", "velocity_towards_edge")
+    existing_risk_cols <- intersect(risk_cols, colnames(analysis_data))
+    if (length(existing_risk_cols) > 0) {
+        cat(sprintf("[TASK_METRICS] Found risk columns: %s\n", paste(existing_risk_cols, collapse = ", ")))
+        for (col in existing_risk_cols) {
+            valid_count <- sum(!is.na(analysis_data[[col]]))
+            cat(sprintf("[TASK_METRICS] %s: %d/%d valid values\n", col, valid_count, nrow(analysis_data)))
+        }
+    } else {
+        cat("[TASK_METRICS] No risk columns found in analysis_data\n")
+    }
+
     # Get velocity/acceleration parameters that need absolute values
     abs_params <- c("vx", "vy", "vx_world", "ax", "ay", "ax_world")
 
@@ -110,6 +123,18 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
 
     # Combine all metrics
     result <- bind_cols(sim_info, param_metrics)
+
+    # Debug: Check if risk metrics made it into the result
+    risk_metric_cols <- grep("drop_risk|velocity_towards_edge", colnames(result), value = TRUE)
+    if (length(risk_metric_cols) > 0) {
+        cat(sprintf("[TASK_METRICS] Risk metrics in result: %s\n", paste(risk_metric_cols, collapse = ", ")))
+        for (col in risk_metric_cols) {
+            value <- result[[col]]
+            cat(sprintf("[TASK_METRICS] %s: %s\n", col, ifelse(is.na(value), "NA", as.character(value))))
+        }
+    } else {
+        cat("[TASK_METRICS] No risk metrics found in result\n")
+    }
 
     # Add corrected dist_to_escape_ratio_mean (includes non-simulating samples as 0)
     if ("dist_to_escape_ratio" %in% colnames(sim_data)) {

@@ -78,7 +78,9 @@ get_simulation_parameters <- function() {
         simulating = "Ball on Plate Status",
 
         # Risk prediction parameters
-        drop_risk = "Drop Risk",
+        drop_risk_bin = "Drop Risk (Per-Bin/Tau)",
+        drop_lambda = "Drop Rate (Per-Second/Lambda)",
+        drop_risk_1s = "Drop Risk (1-Second)",
         velocity_towards_edge = "Velocity Towards Edge"
     )
 }
@@ -144,7 +146,9 @@ get_simulation_variable_names <- function() {
         `respawn_segment` = "Respawn Segment",
         `is_last_sample_of_segment` = "Is Last Sample of Segment",
         `simulating` = "Ball on Plate Status",
-        `drop_risk` = "Drop Risk",
+        `drop_risk_bin` = "Drop Risk (Per-Bin/Tau)",
+        `drop_lambda` = "Drop Rate (Per-Second/Lambda)",
+        `drop_risk_1s` = "Drop Risk (1-Second)",
         `velocity_towards_edge` = "Velocity Towards Edge"
     )
 }
@@ -155,7 +159,7 @@ get_simulation_variable_names <- function() {
 #' @param trial Trial number
 #' @return Tibble with simulation data or empty tibble if no data found
 #' @export
-get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.2) {
+get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.2, allow_direct_model = FALSE) {
     # cat(sprintf("[INFO] get_simulation_data: loading simulation data for participant %s, trial %s.\n", participant, trial))
     # Load raw simulation data and apply trial duration capping
     sim_data <- get_t_data(participant, "sim", trial)
@@ -219,7 +223,7 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
         )
 
     # Process the simulation data (now with task columns and identifiers available)
-    sim_data <- process_simulation_data(sim_data, level_data, enable_risk, tau)
+    sim_data <- process_simulation_data(sim_data, level_data, enable_risk, tau, allow_direct_model)
 
     # DEBUG: Check if time_in_bowl column successfully merged and resolve duplicates if needed
     time_in_bowl_like <- grep("^time_in_bowl", colnames(sim_data), value = TRUE)
@@ -242,7 +246,7 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
 #' @param level_data Level data for arcDeg assignment
 #' @return Processed simulation data with enhanced metrics
 #' @export
-process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, tau = 0.2) {
+process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, tau = 0.2, allow_direct_model = FALSE) {
     # Step 1: Detect respawn events for ball fall counting
     sim_data <- detect_respawn_events(sim_data)
 
@@ -270,14 +274,16 @@ process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, t
     )
 
     sim_data <- add_energy_cols(sim_data, g = representative_shape$g)
-    sim_data <- add_power_cols(sim_data)
     sim_data <- add_safety_cols(sim_data, representative_shape)
 
     # Step 8: Set first sample after each gap to NA to prevent velocity/acceleration spikes
     sim_data <- zero_first_sample_after_gaps(sim_data)
 
+    # Step 8.5: Add power and work calculations AFTER zeroing gaps to prevent NA propagation
+    sim_data <- add_power_cols(sim_data)
+
     # Step 9: Add risk predictions if model exists and enabled
-    sim_data <- add_risk_predictions(sim_data, enable_risk, tau)
+    sim_data <- add_risk_predictions(sim_data, enable_risk, tau, allow_direct_model)
 
     return(sim_data)
 }
@@ -459,8 +465,8 @@ zero_first_sample_after_gaps <- function(data) {
         # Power variables (these would have jumps)
         "power", "power_world", "power_plate",
 
-        # Work variables (these would have jumps)
-        "work", "work_world", "work_plate",
+        # Work variables are now calculated AFTER this function, so don't zero them here
+        # "work", "work_world", "work_plate",
 
         # Safety variables (these would have jumps)
         "margin_E", "danger", "time_to_escape", "dist_to_escape",
@@ -480,119 +486,629 @@ zero_first_sample_after_gaps <- function(data) {
 #' Helper function to add risk predictions if model exists
 #' @param data Enhanced simulation data
 #' @return Data with risk prediction columns added
-add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2) {
+# Utility: Compute hazard-bin width per row
+compute_dt_haz <- function(hazard_data) {
+    hazard_data <- hazard_data |>
+        dplyr::arrange(respawn_segment, time) |>
+        dplyr::group_by(respawn_segment) |>
+        dplyr::mutate(
+            dt_haz = dplyr::lead(time) - time,
+            dt_haz = ifelse(is.na(dt_haz), dplyr::lag(dt_haz), dt_haz), # carry forward for last row
+            dt_haz = ifelse(is.na(dt_haz), stats::median(dt_haz, na.rm = TRUE), dt_haz) # fallback to median
+        ) |>
+        dplyr::ungroup()
+    return(hazard_data)
+}
+
+# Utility: Assign risk predictions to data, mapping only to on-platform samples
+assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "unknown") {
+    # Create mask for on-platform samples that are NOT last samples of segments
+    # This matches what the global hazard samples contain
+    on_platform_mask <- data$simulating
+    if ("is_last_sample_of_segment" %in% names(data)) {
+        on_platform_mask <- on_platform_mask & !data$is_last_sample_of_segment
+    }
+
+    on_platform_indices <- which(on_platform_mask)
+
+    # Check if we have the right number of predictions
+    n_predictions <- length(p_bin)
+    n_target_samples <- length(on_platform_indices)
+
+    if (n_predictions != n_target_samples) {
+        cat(sprintf(
+            "[RISK] WARNING: Prediction count mismatch (%s): got %d predictions for %d target samples\n",
+            method_name, n_predictions, n_target_samples
+        ))
+
+        # Use minimum length to avoid errors
+        n_to_assign <- min(n_predictions, n_target_samples)
+        cat(sprintf("[RISK] Using first %d predictions for first %d target samples\n", n_to_assign, n_to_assign))
+
+        # Truncate arrays to minimum length
+        p_bin <- p_bin[1:n_to_assign]
+        lambda <- lambda[1:n_to_assign]
+        p_1s <- p_1s[1:n_to_assign]
+        on_platform_indices <- on_platform_indices[1:n_to_assign]
+    }
+
+    # Initialize all risk columns to NA
+    data$drop_risk_bin <- NA_real_
+    data$drop_lambda <- NA_real_
+    data$drop_risk_1s <- NA_real_
+
+    # Assign predictions to the target samples
+    data$drop_risk_bin[on_platform_indices] <- p_bin
+    data$drop_lambda[on_platform_indices] <- lambda
+    data$drop_risk_1s[on_platform_indices] <- p_1s
+
+    # Debug: Check assignment immediately after
+    cat(sprintf(
+        "[RISK] After assignment (%s) - drop_risk_bin: %d/%d valid, drop_lambda: %d/%d valid, drop_risk_1s: %d/%d valid\n",
+        method_name, sum(!is.na(data$drop_risk_bin)), nrow(data),
+        sum(!is.na(data$drop_lambda)), nrow(data),
+        sum(!is.na(data$drop_risk_1s)), nrow(data)
+    ))
+
+    return(data)
+}
+
+
+add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_direct_model = FALSE) {
+    cat(sprintf(
+        "[RISK] Starting add_risk_predictions for %d samples, enable_risk=%s\n",
+        nrow(data), enable_risk
+    ))
+
+    # Always add velocity_towards_edge column
+    if (sum(data$simulating) > 0) {
+        q_magnitude <- abs(data$q)
+        q_direction <- ifelse(q_magnitude > 0, data$q / q_magnitude, 0)
+        v_towards_edge <- data$qd * q_direction
+
+        data$velocity_towards_edge <- NA_real_
+        data$velocity_towards_edge[data$simulating] <- v_towards_edge[data$simulating]
+
+        cat(sprintf(
+            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
+        ))
+    } else {
+        data$velocity_towards_edge <- NA_real_
+        cat("[RISK] No on-platform samples found, velocity_towards_edge set to NA\n")
+    }
+
+    # Initialize all risk columns
+    data$drop_risk_bin <- NA_real_
+    data$drop_lambda <- NA_real_
+    data$drop_risk_dt <- NA_real_
+    data$drop_risk_1s <- NA_real_
+
     # Check if risk predictions are enabled
     if (!enable_risk) {
-        # Risk predictions disabled, add NA columns
-        data$drop_risk <- NA_real_
+        cat("[RISK] Risk predictions disabled, returning with NA risk columns\n")
+        return(data)
+    }
 
-        # Still add velocity towards edge column for plotting
-        # Calculate velocity towards edge for on-platform samples
-        on_platform_mask <- data$simulating == TRUE
-        if (sum(on_platform_mask) > 0) {
-            # Calculate velocity towards edge
-            q_magnitude <- abs(data$q[on_platform_mask])
-            q_direction <- ifelse(q_magnitude > 0, data$q[on_platform_mask] / q_magnitude, 0)
-            v_towards_edge <- data$qd[on_platform_mask] * q_direction
+    # Try global hazard samples first (most efficient), fallback to direct model if needed
+    risk_scores <- NULL
+    prediction_method <- "none"
 
-            # Initialize column with NA
-            data$velocity_towards_edge <- NA_real_
-            # Assign values to on-platform samples
-            data$velocity_towards_edge[on_platform_mask] <- v_towards_edge
-        } else {
-            data$velocity_towards_edge <- NA_real_
+    # First attempt: Use global hazard samples with predictions (most efficient)
+    cat("[RISK] Attempting to use global hazard samples with predictions...\n")
+    tryCatch(
+        {
+            # Check if global hazard samples exist
+            if (!exists("GLOBAL_HAZARD_SAMPLES_PREDS") || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+                stop("No global hazard samples with predictions found")
+            }
+
+            # Get tau from global variable if available
+            if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
+                cat(sprintf("[RISK] Using tau from global variable: %.3f seconds\n", GLOBAL_RISK_TAU))
+                tau <- GLOBAL_RISK_TAU
+            } else {
+                cat(sprintf("[RISK] No global tau found, using parameter: %.3f seconds\n", tau))
+            }
+
+            # Try to use global hazard samples
+            risk_scores <- score_trial_with_global_predictions(data, tau)
+
+            # Check if we got valid predictions
+            if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
+                stop("No valid predictions returned from global hazard samples")
+            }
+
+            # Check for all NA predictions (indicates a problem)
+            if (all(is.na(risk_scores$individual_predictions))) {
+                stop("All predictions are NA from global hazard samples")
+            }
+
+            # Check for mostly NA predictions (indicates a serious problem)
+            na_ratio <- sum(is.na(risk_scores$individual_predictions)) / length(risk_scores$individual_predictions)
+            if (na_ratio > 0.9) {
+                stop(sprintf("Too many NA predictions from global hazard samples (%.1f%% NA)", na_ratio * 100))
+            }
+
+            prediction_method <- "global_hazard_samples"
+            cat("[RISK] SUCCESS: Using global hazard samples with predictions\n")
+        },
+        error = function(e) {
+            cat(sprintf("[RISK] Global hazard samples failed: %s\n", e$message))
+            risk_scores <<- NULL
         }
+    )
 
+    # Fallback: Use direct model prediction if global hazard samples failed and allowed
+    if (is.null(risk_scores) && allow_direct_model) {
+        cat("[RISK] Falling back to direct model prediction (allow_direct_model=TRUE)\n")
+        tryCatch(
+            {
+                # Check if global risk model exists
+                if (!exists("GLOBAL_RISK_MODEL") || is.null(GLOBAL_RISK_MODEL)) {
+                    stop("No global risk model found - use dashboard to load one")
+                }
+
+                model <- GLOBAL_RISK_MODEL
+                cat(sprintf("[RISK] Using global risk model, class: %s\n", class(model)[1]))
+
+                # Check if this is an old glmmTMB model
+                if (inherits(model, "glmmTMB")) {
+                    stop("Found old glmmTMB model. Please retrain the model to use the new mgcv::bam approach.")
+                }
+
+                # Get tau from global variable if available
+                if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
+                    cat(sprintf("[RISK] Using tau from global variable: %.3f seconds\n", GLOBAL_RISK_TAU))
+                    tau <- GLOBAL_RISK_TAU
+                } else {
+                    cat(sprintf("[RISK] No global tau found, using parameter: %.3f seconds\n", tau))
+                }
+
+                # Use direct model prediction (standardized by default)
+                risk_scores <- score_trial_with_model(data, model, tau, standardized = FALSE)
+
+                # Check if we got valid predictions
+                if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
+                    stop("No valid predictions returned from direct model")
+                }
+
+                # Check for all NA predictions (indicates a problem)
+                if (all(is.na(risk_scores$individual_predictions))) {
+                    stop("All predictions are NA from direct model")
+                }
+
+                # Check for mostly NA predictions (indicates a serious problem)
+                na_ratio <- sum(is.na(risk_scores$individual_predictions)) / length(risk_scores$individual_predictions)
+                if (na_ratio > 0.9) {
+                    stop(sprintf("Too many NA predictions from direct model (%.1f%% NA)", na_ratio * 100))
+                }
+
+                prediction_method <- "direct_model"
+                cat("[RISK] SUCCESS: Using direct model prediction as fallback\n")
+            },
+            error = function(e) {
+                cat(sprintf("[RISK] Direct model prediction also failed: %s\n", e$message))
+                risk_scores <<- NULL
+            }
+        )
+    }
+
+    # If both methods failed, return early
+    if (is.null(risk_scores)) {
+        if (allow_direct_model) {
+            cat("[RISK] Both global hazard samples and direct model prediction failed\n")
+        } else {
+            cat("[RISK] Global hazard samples failed and direct model prediction is disabled\n")
+        }
         return(data)
     }
 
-    # Check if risk model exists
-    ensure_global_data_initialized()
+    # Process the results (same for both approaches)
+    tryCatch(
+        {
+            if (length(risk_scores$individual_predictions) == 0) {
+                cat("[RISK] No predictions returned from global hazard samples\n")
+                return(data)
+            }
 
-    if (!file.exists(risk_model_path)) {
-        # No risk model available, add NA columns
-        data$drop_risk <- NA_real_
-        data$velocity_towards_edge <- NA_real_
+            # Get the individual predictions (these are per-bin probabilities)
+            p_bin <- risk_scores$individual_predictions
 
-        return(data)
+            # Calculate risk metrics using tau (not dt_sample)
+            # lambda: instantaneous hazard rate per second
+            lambda <- exp(log(-log(1 - p_bin))) / tau
+
+            # p_1s: 1-second risk (comparable across sampling rates)
+            p_1s <- 1 - exp(-lambda * 1)
+
+            # Assign results using helper function
+            data <- assign_risk_predictions(data, p_bin, lambda, p_1s, "global_hazard_samples")
+
+            # Provide proof of successful assignment
+            n_valid_bin <- sum(!is.na(p_bin))
+            n_valid_lambda <- sum(!is.na(lambda))
+            n_valid_1s <- sum(!is.na(p_1s))
+
+            approach_name <- if (prediction_method == "direct_model") "Direct model predictions" else "Global hazard predictions"
+            cat(sprintf("[RISK] SUCCESS: %s computed for all samples:\n", approach_name))
+            cat(sprintf(
+                "  - drop_risk_bin: %d/%d valid values (%.1f%%)\n",
+                n_valid_bin, nrow(data), 100 * n_valid_bin / nrow(data)
+            ))
+            cat(sprintf(
+                "  - drop_lambda: %d/%d valid values (%.1f%%)\n",
+                n_valid_lambda, nrow(data), 100 * n_valid_lambda / nrow(data)
+            ))
+            cat(sprintf(
+                "  - drop_risk_1s: %d/%d valid values (%.1f%%)\n",
+                n_valid_1s, nrow(data), 100 * n_valid_1s / nrow(data)
+            ))
+
+            if (n_valid_lambda > 0) {
+                cat(sprintf(
+                    "  - drop_lambda range: %.6f to %.6f per second\n",
+                    min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)
+                ))
+            }
+            if (n_valid_1s > 0) {
+                cat(sprintf(
+                    "  - drop_risk_1s range: %.6f to %.6f\n",
+                    min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)
+                ))
+            }
+        },
+        error = function(e) {
+            cat(sprintf("[RISK] ERROR during global hazard predictions: %s\n", e$message))
+        }
+    )
+
+    # Debug: Check final state before returning
+    cat(sprintf(
+        "[RISK] Final check - drop_risk_bin: %d/%d valid, drop_lambda: %d/%d valid, drop_risk_1s: %d/%d valid\n",
+        sum(!is.na(data$drop_risk_bin)), nrow(data),
+        sum(!is.na(data$drop_lambda)), nrow(data),
+        sum(!is.na(data$drop_risk_1s)), nrow(data)
+    ))
+
+    cat("[RISK] add_risk_predictions completed\n")
+    return(data)
+}
+
+#' Score trial with global hazard samples predictions (efficient approach)
+#'
+#' @param sim_data Simulation data from get_simulation_data()
+#' @param tau Time horizon for drop prediction (default 0.2 seconds)
+#' @return List with individual_predictions and hazard_samples
+#' @export
+
+score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
+    # Check if global hazard samples exist
+    if (!exists("GLOBAL_HAZARD_SAMPLES_PREDS") || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+        cat("[SCORE] No global hazard samples with predictions found\n")
+        return(list(
+            individual_predictions = numeric(0),
+            hazard_samples = data.frame()
+        ))
     }
 
-    # Use global risk model if available, otherwise skip risk predictions
-    if (exists("GLOBAL_RISK_MODEL", envir = .GlobalEnv) && !is.null(get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))) {
-        model <- get("GLOBAL_RISK_MODEL", envir = .GlobalEnv)
-    } else {
-        # No global model available - skip risk predictions
-        data$drop_risk <- NA_real_
-        data$velocity_towards_edge <- NA_real_
-        return(data)
+    # Identify this participant/trial
+    pid <- unique(sim_data$participant)
+    if (length(pid) != 1) pid <- pid[1]
+
+    trial <- unique(sim_data$trial)
+    if (length(trial) != 1) trial <- trial[1]
+
+    # Filter global hazard samples by participant and trial
+    haz_all <- GLOBAL_HAZARD_SAMPLES_PREDS
+    sel <- rep(TRUE, nrow(haz_all))
+    if ("participant" %in% names(haz_all)) sel <- sel & (as.character(haz_all$participant) == as.character(pid))
+    if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
+
+    haz_trial <- haz_all[sel, , drop = FALSE]
+    cat(sprintf("[SCORE] Filtered to %d rows for participant %s, trial %s\n", nrow(haz_trial), pid, trial))
+
+    if (nrow(haz_trial) == 0) {
+        cat("[SCORE] No hazard samples found for this participant/trial\n")
+        return(list(
+            individual_predictions = numeric(0),
+            hazard_samples = data.frame()
+        ))
     }
 
-    if (is.null(model)) {
-        # Failed to load risk model, add NA columns
-        data$drop_risk <- NA_real_
-        data$velocity_towards_edge <- NA_real_
-
-        return(data)
-    }
-
-    # Debug: Check model class
-    cat(sprintf("[DEBUG] Loaded model class: %s\n", class(model)[1]))
-
-    # Check if this is an old glmmTMB model
-    if (inherits(model, "glmmTMB")) {
-        cat("[WARNING] Found old glmmTMB model. Please retrain the model to use the new mgcv::bam approach.\n")
-        data$drop_risk <- NA_real_
-        data$velocity_towards_edge <- NA_real_
-
-        return(data)
-    }
-
-    # Score the trial with the risk model
-    risk_scores <- score_trial_with_model(data, model, tau)
-
-    # Initialize risk column with NA
-    data$drop_risk <- NA_real_
-
-    # Add velocity towards edge column to the data
-    # Initialize column with NA
-    data$velocity_towards_edge <- NA_real_
-
-    # Extract velocity from hazard samples if available
-    if (length(risk_scores$hazard_samples) > 0 && !is.null(risk_scores$hazard_samples) && nrow(risk_scores$hazard_samples) > 0) {
-        hazard_samples <- risk_scores$hazard_samples
-
-        # Since hazard samples come from the same data, times should match exactly
-        # Find matching indices using match() for exact time matches
-        time_matches <- match(hazard_samples$time, data$time)
-        data$velocity_towards_edge[time_matches] <- hazard_samples$v
-    }
-
-    # Map individual predictions back to the original data
-    # Debug: Check the structure of risk_scores
-    cat(sprintf("[DEBUG] Risk scores structure:\n"))
-    cat(sprintf("  - risk_scores type: %s\n", class(risk_scores)))
-    cat(sprintf("  - hazard_samples length: %d\n", length(risk_scores$hazard_samples)))
-    cat(sprintf("  - individual_predictions length: %d\n", length(risk_scores$individual_predictions)))
-
-    if (length(risk_scores$hazard_samples) > 0 && !is.null(risk_scores$hazard_samples) && nrow(risk_scores$hazard_samples) > 0) {
-        hazard_samples <- risk_scores$hazard_samples
-        individual_predictions <- risk_scores$individual_predictions
-
-        cat(sprintf("  - hazard_samples rows: %d\n", nrow(hazard_samples)))
-        cat(sprintf("  - individual_predictions length: %d\n", length(individual_predictions)))
-
-        # Since hazard samples come from the same data, times should match exactly
-        # Find matching indices using match() for exact time matches
-        time_matches <- match(hazard_samples$time, data$time)
-        data$drop_risk[time_matches] <- individual_predictions
-    } else {
-        cat("[DEBUG] No hazard samples available for mapping predictions\n")
+    # Pick preferred prediction column (p_hat_fe for fixed effects)
+    pred_col <- "p_hat_fe"
+    if (!pred_col %in% names(haz_trial)) {
+        # Fallback to other prediction columns
+        available_cols <- intersect(c("p_hat_fe", "p_hat_re", "p_hat"), names(haz_trial))
+        if (length(available_cols) > 0) {
+            pred_col <- available_cols[1]
+            cat(sprintf("[SCORE] Using fallback prediction column: %s\n", pred_col))
+        } else {
+            cat("[SCORE] No prediction columns found in global hazard samples\n")
+            return(list(
+                individual_predictions = numeric(0),
+                hazard_samples = data.frame()
+            ))
+        }
     }
 
     cat(sprintf(
-        "[DEBUG] add_risk_predictions: completed for %d samples\n",
-        nrow(data)
+        "[SCORE] Using global predictions (%s) for participant %s, trial %s\n",
+        pred_col, pid, trial
     ))
+
+    return(list(
+        individual_predictions = haz_trial[[pred_col]],
+        hazard_samples = haz_trial
+    ))
+}
+
+# ARCHIVED: Direct model prediction approach (kept for reference)
+# This was the previous approach that used direct model prediction on all samples
+# It was replaced with the saved predictions approach for better reliability
+add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0.2) {
+    cat(sprintf(
+        "[RISK] Starting add_risk_predictions_direct_model for %d samples, enable_risk=%s\n",
+        nrow(data), enable_risk
+    ))
+
+    # Always add velocity_towards_edge column
+    if (sum(data$simulating) > 0) {
+        q_magnitude <- abs(data$q)
+        q_direction <- ifelse(q_magnitude > 0, data$q / q_magnitude, 0)
+        v_towards_edge <- data$qd * q_direction
+
+        data$velocity_towards_edge <- NA_real_
+        data$velocity_towards_edge[data$simulating] <- v_towards_edge[data$simulating]
+
+        cat(sprintf(
+            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
+            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
+        ))
+    } else {
+        data$velocity_towards_edge <- NA_real_
+        cat("[RISK] No on-platform samples found, velocity_towards_edge set to NA\n")
+    }
+
+    # Initialize all risk columns
+    data$drop_risk_bin <- NA_real_
+    data$drop_lambda <- NA_real_
+    data$drop_risk_dt <- NA_real_
+    data$drop_risk_1s <- NA_real_
+
+    # Check if risk predictions are enabled
+    if (!enable_risk) {
+        cat("[RISK] Risk predictions disabled, returning with NA risk columns\n")
+        return(data)
+    }
+
+    # Check if global risk model exists
+    if (!exists("GLOBAL_RISK_MODEL") || is.null(GLOBAL_RISK_MODEL)) {
+        cat("[RISK] No global risk model found - use dashboard to load one\n")
+        return(data)
+    }
+
+    # Use global risk model for direct prediction
+    tryCatch(
+        {
+            model <- GLOBAL_RISK_MODEL
+            cat(sprintf("[RISK] Using global risk model, class: %s\n", class(model)[1]))
+
+            # Check if this is an old glmmTMB model
+            if (inherits(model, "glmmTMB")) {
+                cat("[RISK] WARNING: Found old glmmTMB model. Please retrain the model to use the new mgcv::bam approach.\n")
+                return(data)
+            }
+
+            # Get tau from model attribute if available, otherwise use parameter
+            model_tau <- attr(model, "tau")
+            if (!is.null(model_tau)) {
+                cat(sprintf("[RISK] Using tau from model: %.3f seconds\n", model_tau))
+                tau <- model_tau
+            } else {
+                cat(sprintf("[RISK] No tau found in model, using parameter: %.3f seconds\n", tau))
+            }
+
+            # Debug: Check model structure
+            cat(sprintf("[RISK] Model model data columns: %s\n", paste(names(model$model), collapse = ", ")))
+            cat(sprintf("[RISK] Model formula: %s\n", deparse(model$formula)))
+            if ("condition" %in% names(model$model)) {
+                cat(sprintf("[RISK] Model condition levels: '%s'\n", paste(levels(model$model$condition), collapse = "', '")))
+            }
+            if ("phase" %in% names(model$model)) {
+                cat(sprintf("[RISK] Model phase levels: '%s'\n", paste(levels(model$model$phase), collapse = "', '")))
+            }
+
+            # Prepare data for prediction using direct model approach
+            cat("[RISK] Preparing data for direct model prediction...\n")
+
+            # Extract risk features directly (no filtering like build_hazard_samples)
+            cat(sprintf("[RISK] Extracting risk features for all %d samples...\n", nrow(data)))
+            features <- extract_risk_features(data)
+
+            # Debug: Check feature ranges
+            cat(sprintf(
+                "[RISK] Feature ranges - e: %.4f to %.4f, v: %.4f to %.4f\n",
+                min(features$e, na.rm = TRUE), max(features$e, na.rm = TRUE),
+                min(features$v, na.rm = TRUE), max(features$v, na.rm = TRUE)
+            ))
+
+            # Create prediction data frame with required columns
+            pred_data <- data.frame(
+                e = features$e,
+                v = features$v,
+                participant = data$participant,
+                condition = data$condition,
+                phase = data$phase
+            )
+
+            # Debug: Check input data
+            cat(sprintf(
+                "[RISK] Input data - participants: %s, conditions: %s, phases: %s\n",
+                paste(unique(pred_data$participant), collapse = ", "),
+                paste(unique(pred_data$condition), collapse = ", "),
+                paste(unique(pred_data$phase), collapse = ", ")
+            ))
+
+            # Ensure factors match model levels
+            if ("condition" %in% names(model$model)) {
+                model_cond_levels <- levels(model$model$condition)
+                cat(sprintf("[RISK] Model condition levels: %s\n", paste(model_cond_levels, collapse = ", ")))
+                if (length(model_cond_levels) > 0) {
+                    pred_data$condition <- factor(pred_data$condition, levels = model_cond_levels)
+                } else {
+                    cat("[RISK] WARNING: Model condition levels are empty, using data levels\n")
+                    pred_data$condition <- factor(pred_data$condition)
+                }
+            }
+            if ("phase" %in% names(model$model)) {
+                model_phase_levels <- levels(model$model$phase)
+                cat(sprintf("[RISK] Model phase levels: %s\n", paste(model_phase_levels, collapse = ", ")))
+                if (length(model_phase_levels) > 0) {
+                    pred_data$phase <- factor(pred_data$phase, levels = model_phase_levels)
+                } else {
+                    cat("[RISK] WARNING: Model phase levels are empty, using data levels\n")
+                    pred_data$phase <- factor(pred_data$phase)
+                }
+            }
+            pred_data$participant <- factor(pred_data$participant)
+
+            # Get predictions (eta and p_hat)
+            cat(sprintf("[RISK] Computing predictions for all %d samples...\n", nrow(pred_data)))
+
+            # Try prediction with full data first
+            eta <- tryCatch(
+                {
+                    predict(model, newdata = pred_data, type = "link", exclude = "s(participant)")
+                },
+                error = function(e) {
+                    cat(sprintf("[RISK] Full prediction failed: %s\n", e$message))
+                    cat("[RISK] Trying to reconstruct factor levels from model training data...\n")
+
+                    # Try to get factor levels from the model's training data
+                    model_data <- model$model
+                    if ("condition" %in% names(model_data) && "phase" %in% names(model_data)) {
+                        # Get unique values from training data
+                        train_conditions <- unique(as.character(model_data$condition))
+                        train_phases <- unique(as.character(model_data$phase))
+
+                        cat(sprintf("[RISK] Training data conditions: %s\n", paste(train_conditions, collapse = ", ")))
+                        cat(sprintf("[RISK] Training data phases: %s\n", paste(train_phases, collapse = ", ")))
+
+                        # Create new prediction data with reconstructed levels
+                        pred_data_fixed <- data.frame(
+                            e = pred_data$e,
+                            v = pred_data$v,
+                            participant = pred_data$participant,
+                            condition = factor(pred_data$condition, levels = train_conditions),
+                            phase = factor(pred_data$phase, levels = train_phases)
+                        )
+
+                        # Try prediction with reconstructed levels
+                        tryCatch(
+                            {
+                                predict(model, newdata = pred_data_fixed, type = "link", exclude = "s(participant)")
+                            },
+                            error = function(e3) {
+                                cat(sprintf("[RISK] Reconstructed levels prediction failed: %s\n", e3$message))
+                                rep(NA_real_, nrow(pred_data))
+                            }
+                        )
+                    } else {
+                        cat("[RISK] Cannot reconstruct factor levels, returning NA predictions\n")
+                        rep(NA_real_, nrow(pred_data))
+                    }
+                }
+            )
+
+            # Debug: Check eta range
+            cat(sprintf(
+                "[RISK] Eta range: %.4f to %.4f (valid: %d/%d)\n",
+                min(eta, na.rm = TRUE), max(eta, na.rm = TRUE),
+                sum(!is.na(eta)), length(eta)
+            ))
+
+            # Calculate risk metrics using tau (not dt_sample)
+            # p_bin: probability of drop within tau
+            p_bin <- 1 - exp(-exp(eta))
+
+            # Debug: Check p_bin range
+            cat(sprintf(
+                "[RISK] P_bin range: %.6f to %.6f (valid: %d/%d)\n",
+                min(p_bin, na.rm = TRUE), max(p_bin, na.rm = TRUE),
+                sum(!is.na(p_bin)), length(p_bin)
+            ))
+
+            # lambda: instantaneous hazard rate per second
+            lambda <- exp(eta) / tau
+
+            # Debug: Check lambda range
+            cat(sprintf(
+                "[RISK] Lambda range: %.6f to %.6f (valid: %d/%d)\n",
+                min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE),
+                sum(!is.na(lambda)), length(lambda)
+            ))
+
+            # p_1s: 1-second risk (comparable across sampling rates)
+            p_1s <- 1 - exp(-lambda * 1)
+
+            # Debug: Check p_1s range
+            cat(sprintf(
+                "[RISK] P_1s range: %.6f to %.6f (valid: %d/%d)\n",
+                min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE),
+                sum(!is.na(p_1s)), length(p_1s)
+            ))
+
+            # Assign results using helper function
+            data <- assign_risk_predictions(data, p_bin, lambda, p_1s, "direct_model")
+
+            # Provide proof of successful assignment
+            n_valid_bin <- sum(!is.na(p_bin))
+            n_valid_lambda <- sum(!is.na(lambda))
+            n_valid_1s <- sum(!is.na(p_1s))
+
+            cat(sprintf("[RISK] SUCCESS: Direct model predictions computed for all samples:\n"))
+            cat(sprintf(
+                "  - drop_risk_bin: %d/%d valid values (%.1f%%)\n",
+                n_valid_bin, nrow(data), 100 * n_valid_bin / nrow(data)
+            ))
+            cat(sprintf(
+                "  - drop_lambda: %d/%d valid values (%.1f%%)\n",
+                n_valid_lambda, nrow(data), 100 * n_valid_lambda / nrow(data)
+            ))
+            cat(sprintf(
+                "  - drop_risk_1s: %d/%d valid values (%.1f%%)\n",
+                n_valid_1s, nrow(data), 100 * n_valid_1s / nrow(data)
+            ))
+
+            if (n_valid_lambda > 0) {
+                cat(sprintf(
+                    "  - drop_lambda range: %.6f to %.6f per second\n",
+                    min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)
+                ))
+            }
+            if (n_valid_1s > 0) {
+                cat(sprintf(
+                    "  - drop_risk_1s range: %.6f to %.6f\n",
+                    min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)
+                ))
+            }
+        },
+        error = function(e) {
+            cat(sprintf("[RISK] ERROR during direct model prediction: %s\n", e$message))
+        }
+    )
+
+    # Debug: Check final state before returning
+    cat(sprintf(
+        "[RISK] Final check - drop_risk_bin: %d/%d valid, drop_lambda: %d/%d valid, drop_risk_1s: %d/%d valid\n",
+        sum(!is.na(data$drop_risk_bin)), nrow(data),
+        sum(!is.na(data$drop_lambda)), nrow(data),
+        sum(!is.na(data$drop_risk_1s)), nrow(data)
+    ))
+
+    cat("[RISK] add_risk_predictions_direct_model completed\n")
     return(data)
 }
 

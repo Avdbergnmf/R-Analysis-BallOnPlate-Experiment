@@ -73,16 +73,31 @@ source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
 source("source/risk_model.R", local = FALSE)
 
-# Load risk model into global workspace for parallel processing (only if it exists)
+# Load risk model and extract tau for parallel processing (only if it exists)
 if (file.exists(risk_model_path)) {
   GLOBAL_RISK_MODEL <<- load_risk_model(risk_model_path)
+  GLOBAL_RISK_TAU <<- attr(GLOBAL_RISK_MODEL, "tau")
   cat("Risk model loaded from:", risk_model_path, "\n")
+  if (!is.null(GLOBAL_RISK_TAU)) {
+    cat("Risk model tau:", GLOBAL_RISK_TAU, "seconds\n")
+  } else {
+    cat("No tau found in risk model\n")
+  }
 } else {
   cat("No risk model found at:", risk_model_path, "- use dashboard to load one\n")
 }
 
+# Load hazard samples with predictions into global workspace (only if it exists)
+if (file.exists(risk_hazard_samples_preds_path)) {
+  GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(risk_hazard_samples_preds_path)
+  cat("Hazard samples with predictions loaded from:", risk_hazard_samples_preds_path, "\n")
+  cat("Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows\n")
+} else {
+  cat("No hazard samples with predictions found at:", risk_hazard_samples_preds_path, "\n")
+}
+
 # Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = TRUE)
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE, extra_global_vars = c("GLOBAL_RISK_TAU", "GLOBAL_HAZARD_SAMPLES_PREDS"))
 allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 
 ## Plotting code

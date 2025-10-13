@@ -1,0 +1,94 @@
+=== EXECUTIVE SUMMARY ===
+
+Metric: standardized 1-second risk (population-level; RE excluded)
+
+A) Within-condition learning (Δ vs baseline)
+Condition           | Delta              | Effect    | 95% CI              | p_boot  | p_Holm
+--------------------|--------------------|-----------|---------------------|---------|--------
+control             | Retention − Baseline | -0.000184 | [-0.002541, 0.004873] | 0.760   | 0.900
+control             | Transfer − Baseline | -0.004306 | [-0.018005, -0.004074] | <0.001  | <0.001
+perturbation        | Retention − Baseline | 0.000717  | [-0.000649, 0.007880] | 0.300   | 0.900
+perturbation        | Transfer − Baseline | -0.002830 | [-0.009558, -0.003300] | <0.001  | <0.001
+perturbation_visualization | Retention − Baseline | 0.000785  | [-0.000972, 0.008064] | 0.360   | 0.900
+perturbation_visualization | Transfer − Baseline | -0.002656 | [-0.011500, -0.002779] | <0.001  | <0.001
+
+B) Difference-in-Differences
+Contrast                    | Effect    | 95% CI              | p_boot  | p_Holm
+----------------------------|-----------|---------------------|---------|--------
+PV vs Control (Retention)   | 0.000968  | [-0.002301, 0.008108] | 0.360   | 1.000
+PV vs Control (Transfer)    | 0.001650  | [-0.002857, 0.009336] | 0.300   | 1.000
+P vs Control (Retention)    | 0.000901  | [-0.000883, 0.005053] | 0.160   | 0.840
+P vs Control (Transfer)     | 0.001476  | [-0.000297, 0.009259] | 0.140   | 0.840
+P vs PV (Retention)         | -0.000067 | [-0.005275, 0.002998] | 0.940   | 1.000
+P vs PV (Transfer)          | -0.000175 | [-0.003106, 0.003501] | 0.860   | 1.000
+
+----------------------------------------
+
+=== RISK MODEL STATISTICAL ANALYSIS ===
+
+1. CONDITION × PHASE INTERACTION TEST
+=====================================
+Wald Test (LRT failed - ML refit unsuccessful):
+  statistic df      p.value
+1  23.51431  4 9.992772e-05
+
+2. WITHIN-CONDITION CHANGES
+===========================
+# A tibble: 3 × 6
+  condition              baseline_task retention transfer d_retention d_transfer
+  <chr>                          <dbl>     <dbl>    <dbl>       <dbl>      <dbl>
+1 perturbation                  0.0229    0.0236   0.0200    0.000717   -0.00283
+2 control                       0.0217    0.0215   0.0174   -0.000184   -0.00431
+3 perturbation_visualiz…        0.0229    0.0237   0.0202    0.000785   -0.00266
+
+2b. WITHIN-CONDITION CHANGES WITH BOOTSTRAP CIs AND P-VALUES
+============================================================
+# A tibble: 6 × 8
+  condition         delta       lo      med       hi    point p_boot p_boot_holm
+  <chr>             <chr>    <dbl>    <dbl>    <dbl>    <dbl>  <dbl>       <dbl>
+1 control           d_re… -2.54e-3 -2.60e-4  0.00487 -1.84e-4   0.76         0.9
+2 control           d_tr… -1.80e-2 -9.31e-3 -0.00407 -4.31e-3   0            0  
+3 perturbation      d_re… -6.49e-4  1.49e-3  0.00788  7.17e-4   0.3          0.9
+4 perturbation      d_tr… -9.56e-3 -6.05e-3 -0.00330 -2.83e-3   0            0  
+5 perturbation_vis… d_re… -9.72e-4  1.43e-3  0.00806  7.85e-4   0.36         0.9
+6 perturbation_vis… d_tr… -1.15e-2 -5.73e-3 -0.00278 -2.66e-3   0            0  
+
+3. DIFFERENCE-IN-DIFFERENCES
+============================
+# A tibble: 6 × 2
+  contrast                         DiD
+  <chr>                          <dbl>
+1 PV vs Control (Retention)  0.000968 
+2 PV vs Control (Transfer)   0.00165  
+3 P  vs Control (Retention)  0.000901 
+4 P  vs Control (Transfer)   0.00148  
+5 P  vs PV (Retention)      -0.0000673
+6 P  vs PV (Transfer)       -0.000175 
+
+4. BOOTSTRAP CONFIDENCE INTERVALS - STANDARDIZED MEANS
+======================================================
+# A tibble: 9 × 5
+  condition                  phase           mean     lo     hi
+  <chr>                      <chr>          <dbl>  <dbl>  <dbl>
+1 control                    baseline_task 0.0529 0.0210 0.114 
+2 control                    retention     0.0530 0.0204 0.117 
+3 control                    transfer      0.0432 0.0167 0.0964
+4 perturbation               baseline_task 0.0548 0.0268 0.101 
+5 perturbation               retention     0.0567 0.0272 0.105 
+6 perturbation               transfer      0.0486 0.0228 0.0919
+7 perturbation_visualization baseline_task 0.0591 0.0219 0.119 
+8 perturbation_visualization retention     0.0612 0.0219 0.124 
+9 perturbation_visualization transfer      0.0529 0.0190 0.110 
+
+5. BOOTSTRAP CONFIDENCE INTERVALS - DIFFERENCE-IN-DIFFERENCES
+=============================================================
+# A tibble: 6 × 7
+  contrast                    point       lo      med      hi p_boot p_boot_holm
+  <chr>                       <dbl>    <dbl>    <dbl>   <dbl>  <dbl>       <dbl>
+1 PV vs Control (Retentio…  9.68e-4 -2.30e-3  1.82e-3 0.00811   0.36        1   
+2 PV vs Control (Transfer)  1.65e-3 -2.86e-3  3.56e-3 0.00934   0.3         1   
+3 P vs Control (Retention)  9.01e-4 -8.83e-4  1.73e-3 0.00505   0.16        0.84
+4 P vs Control (Transfer)   1.48e-3 -2.97e-4  3.23e-3 0.00926   0.14        0.84
+5 P vs PV (Retention)      -6.73e-5 -5.28e-3  1.07e-4 0.00300   0.94        1   
+6 P vs PV (Transfer)       -1.75e-4 -3.11e-3 -2.22e-4 0.00350   0.86        1   
+

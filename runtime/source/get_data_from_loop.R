@@ -44,7 +44,8 @@ load_or_calculate <- function(filePath,
                               calculate_function,
                               parallel = USE_PARALLEL,
                               force_recalc = FORCE_RECALC,
-                              stop_cluster = FALSE) {
+                              stop_cluster = FALSE,
+                              extra_global_vars = NULL) {
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
     if (parallel && stop_cluster) {
         on.exit(
@@ -91,9 +92,10 @@ load_or_calculate <- function(filePath,
                 get_data_from_loop_parallel(
                     calc_func,
                     ...,
-                    cl          = cl,
+                    cl = cl,
                     log_to_file = ENABLE_FILE_LOGGING,
-                    log_file    = log_file_name
+                    log_file = log_file_name,
+                    extra_global_vars = extra_global_vars
                 )
             }
         } else {
@@ -303,7 +305,7 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 #' data <- get_data_from_loop_parallel(calc_all_gait_params, cl = cl)
 #'
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"),
-                                        cl = NULL, log_to_file = TRUE, log_file = NULL, ...) {
+                                        cl = NULL, log_to_file = TRUE, log_file = NULL, extra_global_vars = NULL, ...) {
     start_time <- Sys.time()
     valid_combinations <- get_valid_combinations(datasets_to_verify)
 
@@ -369,6 +371,11 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 
     # Add global variables that might be needed by get_simulation_data and risk_model functions
     global_vars <- c("risk_model_path", "dataExtraFolder", "risk_model_file")
+
+    # Add any extra global variables passed in
+    if (!is.null(extra_global_vars)) {
+        global_vars <- c(global_vars, extra_global_vars)
+    }
 
     # Check which variables actually exist before exporting
     available_vars <- ls(envir = environment())
