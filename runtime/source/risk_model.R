@@ -395,13 +395,14 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
 #' @param sim_data Simulation data from get_simulation_data()
 #' @param model Fitted model from train_risk_model()
 #' @param tau Time horizon for drop prediction (default 0.2 seconds)
-#' @param use_saved Whether to try using saved predictions first (default TRUE)
+#' @param standardized Whether to standardize predictions to reference condition/phase
+#' @param use_factors Whether to include condition/phase factors in prediction (default FALSE)
 #' @param preds_path Path to saved predictions file (default uses global path)
 #' @param prefer Preferred prediction type: "p_hat_fe" (fixed-effects) or "p_hat_re" (subject-specific)
 #' @return Data frame with one row containing risk metrics
 #' @export
 # ARCHIVED: Score trial with saved predictions (kept for reference)
-score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2,
+score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = FALSE,
                                                preds_path = NULL,
                                                prefer = c("p_hat_fe", "p_hat_re")) {
     if (is.null(model)) {
@@ -469,7 +470,7 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2,
 
     # Fallback: compute predictions on the fly for this trial only
     cat(sprintf("[SCORE] Computing predictions on-the-fly for participant %s, trial %s\n", pid, trial))
-    return(score_trial_with_model(sim_data, model, tau))
+    return(score_trial_with_model(sim_data, model, tau, standardized = standardized, use_factors = use_factors))
 }
 
 #' Score trial with risk model (on-the-fly computation only)
@@ -478,9 +479,10 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2,
 #' @param model Fitted model from train_risk_model()
 #' @param tau Time horizon for drop prediction (default 0.2 seconds)
 #' @param standardized Whether to standardize predictions to reference condition/phase
+#' @param use_factors Whether to include condition/phase factors in prediction (default FALSE)
 #' @return List with individual_predictions and hazard_samples
 #' @export
-score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE) {
+score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = FALSE) {
     if (is.null(model)) {
         return(list(
             individual_predictions = numeric(0),
@@ -506,84 +508,56 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
         ))
     }
 
-    # Factor alignment with optional standardization
-    hazard_samples$participant <- factor(hazard_samples$participant <- pid)
+    # Set participant factor
+    hazard_samples$participant <- factor(pid)
 
-    if (standardized) {
-        # Standardize to reference levels for state-occupancy risk
-        ref_condition <- "control"
-        ref_phase <- "baseline_task"
-
-        cat(sprintf(
-            "[SCORE] Standardizing predictions to reference levels: condition='%s', phase='%s'\n",
-            ref_condition, ref_phase
-        ))
-
-        if ("condition" %in% names(model$model)) {
-            model_cond_levels <- levels(model$model$condition)
-            if (!is.null(model_cond_levels) && ref_condition %in% model_cond_levels) {
-                hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
-            } else {
-                cat(sprintf(
-                    "[SCORE] WARNING: Reference condition '%s' not in model levels: %s\n",
-                    ref_condition, paste(model_cond_levels, collapse = ", ")
-                ))
-                # Use first available level as fallback
-                if (!is.null(model_cond_levels) && length(model_cond_levels) > 0) {
-                    hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
-                    cat(sprintf("[SCORE] Using fallback condition: '%s'\n", model_cond_levels[1]))
-                }
-            }
-        }
-
-        if ("phase" %in% names(model$model)) {
-            model_phase_levels <- levels(model$model$phase)
-            if (!is.null(model_phase_levels) && ref_phase %in% model_phase_levels) {
-                hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
-            } else {
-                cat(sprintf(
-                    "[SCORE] WARNING: Reference phase '%s' not in model levels: %s\n",
-                    ref_phase, paste(model_phase_levels, collapse = ", ")
-                ))
-                # Use first available level as fallback
-                if (!is.null(model_phase_levels) && length(model_phase_levels) > 0) {
-                    hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
-                    cat(sprintf("[SCORE] Using fallback phase: '%s'\n", model_phase_levels[1]))
-                }
-            }
-        }
-    } else {
-        # Original behavior - use actual condition/phase
-        if ("condition" %in% names(model$model) && "condition" %in% names(hazard_samples)) {
-            hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
-        }
-        if ("phase" %in% names(model$model) && "phase" %in% names(hazard_samples)) {
-            hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
-        }
-    }
-
-    # Create cond_phase interaction factor for factor-by smooths (if model uses it)
-    if ("cond_phase" %in% names(model$model)) {
+    # Handle condition/phase factors only if requested
+    if (use_factors) {
         if (standardized) {
-            # For standardized predictions, use reference condition×phase
-            expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
-        } else {
-            # For non-standardized predictions, use actual condition×phase
-            expected_cond_phase <- paste(hazard_samples$condition, hazard_samples$phase, sep = ".")
-        }
+            # Use reference levels for standardized predictions
+            ref_condition <- "control"
+            ref_phase <- "baseline_task"
 
-        model_cond_phase_levels <- levels(model$model$cond_phase)
-        if (expected_cond_phase %in% model_cond_phase_levels) {
-            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+            if ("condition" %in% names(model$model)) {
+                model_cond_levels <- levels(model$model$condition)
+                if (ref_condition %in% model_cond_levels) {
+                    hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
+                } else {
+                    hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
+                }
+            }
+
+            if ("phase" %in% names(model$model)) {
+                model_phase_levels <- levels(model$model$phase)
+                if (ref_phase %in% model_phase_levels) {
+                    hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
+                } else {
+                    hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
+                }
+            }
+
+            # Handle cond_phase interaction
+            if ("cond_phase" %in% names(model$model)) {
+                expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
+                model_cond_phase_levels <- levels(model$model$cond_phase)
+                if (expected_cond_phase %in% model_cond_phase_levels) {
+                    hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+                } else {
+                    hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
+                }
+            }
         } else {
-            cat(sprintf(
-                "[SCORE] WARNING: Condition×phase combination '%s' not in model training levels: %s\n",
-                expected_cond_phase, paste(model_cond_phase_levels, collapse = ", ")
-            ))
-            # Use first available level as fallback
-            if (!is.null(model_cond_phase_levels) && length(model_cond_phase_levels) > 0) {
-                hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
-                cat(sprintf("[SCORE] Using fallback cond_phase: '%s'\n", model_cond_phase_levels[1]))
+            # Use actual condition/phase from data
+            if ("condition" %in% names(model$model) && "condition" %in% names(hazard_samples)) {
+                hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
+            }
+            if ("phase" %in% names(model$model) && "phase" %in% names(hazard_samples)) {
+                hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
+            }
+            if ("cond_phase" %in% names(model$model)) {
+                expected_cond_phase <- paste(hazard_samples$condition, hazard_samples$phase, sep = ".")
+                model_cond_phase_levels <- levels(model$model$cond_phase)
+                hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
             }
         }
     }
@@ -820,7 +794,7 @@ score_all_trials_with_saved_model <- function(participants, trials,
                 {
                     sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
                     if (!is.null(sim_data) && nrow(sim_data) > 0) {
-                        risk_scores <- score_trial_with_model(sim_data, model, tau)
+                        risk_scores <- score_trial_with_model(sim_data, model, tau, use_factors = FALSE)
                         risk_scores$participant <- participant
                         risk_scores$trial <- trial
                         results <- rbind(results, risk_scores)
