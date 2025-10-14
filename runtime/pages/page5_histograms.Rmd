@@ -228,40 +228,49 @@ currentData <- reactive({
   if (input$dataType == "summarized") {
     # Use summarized data when "Summarized Data" is selected
     page_logger("DEBUG", "Using summarized data")
-    summarized_data <- get_mu_dyn_long()
-    page_logger("DEBUG", "Summarized data loaded:", nrow(summarized_data), "rows")
-    
-    # Apply additional summarization across conditions if requested
-    if (input$summarizeAcrossConditions) {
-      page_logger("DEBUG", "Applying additional summarization across conditions")
-      summarized_data <- summarize_across_conditions(summarized_data)
-      page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
-    }
-    return(summarized_data)
-  } else if (input$dataType %in% names(cacheable_data_types)) {
-      # Use cached data for cacheable data types
-      page_logger("DEBUG", "Using cached data for type:", input$dataType)
-      data <- get_cached_data_local(input$dataType)
-      page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
-      
-      if (nrow(data) > 0) {
-        # Apply data-specific filters
-        page_logger("DEBUG", "Applying data-specific filters")
-        data <- apply_data_filters(data, input$dataType)
-        page_logger("DEBUG", "After filtering:", nrow(data), "rows")
-        return(data)
+    tryCatch({
+      summarized_data <- get_mu_dyn_long()
+      if (is.null(summarized_data) || nrow(summarized_data) == 0) {
+        page_logger("WARN", "get_mu_dyn_long returned empty data")
+        return(data.frame())
       }
+      page_logger("DEBUG", "Summarized data loaded:", nrow(summarized_data), "rows")
       
-      # Return empty data frame with expected structure if no data available
-      page_logger("DEBUG", "No cached data available, returning empty structure")
-      return(get_empty_data_structure(input$dataType))
-    } else {
-      # Use regular gait data for non-cacheable types
-      page_logger("DEBUG", "Using regular gait data")
-      gait_data <- filteredParams()
-      page_logger("DEBUG", "Gait data loaded:", nrow(gait_data), "rows")
-      return(gait_data)
+      # Apply additional summarization across conditions if requested
+      if (input$summarizeAcrossConditions) {
+        page_logger("DEBUG", "Applying additional summarization across conditions")
+        summarized_data <- summarize_across_conditions(summarized_data)
+        page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
+      }
+      return(summarized_data)
+    }, error = function(e) {
+      page_logger("ERROR", "Error loading summarized data:", e$message)
+      page_logger("ERROR", "This usually means required data objects (allGaitParams, allQResults, etc.) are not available")
+      return(data.frame())
+    })
+  } else if (input$dataType %in% names(cacheable_data_types)) {
+    # Use cached data for cacheable data types
+    page_logger("DEBUG", "Using cached data for type:", input$dataType)
+    data <- get_cached_data_local(input$dataType)
+    page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
+    
+    if (nrow(data) > 0) {
+      # Apply data-specific filters
+      page_logger("DEBUG", "Applying data-specific filters")
+      data <- apply_data_filters(data, input$dataType)
+      page_logger("DEBUG", "After filtering:", nrow(data), "rows")
+      return(data)
     }
+    
+    # Return empty data frame with expected structure if no data available
+    page_logger("DEBUG", "No cached data available, returning empty structure")
+    return(get_empty_data_structure(input$dataType))
+  } else {
+    # Use regular gait data for non-cacheable types
+    page_logger("DEBUG", "Using regular gait data")
+    gait_data <- filteredParams()
+    page_logger("DEBUG", "Gait data loaded:", nrow(gait_data), "rows")
+    return(gait_data)
   }
 })
 
