@@ -126,6 +126,9 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   parallel_enabled <- parallel
   cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled)
   
+  # Fast cache reference - stores the actual data for quick access
+  fast_cache <- reactiveVal(data.frame())
+  
   # Control functions
   request_data <- function() {
     cache_logger("DEBUG", "request_data() called")
@@ -149,9 +152,80 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   reset_data <- function() {
     cache_logger("DEBUG", "reset_data() called")
     cache(data.frame())
+    fast_cache(data.frame())  # Clear fast cache too
     filters(list())
     loading(FALSE)
     clear_notifications()
+  }
+  
+  # Fast cache lookup function
+  get_fast_cache <- function(participants = NULL, trials = NULL, condition_filter = NULL, downsample_factor = 1) {
+    cache_logger("DEBUG", "get_fast_cache called")
+    cache_logger("DEBUG", "participants:", if(is.null(participants)) "NULL" else paste(participants, collapse = ", "))
+    cache_logger("DEBUG", "trials:", if(is.null(trials)) "NULL" else paste(trials, collapse = ", "))
+    cache_logger("DEBUG", "condition_filter:", if(is.null(condition_filter)) "NULL" else paste(condition_filter, collapse = ", "))
+    cache_logger("DEBUG", "downsample_factor:", downsample_factor)
+    
+    # Get cached data
+    cached_data <- fast_cache()
+    cache_logger("DEBUG", "fast_cache has", nrow(cached_data), "rows")
+    
+    if (nrow(cached_data) == 0) {
+      cache_logger("WARN", "No data in fast cache - returning NULL")
+      return(NULL)
+    }
+    
+    # Apply filters if specified
+    filtered_data <- cached_data
+    
+    if (!is.null(participants) && length(participants) > 0) {
+      cache_logger("DEBUG", "Filtering by participants")
+      filtered_data <- filtered_data[filtered_data$participant %in% participants, ]
+      cache_logger("DEBUG", "After participant filter:", nrow(filtered_data), "rows")
+    }
+    
+    if (!is.null(trials) && length(trials) > 0) {
+      cache_logger("DEBUG", "Filtering by trials")
+      filtered_data <- filtered_data[filtered_data$trialNum %in% trials, ]
+      cache_logger("DEBUG", "After trial filter:", nrow(filtered_data), "rows")
+    }
+    
+    if (!is.null(condition_filter) && length(condition_filter) > 0) {
+      cache_logger("DEBUG", "Filtering by conditions")
+      filtered_data <- filtered_data[filtered_data$condition %in% condition_filter, ]
+      cache_logger("DEBUG", "After condition filter:", nrow(filtered_data), "rows")
+    }
+    
+    # Apply downsampling if requested
+    if (downsample_factor > 1 && nrow(filtered_data) > 0) {
+      cache_logger("DEBUG", "Applying downsampling with factor:", downsample_factor)
+      cache_logger("DEBUG", "Before downsampling:", nrow(filtered_data), "rows")
+      
+      # Use fast row indexing for downsampling
+      indices <- seq(1, nrow(filtered_data), by = downsample_factor)
+      filtered_data <- filtered_data[indices, , drop = FALSE]
+      
+      cache_logger("DEBUG", "After downsampling:", nrow(filtered_data), "rows")
+    }
+    
+    cache_logger("DEBUG", "get_fast_cache returning", nrow(filtered_data), "rows")
+    return(filtered_data)
+  }
+  
+  # Update fast cache function
+  update_fast_cache <- function(data) {
+    cache_logger("DEBUG", "update_fast_cache called with", nrow(data), "rows")
+    
+    # Log memory usage
+    if (nrow(data) > 0) {
+      memory_usage <- format(object.size(data), units = "MB")
+      cache_logger("DEBUG", "Data memory usage:", memory_usage)
+    } else {
+      cache_logger("DEBUG", "Data memory usage: 0 MB (empty data frame)")
+    }
+    
+    fast_cache(data)
+    cache_logger("DEBUG", "fast_cache updated")
   }
   
   # Return the manager functions
@@ -166,15 +240,18 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     request_data = request_data,
     cancel_data = cancel_data,
     reset_data = reset_data,
-    parallel_enabled = function() parallel_enabled
+    parallel_enabled = parallel_enabled,
+    get_fast_cache = get_fast_cache,
+    update_fast_cache = update_fast_cache
   )
 }
 
 #' Create a Shiny reactive for cached data with progress and cancellation
 #' @param cache_manager Cache manager created with create_shiny_cache_manager
 #' @param data_type The type of data (e.g., "simulation", "power_spectrum")
-#' @return Reactive that returns cached data
-create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
+#' @param downsample_factor Downsampling factor (1 = no downsampling, 2 = every 2nd row, etc.)
+#' @return Reactive that returns cached data (optionally downsampled)
+create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsample_factor = 1) {
   # Create Shiny cache logger
   shiny_logger <- create_module_logger(paste0("SHINY-CACHE-", toupper(data_type)))
   
@@ -283,6 +360,9 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
       
       # Update Shiny cache manager state
       cache_manager$cache(cached_data)
+      
+      # Update fast cache for quick access
+      cache_manager$update_fast_cache(cached_data)
       
       # Store both filters and shiny inputs for change detection
       stored_state <- current_filters

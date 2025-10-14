@@ -71,6 +71,11 @@ checkboxInput("interactiveHist", "Interactive histograms (hover tooltips)",
 checkboxInput("useSummarizedData", "Use summarized data (means per participant/trial)",
   value = FALSE
 )
+
+# Downsampling control for large datasets
+numericInput("downsampleFactor", "Downsampling factor (1=no downsampling, 10=every 10th row)",
+  min = 1, max = 100, value = 10, step = 1
+)
 # Additional checkbox for summarizing across conditions
 conditionalPanel(
   condition = "input.useSummarizedData == true",
@@ -117,6 +122,10 @@ tableOutput("overallMeanTable")
 source("source/get_simulation_data.R", local = TRUE)
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
+source("source/logging_utils.R", local = TRUE)
+
+# Create logger for this page
+page_logger <- create_module_logger("PAGE5-HISTOGRAMS")
 
 # Define cacheable data types and their configurations
 cacheable_data_types <- list(
@@ -147,11 +156,42 @@ for (data_type in names(cacheable_data_types)) {
   )
 }
 
-# Helper function to get cached data for a data type
+# Helper function to get cached data for a data type with fast cache lookup
 get_cached_data_local <- function(data_type) {
-  if (data_type %in% names(cached_data_reactive)) {
-    return(cached_data_reactive[[data_type]]())
+  if (data_type %in% names(cache_managers)) {
+    # Try fast cache first
+    page_logger("DEBUG", "Trying fast cache lookup for", data_type)
+    
+    # Get current filters for fast cache lookup
+    current_filters <- get_universal_filters()
+    if (!is.null(current_filters)) {
+      # Get downsampling factor from user input
+      downsample_factor <- if (!is.null(input$downsampleFactor)) input$downsampleFactor else 1
+      
+      # Try fast cache lookup
+      fast_data <- cache_managers[[data_type]]$get_fast_cache(
+        participants = current_filters$participants,
+        trials = current_filters$trials,
+        condition_filter = current_filters$condition,
+        downsample_factor = downsample_factor
+      )
+      
+      if (!is.null(fast_data)) {
+        page_logger("DEBUG", "Fast cache hit! Returning", nrow(fast_data), "rows")
+        return(fast_data)
+      } else {
+        page_logger("DEBUG", "Fast cache miss - falling back to reactive")
+      }
+    }
+    
+    # Fallback to reactive if fast cache miss
+    if (data_type %in% names(cached_data_reactive)) {
+      page_logger("DEBUG", "Using reactive data for", data_type)
+      return(cached_data_reactive[[data_type]]())
+    }
   }
+  
+  page_logger("DEBUG", "No data available for", data_type)
   return(data.frame())
 }
 
@@ -186,31 +226,48 @@ get_empty_data_structure <- function(data_type) {
 
 # Reactive data source based on data type selection
 currentData <- reactive({
+  page_logger("DEBUG", "currentData reactive triggered")
+  page_logger("DEBUG", "useSummarizedData:", input$useSummarizedData)
+  page_logger("DEBUG", "dataType:", input$dataType)
+  
   if (input$useSummarizedData) {
     # Use summarized data when checkbox is checked
+    page_logger("DEBUG", "Using summarized data")
     summarized_data <- get_mu_dyn_long()
+    page_logger("DEBUG", "Summarized data loaded:", nrow(summarized_data), "rows")
+    
     # Apply additional summarization across conditions if requested
     if (input$summarizeAcrossConditions) {
+      page_logger("DEBUG", "Applying additional summarization across conditions")
       summarized_data <- summarize_across_conditions(summarized_data)
+      page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
     }
     return(summarized_data)
   } else {
     # Use full data when checkbox is unchecked
     if (input$dataType %in% names(cacheable_data_types)) {
       # Use cached data for cacheable data types
+      page_logger("DEBUG", "Using cached data for type:", input$dataType)
       data <- get_cached_data_local(input$dataType)
+      page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
       
       if (nrow(data) > 0) {
         # Apply data-specific filters
+        page_logger("DEBUG", "Applying data-specific filters")
         data <- apply_data_filters(data, input$dataType)
+        page_logger("DEBUG", "After filtering:", nrow(data), "rows")
         return(data)
       }
       
       # Return empty data frame with expected structure if no data available
+      page_logger("DEBUG", "No cached data available, returning empty structure")
       return(get_empty_data_structure(input$dataType))
     } else {
       # Use regular gait data for non-cacheable types
-      return(filteredParams())
+      page_logger("DEBUG", "Using regular gait data")
+      gait_data <- filteredParams()
+      page_logger("DEBUG", "Gait data loaded:", nrow(gait_data), "rows")
+      return(gait_data)
     }
   }
 })
@@ -337,8 +394,12 @@ plotHeight <- reactive({
 
 output$hist <- renderSVG({
   reactive({
+    page_logger("DEBUG", "=== SVG histogram render triggered ===")
+    page_logger("DEBUG", "enableHistograms:", input$enableHistograms)
+    
     # Check if histogram plotting is enabled
     if (!input$enableHistograms) {
+      page_logger("DEBUG", "Histogram plotting disabled, returning placeholder")
       return(ggplot() +
         annotate("text",
           x = 0.5, y = 0.5,
@@ -352,10 +413,13 @@ output$hist <- renderSVG({
     }
 
     # Use current data source
+    page_logger("DEBUG", "Getting current data for histogram")
     data <- currentData()
+    page_logger("DEBUG", "Data for histogram:", nrow(data), "rows")
 
     # Check if we have data
     if (nrow(data) == 0) {
+      page_logger("DEBUG", "No data available for histogram")
       # Create empty plot with message
       if (input$dataType %in% names(cacheable_data_types)) {
         config <- cacheable_data_types[[input$dataType]]
@@ -376,17 +440,48 @@ output$hist <- renderSVG({
         ggtitle("No Data Available")
     } else {
       # Create histogram with available data
+      page_logger("DEBUG", "Creating histogram with parameters:")
+      page_logger("DEBUG", "  - group:", input$group)
+      page_logger("DEBUG", "  - split:", input$split)
+      page_logger("DEBUG", "  - plot variable:", input$plot)
+      page_logger("DEBUG", "  - bin width:", input$bin)
+      page_logger("DEBUG", "  - position:", input$position)
+      page_logger("DEBUG", "  - baseSize:", input$baseSize)
+      
       # When using summarized data, pass the same data as both parameters
       mu_data <- if (input$useSummarizedData) data else get_mu_dyn_long()
-      make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
+      page_logger("DEBUG", "mu_data for histogram:", nrow(mu_data), "rows")
+      
+      page_logger("DEBUG", "About to call make_histogram...")
+      tryCatch({
+        result <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
+        page_logger("DEBUG", "make_histogram completed successfully")
+        return(result)
+      }, error = function(e) {
+        page_logger("ERROR", "Error in make_histogram:", e$message)
+        return(ggplot() +
+          annotate("text",
+            x = 0.5, y = 0.5,
+            label = paste("Error creating histogram:", e$message),
+            hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+          ) +
+          xlim(0, 1) +
+          ylim(0, 1) +
+          theme_void() +
+          ggtitle("Histogram Error"))
+      })
     }
   })
 })
 
 # Interactive histogram (Plotly)
 output$hist_plotly <- renderPlotly({
+  page_logger("DEBUG", "=== Plotly histogram render triggered ===")
+  page_logger("DEBUG", "enableHistograms:", input$enableHistograms)
+  
   # Check if histogram plotting is enabled
   if (!input$enableHistograms) {
+    page_logger("DEBUG", "Histogram plotting disabled, returning placeholder")
     p <- ggplot() +
       annotate("text",
         x = 0.5, y = 0.5,
@@ -401,10 +496,13 @@ output$hist_plotly <- renderPlotly({
   }
 
   # Use current data source
+  page_logger("DEBUG", "Getting current data for Plotly histogram")
   data <- currentData()
+  page_logger("DEBUG", "Data for Plotly histogram:", nrow(data), "rows")
 
   # Check if we have data
   if (nrow(data) == 0) {
+    page_logger("DEBUG", "No data available for Plotly histogram")
     if (input$dataType %in% names(cacheable_data_types)) {
       config <- cacheable_data_types[[input$dataType]]
       message <- sprintf("No %s available. Please check your filters and ensure participants/trials are selected.", 
@@ -426,10 +524,40 @@ output$hist_plotly <- renderPlotly({
   }
 
   # Create histogram with available data and convert to Plotly
+  page_logger("DEBUG", "Creating Plotly histogram with parameters:")
+  page_logger("DEBUG", "  - group:", input$group)
+  page_logger("DEBUG", "  - split:", input$split)
+  page_logger("DEBUG", "  - plot variable:", input$plot)
+  page_logger("DEBUG", "  - bin width:", input$bin)
+  page_logger("DEBUG", "  - position:", input$position)
+  page_logger("DEBUG", "  - baseSize:", input$baseSize)
+  
   # When using summarized data, pass the same data as both parameters
   mu_data <- if (input$useSummarizedData) data else get_mu_dyn_long()
-  p <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
-  ggplotly(p, tooltip = "all", dynamicTicks = TRUE, height = plotHeight())
+  page_logger("DEBUG", "mu_data for Plotly histogram:", nrow(mu_data), "rows")
+  
+  page_logger("DEBUG", "About to call make_histogram for Plotly...")
+  tryCatch({
+    p <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
+    page_logger("DEBUG", "make_histogram completed, converting to Plotly...")
+    
+    plotly_result <- ggplotly(p, tooltip = "all", dynamicTicks = TRUE, height = plotHeight())
+    page_logger("DEBUG", "Plotly conversion completed successfully")
+    return(plotly_result)
+  }, error = function(e) {
+    page_logger("ERROR", "Error in Plotly histogram:", e$message)
+    error_p <- ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = paste("Error creating Plotly histogram:", e$message),
+        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("Plotly Histogram Error")
+    return(ggplotly(error_p, dynamicTicks = TRUE, height = plotHeight()))
+  })
 })
 
 # Add mean tables

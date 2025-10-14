@@ -364,6 +364,7 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
 make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize) {
   # Check if the variable is categorical or numeric
   is_categorical <- !is.numeric(data[[xinput]])
+  plot_logger("DEBUG", "Variable is categorical:", is_categorical)
 
   if (is_categorical) {
     # For categorical variables, create a bar chart
@@ -398,12 +399,19 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
   # would lock up the dashboard. If the estimated number of bins
   # exceeds MAX_BINS, we return a placeholder plot with a warning.
   # ------------------------------------------------------------------
+  plot_logger("DEBUG", "Processing numeric variable histogram")
   MAX_BINS <- 5000
   if (is.numeric(binwidth) && binwidth > 0 && xinput %in% names(data)) {
+    plot_logger("DEBUG", "Calculating data range for bin estimation")
     rng <- range(data[[xinput]], na.rm = TRUE)
+    plot_logger("DEBUG", "Data range:", rng[1], "to", rng[2])
+    
     if (is.finite(rng[1]) && is.finite(rng[2])) {
       n_bins_est <- ceiling((rng[2] - rng[1]) / binwidth)
+      plot_logger("DEBUG", "Estimated number of bins:", n_bins_est)
+      
       if (n_bins_est > MAX_BINS) {
+        plot_logger("WARN", "Too many bins requested:", n_bins_est, ">", MAX_BINS, "- skipping histogram")
         warning(sprintf("Requested ~%d bins (> %d). Histogram skipped.", n_bins_est, MAX_BINS))
         return(
           ggplot() +
@@ -422,6 +430,7 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
     }
   }
 
+  plot_logger("DEBUG", "Setting up histogram aesthetics")
   aes <- aes_string(x = xinput)
   a <- 1
   fill <- "grey"
@@ -433,15 +442,58 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
     }
   }
 
-  p <- ggplot(data, aes) +
-    geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
-    theme_minimal(base_size = baseSize)
-
-  if (split != "None") {
-    p <- p + facet_grid(sym(split))
+  plot_logger("DEBUG", "About to create ggplot with geom_histogram")
+  plot_logger("DEBUG", "Data size before histogram:", nrow(data), "rows")
+  plot_logger("DEBUG", "Memory usage before histogram:", format(object.size(data), units = "MB"))
+  
+  # Additional safety check for very large datasets
+  MAX_ROWS_FOR_HISTOGRAM <- 1000000  # 1 million rows
+  if (nrow(data) > MAX_ROWS_FOR_HISTOGRAM) {
+    plot_logger("WARN", "Dataset too large for histogram:", nrow(data), "rows >", MAX_ROWS_FOR_HISTOGRAM)
+    return(ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = sprintf("Dataset too large for histogram: %d rows. Consider using summarized data or filtering.", nrow(data)),
+        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("Dataset Too Large"))
   }
-
-  return(p)
+  
+  tryCatch({
+    p <- ggplot(data, aes) +
+      geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
+      theme_minimal(base_size = baseSize)
+    
+    plot_logger("DEBUG", "ggplot created successfully")
+    
+    if (split != "None") {
+      plot_logger("DEBUG", "Adding facet_grid for split:", split)
+      p <- p + facet_grid(sym(split))
+    }
+    
+    plot_logger("DEBUG", "Histogram creation completed successfully")
+    return(p)
+  }, error = function(e) {
+    plot_logger("ERROR", "Error creating histogram:", e$message)
+    plot_logger("ERROR", "Data size:", nrow(data), "rows")
+    plot_logger("ERROR", "Variable:", xinput)
+    plot_logger("ERROR", "Bin width:", binwidth)
+    
+    # Return error plot
+    return(ggplot() +
+      annotate("text",
+        x = 0.5, y = 0.5,
+        label = paste("Error creating histogram:", e$message),
+        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+      ) +
+      xlim(0, 1) +
+      ylim(0, 1) +
+      theme_void() +
+      ggtitle("Histogram Creation Error"))
+  })
 }
 
 plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL, shape_var = NULL, baseSize = 10) {
