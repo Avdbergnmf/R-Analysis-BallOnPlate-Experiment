@@ -50,10 +50,10 @@ checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
-selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
-  choices = c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none"),
-  selected = "holm", multiple = FALSE
-)
+  selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
+    choices = GENERAL_CORRECTION_CHOICES,
+    selected = "holm", multiple = FALSE
+  )
 ```
 
 ```{r}
@@ -174,11 +174,11 @@ conditionalPanel(
 
 ```{r}
 conditionalPanel(
-  condition = "input.paired_ttest == false",
-  selectizeInput("posthoc_correction", "Post-hoc correction method",
-    choices = c("tukey", "scheffe", "sidak", "bonferroni", "holm", "hochberg", "hommel", "BH", "BY", "fdr", "none"),
-    selected = "tukey", multiple = FALSE
-  ),
+    condition = "input.paired_ttest == false",
+    selectizeInput("posthoc_correction", "Post-hoc correction method",
+      choices = c("tukey", "scheffe", "sidak", GENERAL_CORRECTION_CHOICES),
+      selected = "tukey", multiple = FALSE
+    ),
   helpText("Tukey's HSD is recommended for pairwise comparisons. Other methods may be more or less conservative.")
 )
 ```
@@ -340,6 +340,11 @@ get_lmer <- reactive({
 
   fit_lmm(data, formula)
 })
+
+# ----------------  CONSTANTS ----------------
+
+# General correction method choices (for other parts of the UI)
+GENERAL_CORRECTION_CHOICES <- c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none")
 
 # ----------------  LMM OUTPUTS ----------------
 output$stats_results_ui <- renderUI({
