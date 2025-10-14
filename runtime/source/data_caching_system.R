@@ -1,7 +1,7 @@
 #' Data Caching System
 #'
 #' A flexible caching system that can be applied to different types of datasets.
-#' Supports RDS file persistence and incremental loading of missing data.
+#' Supports RDS file persistence, incremental loading, and Shiny integration.
 
 # =============================================================================
 # GLOBAL CACHE STORAGE
@@ -12,27 +12,235 @@
 global_data_cache <<- list()
 
 # =============================================================================
-# DATA LOADER FUNCTIONS
+# SHINY INTEGRATION FUNCTIONS
 # =============================================================================
 
-#' Define data loader functions for different data types
-#' Each function should take (participant, trial) and return a data.frame
-data_loaders <<- list(
-  "simulation" = function(participant, trial) {
-    # Load simulation data for a specific participant and trial
-    sim_data <- get_simulation_data(participant, trial)
-    if (!is.null(sim_data) && nrow(sim_data) > 0) {
-      # Add metadata
-      sim_data$condition <- condition_number(participant)
-      sim_data$participant <- participant
-      sim_data$trialNum <- trial
+#' Create a Shiny-compatible cache manager
+#' @param cache_name Unique name for this cache (e.g., "simulation", "power_spectrum")
+#' @return List of functions to manage the cache with Shiny integration
+create_shiny_cache_manager <- function(cache_name) {
+  # Create unique variable names for this cache
+  trigger_var <- paste0(".", cache_name, "DataTrigger")
+  cancel_var <- paste0(".", cache_name, "DataCancel")
+  cache_var <- paste0(".", cache_name, "DataCache")
+  filters_var <- paste0(".", cache_name, "DataFilters")
+  notification_var <- paste0(".", cache_name, "DataNotificationId")
+  loading_var <- paste0(".", cache_name, "DataLoading")
+  
+  # Initialize reactive values on first access
+  trigger <- function(value = NULL) {
+    if (!exists(trigger_var, envir = .GlobalEnv) || is.null(get(trigger_var, envir = .GlobalEnv))) {
+      assign(trigger_var, reactiveVal(0), envir = .GlobalEnv)
     }
-    return(sim_data)
+    trigger_val <- get(trigger_var, envir = .GlobalEnv)
+    if (is.null(value)) {
+      trigger_val()
+    } else {
+      trigger_val(value)
+    }
   }
-  # Add more data loaders here as needed
-  # "gait" = function(participant, trial) { ... },
-  # "questionnaire" = function(participant, trial) { ... }
-)
+  
+  cancel <- function(value = NULL) {
+    if (!exists(cancel_var, envir = .GlobalEnv) || is.null(get(cancel_var, envir = .GlobalEnv))) {
+      assign(cancel_var, reactiveVal(FALSE), envir = .GlobalEnv)
+    }
+    cancel_val <- get(cancel_var, envir = .GlobalEnv)
+    if (is.null(value)) {
+      cancel_val()
+    } else {
+      cancel_val(value)
+    }
+  }
+  
+  cache <- function(value = NULL) {
+    if (!exists(cache_var, envir = .GlobalEnv) || is.null(get(cache_var, envir = .GlobalEnv))) {
+      assign(cache_var, reactiveVal(data.frame()), envir = .GlobalEnv)
+    }
+    cache_val <- get(cache_var, envir = .GlobalEnv)
+    if (is.null(value)) {
+      cache_val()
+    } else {
+      cache_val(value)
+    }
+  }
+  
+  filters <- function(value = NULL) {
+    if (!exists(filters_var, envir = .GlobalEnv) || is.null(get(filters_var, envir = .GlobalEnv))) {
+      assign(filters_var, reactiveVal(list()), envir = .GlobalEnv)
+    }
+    filters_val <- get(filters_var, envir = .GlobalEnv)
+    if (is.null(value)) {
+      filters_val()
+    } else {
+      filters_val(value)
+    }
+  }
+  
+  loading <- function(value = NULL) {
+    if (!exists(loading_var, envir = .GlobalEnv) || is.null(get(loading_var, envir = .GlobalEnv))) {
+      assign(loading_var, reactiveVal(FALSE), envir = .GlobalEnv)
+    }
+    loading_val <- get(loading_var, envir = .GlobalEnv)
+    if (is.null(value)) {
+      loading_val()
+    } else {
+      loading_val(value)
+    }
+  }
+  
+  # Notification management
+  clear_notifications <- function() {
+    if (exists(notification_var, envir = .GlobalEnv)) {
+      notification_id <- get(notification_var, envir = .GlobalEnv)
+      if (!is.null(notification_id)) {
+        tryCatch(
+          {
+            removeNotification(notification_id)
+          },
+          error = function(e) {
+            # Ignore errors if notification doesn't exist
+          }
+        )
+        assign(notification_var, NULL, envir = .GlobalEnv)
+      }
+    }
+  }
+  
+  show_notification <- function(ui, type = "message", duration = NULL) {
+    clear_notifications()
+    notification_id <- showNotification(
+      ui,
+      type = type,
+      duration = duration,
+      closeButton = TRUE
+    )
+    assign(notification_var, notification_id, envir = .GlobalEnv)
+    return(notification_id)
+  }
+  
+  # Control functions
+  request_data <- function() {
+    trigger(trigger() + 1)
+    cancel(FALSE)
+    loading(TRUE)
+  }
+  
+  cancel_data <- function() {
+    cancel(TRUE)
+    loading(FALSE)
+    show_notification(
+      paste(cache_name, "data loading cancelled."),
+      type = "warning",
+      duration = 3
+    )
+  }
+  
+  reset_data <- function() {
+    cache(data.frame())
+    filters(list())
+    loading(FALSE)
+    clear_notifications()
+  }
+  
+  # Return the manager functions
+  list(
+    trigger = trigger,
+    cancel = cancel,
+    cache = cache,
+    filters = filters,
+    loading = loading,
+    clear_notifications = clear_notifications,
+    show_notification = show_notification,
+    request_data = request_data,
+    cancel_data = cancel_data,
+    reset_data = reset_data
+  )
+}
+
+#' Create a Shiny reactive for cached data with progress and cancellation
+#' @param cache_manager Cache manager created with create_shiny_cache_manager
+#' @param data_type The type of data (e.g., "simulation", "power_spectrum")
+#' @return Reactive that returns cached data
+create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
+  reactive({
+    # Only depend on the trigger (button clicks), not on filter changes
+    trigger_value <- cache_manager$trigger()
+    
+    # If trigger is 0, no update has been requested yet - return empty data frame
+    if (trigger_value == 0) {
+      return(data.frame())
+    }
+    
+    # Use isolate() to prevent reactive dependencies on filter inputs
+    # Use the universal filter function from sidebar
+    current_filters <- isolate(get_universal_filters())
+    
+    # If filter validation failed, return empty data frame
+    if (is.null(current_filters)) {
+      cache_manager$show_notification(
+        paste("Please select participants and trials before loading", data_type, "data."),
+        type = "warning",
+        duration = 5
+      )
+      return(data.frame())
+    }
+    
+    # Use the main caching system to get data
+    tryCatch({
+      # Get cached data using the main system
+      cached_data <- get_cached_data(
+        data_type = data_type,
+        participants = current_filters$participants,
+        trials = current_filters$trials,
+        condition_filter = current_filters$condition
+      )
+      
+      # Update Shiny cache manager state
+      cache_manager$cache(cached_data)
+      cache_manager$filters(current_filters)
+      cache_manager$loading(FALSE)
+      
+      # Show success notification
+      if (nrow(cached_data) > 0) {
+        cache_manager$show_notification(
+          sprintf(
+            "✓ Loaded %s data: %d participants, %d trials, %d samples",
+            data_type,
+            length(unique(cached_data$participant)),
+            length(unique(cached_data$trialNum)),
+            nrow(cached_data)
+          ),
+          type = "message",
+          duration = 3
+        )
+      } else {
+        cache_manager$show_notification(
+          paste("No", data_type, "data found for the selected filters."),
+          type = "warning",
+          duration = 5
+        )
+      }
+      
+      return(cached_data)
+      
+    }, error = function(e) {
+      cache_manager$loading(FALSE)
+      cache_manager$show_notification(
+        paste("Error loading", data_type, "data:", e$message),
+        type = "error",
+        duration = 5
+      )
+      return(data.frame())
+    })
+  })
+}
+
+# =============================================================================
+# DATA TYPE SETUP
+# =============================================================================
+
+# Source the data type setup file to load data loaders and validators
+source("source/data_caching_setup.R", local = FALSE)
 
 # =============================================================================
 # CACHE FILE PATHS
@@ -116,6 +324,7 @@ clear_cache <- function(data_type) {
   }
 }
 
+
 # =============================================================================
 # DATA LOADING FUNCTIONS
 # =============================================================================
@@ -126,11 +335,19 @@ clear_cache <- function(data_type) {
 #' @param trial The trial number
 #' @return TRUE if data exists, FALSE otherwise
 has_data <- function(data_type, participant, trial) {
-  if (data_type == "simulation") {
-    return(has_simulation_data(participant, trial))
+  validator <- data_validators[[data_type]]
+  if (is.null(validator)) {
+    warning(sprintf("No validator defined for data type: %s", data_type))
+    return(FALSE)
   }
-  # Add checks for other data types here
+  
+  tryCatch({
+    return(validator(participant, trial))
+  }, error = function(e) {
+    warning(sprintf("Error validating %s data for participant %s, trial %s: %s", 
+                   data_type, participant, trial, e$message))
   return(FALSE)
+  })
 }
 
 #' Get all available participant-trial combinations for a data type

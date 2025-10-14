@@ -216,3 +216,34 @@ numericInput("plotwidth", "Plot Width (pixels)",
 numericInput("baseSize", "Base Size",
   min = 1, max = Inf, value = 10, step = 1)
 ```
+
+#### Universal Data Filtering Function
+```{r, context="server"}
+# Universal filter function that can be used by any caching system
+get_universal_filters <- function() {
+  # Check if required inputs exist
+  if (any(is.null(input$filterParticipants), is.null(input$filterTrials))) {
+    return(NULL)
+  }
+  
+  # Pre-filter participants by condition if specified
+  filtered_participants <- input$filterParticipants
+  if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
+    # Get participants that match any of the selected conditions
+    condition_participants <- c()
+    for (participant in input$filterParticipants) {
+      if (condition_number(participant) %in% input$filterCondition) {
+        condition_participants <- c(condition_participants, participant)
+      }
+    }
+    filtered_participants <- condition_participants
+  }
+  
+  # Return universal filter state
+  list(
+    participants = filtered_participants,
+    trials = input$filterTrials,
+    condition = input$filterCondition
+  )
+}
+```

@@ -76,111 +76,16 @@ plotOutput("powerSpectrumPlot", height = "auto")
 ```{r, context="server"}
 # Source power spectrum utilities and caching system
 source("source/power_spectrum_utils.R", local = TRUE)
-source("source/data_caching_utils.R", local = TRUE)
+source("source/data_caching_setup.R", local = TRUE)
+source("source/data_caching_system.R", local = TRUE)
 
 # Create power spectrum data cache manager
-ps_cache_manager <- create_data_cache_manager("power_spectrum")
+ps_cache_manager <- create_shiny_cache_manager("power_spectrum")
 
-# Define functions for the power spectrum caching system
-load_power_spectrum_data <- function(participant, trial) {
-  # Load raw tracker data first
-  data <- get_t_data(participant, input$psTracker, trial)
-  if (is.null(data) || nrow(data) == 0) {
-    return(data.frame())
-  }
-  
-  # Check if we have the required variable
-  if (!input$psVar %in% names(data)) {
-    return(data.frame())
-  }
-  
-  # Compute power spectrum for this participant-trial combination
-  tryCatch({
-    # Clean data
-    valid_mask <- is.finite(data[[input$psVar]]) & is.finite(data$time)
-    values <- data[[input$psVar]][valid_mask]
-    times <- data$time[valid_mask]
-    
-    if (length(values) < 50) {
-      return(data.frame())
-    }
-    
-    # Calculate sampling frequency
-    if (length(times) > 1) {
-      dt <- median(diff(times), na.rm = TRUE)
-      fs <- if (is.finite(dt) && dt > 0) 1 / dt else 120
-    } else {
-      fs <- 120  # Default
-    }
-    
-    # Compute PSD
-    psd_df <- compute_single_psd(
-      values,
-      fs = fs,
-      max_freq = input$psMaxFreq,
-      normalize = TRUE
-    )
-    
-    if (is.null(psd_df)) {
-      return(data.frame())
-    }
-    
-    
-    # Add metadata
-    psd_df$participant <- participant
-    psd_df$trialNum <- as.numeric(as.character(trial))
-    
-    return(psd_df)
-  }, error = function(e) {
-    warning(sprintf("Error computing power spectrum for participant %s, trial %s: %s", 
-                   participant, trial, e$message))
-    return(data.frame())
-  })
-}
-
-get_ps_filters <- function() {
-  # Check if required inputs exist
-  if (any(is.null(input$filterParticipants), is.null(input$filterTrials), 
-          is.null(input$psTracker), is.null(input$psVar))) {
-    return(NULL)
-  }
-  
-  # Pre-filter participants by condition if specified
-  filtered_participants <- input$filterParticipants
-  if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
-    # Get participants that match any of the selected conditions
-    condition_participants <- c()
-    for (participant in input$filterParticipants) {
-      if (condition_number(participant) %in% input$filterCondition) {
-        condition_participants <- c(condition_participants, participant)
-      }
-    }
-    filtered_participants <- condition_participants
-  }
-  
-  # Get current filter state including power spectrum parameters
-  list(
-    participants = filtered_participants,
-    trials = input$filterTrials,
-    tracker = input$psTracker,
-    variable = input$psVar,
-    max_freq = input$psMaxFreq
-  )
-}
-
-has_ps_data <- function(participant, trial) {
-  # Check if tracker data exists for this participant-trial combination
-  data <- get_t_data(participant, input$psTracker, trial)
-  return(!is.null(data) && nrow(data) > 0 && input$psVar %in% names(data))
-}
-
-# Create cached power spectrum data reactive
-cachedPowerSpectrumData <- create_cached_data_reactive(
+# Create cached power spectrum data reactive using the new system
+cachedPowerSpectrumData <- create_shiny_cached_data_reactive(
   cache_manager = ps_cache_manager,
-  load_function = load_power_spectrum_data,
-  filter_function = get_ps_filters,
-  validate_function = has_ps_data,
-  cache_name = "power spectrum"
+  data_type = "power_spectrum"
 )
 
 # Helper function to add grouping variables to cached PSD data
@@ -279,8 +184,6 @@ create_dynamic_category_observer(
 observeEvent(input$psUpdateTrackerData, {
   # Flag that power spectrum data should be (re)loaded
   ps_cache_manager$request_data()
-  # Bump the reactive trigger so all downstream reactives recompute
-  refresh_trigger(refresh_trigger() + 1)
 })
 
 
