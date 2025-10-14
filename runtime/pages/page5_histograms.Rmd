@@ -3,7 +3,7 @@
 ```{r}
 # Data type selection
 selectizeInput("dataType", "Data Type",
-  choices = c("Gait Data" = "gait", "Simulation Data" = "simulation"),
+  choices = c("Gait Data" = "gait", "Simulation Data" = "simulation", "Raw Tracker Data" = "raw_tracker"),
   selected = "gait", multiple = FALSE
 )
 
@@ -18,6 +18,24 @@ conditionalPanel(
     div(
       style = "margin-top: 5px; font-size: 11px; color: #888;",
       "Note: Click 'Update Simulation Data' to load and cache simulation data."
+    )
+  )
+)
+
+# Tracker selection and controls for raw tracker data
+conditionalPanel(
+  condition = "input.dataType == 'raw_tracker'",
+  div(
+    selectizeInput("rawTracker", "Tracker Type",
+      choices = trackers, selected = trackers[2], multiple = FALSE
+    ),
+    actionButton("rawTrackerUpdateData", "Update Raw Tracker Data",
+      class = "btn-primary", style = "margin-bottom: 10px;"
+    ),
+    div(id = "rawTrackerStatus", style = "margin-top: 5px; font-size: 12px; color: #666;"),
+    div(
+      style = "margin-top: 5px; font-size: 11px; color: #888;",
+      "Note: Click 'Update Raw Tracker Data' to load and cache raw tracker data."
     )
   )
 )
@@ -95,18 +113,76 @@ tableOutput("overallMeanTable")
 
 
 ```{r, context="server"}
-# Source caching system
+# Source required files for data loading functions
+source("source/get_simulation_data.R", local = TRUE)
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
 
-# Create simulation data cache manager (with parallel processing disabled by default)
-sim_cache_manager <- create_shiny_cache_manager("simulation", parallel = FALSE)
-
-# Create cached simulation data reactive using the new system
-cachedSimulationData <- create_shiny_cached_data_reactive(
-  cache_manager = sim_cache_manager,
-  data_type = "simulation"
+# Define cacheable data types and their configurations
+cacheable_data_types <- list(
+  "simulation" = list(
+    button_id = "simUpdateData",
+    status_id = "simulationStatus",
+    display_name = "Simulation Data"
+  ),
+  "raw_tracker" = list(
+    button_id = "rawTrackerUpdateData", 
+    status_id = "rawTrackerStatus",
+    display_name = "Raw Tracker Data"
+  )
 )
+
+# Create cache managers and reactive data for all cacheable data types
+cache_managers <- list()
+cached_data_reactive <- list()
+
+for (data_type in names(cacheable_data_types)) {
+  # Create cache manager
+  cache_managers[[data_type]] <- create_shiny_cache_manager(data_type, parallel = FALSE)
+  
+  # Create cached data reactive
+  cached_data_reactive[[data_type]] <- create_shiny_cached_data_reactive(
+    cache_manager = cache_managers[[data_type]],
+    data_type = data_type
+  )
+}
+
+# Helper function to get cached data for a data type
+get_cached_data <- function(data_type) {
+  if (data_type %in% names(cached_data_reactive)) {
+    return(cached_data_reactive[[data_type]]())
+  }
+  return(data.frame())
+}
+
+# Helper function to apply data-specific filters
+apply_data_filters <- function(data, data_type) {
+  if (data_type == "simulation" && nrow(data) > 0) {
+    # Optionally filter to only samples where the ball is on the plate
+    if (!is.null(input$sim_only_on_plate) && input$sim_only_on_plate &&
+        ("simulating" %in% colnames(data))) {
+      data <- data[data$simulating == TRUE, , drop = FALSE]
+    }
+  }
+  return(data)
+}
+
+# Helper function to get empty data frame structure for a data type
+get_empty_data_structure <- function(data_type) {
+  base_structure <- data.frame(
+    participant = character(0),
+    trialNum = numeric(0),
+    condition = character(0)
+  )
+  
+  if (data_type == "simulation") {
+    base_structure$phase <- character(0)
+  } else if (data_type == "raw_tracker") {
+    base_structure$time <- numeric(0)
+  }
+  
+  return(base_structure)
+}
 
 # Reactive data source based on data type selection
 currentData <- reactive({
@@ -120,28 +196,20 @@ currentData <- reactive({
     return(summarized_data)
   } else {
     # Use full data when checkbox is unchecked
-    if (input$dataType == "simulation") {
-      # Use cached simulation data
-      sim_data <- cachedSimulationData()
+    if (input$dataType %in% names(cacheable_data_types)) {
+      # Use cached data for cacheable data types
+      data <- get_cached_data(input$dataType)
       
-      if (nrow(sim_data) > 0) {
-        # Optionally filter to only samples where the ball is on the plate
-        if (!is.null(input$sim_only_on_plate) && input$sim_only_on_plate &&
-          ("simulating" %in% colnames(sim_data))) {
-          sim_data <- sim_data[sim_data$simulating == TRUE, , drop = FALSE]
-        }
-        return(sim_data)
+      if (nrow(data) > 0) {
+        # Apply data-specific filters
+        data <- apply_data_filters(data, input$dataType)
+        return(data)
       }
       
       # Return empty data frame with expected structure if no data available
-      return(data.frame(
-        participant = character(0),
-        trialNum = numeric(0),
-        condition = character(0),
-        phase = character(0)
-      ))
+      return(get_empty_data_structure(input$dataType))
     } else {
-      # Use regular gait data
+      # Use regular gait data for non-cacheable types
       return(filteredParams())
     }
   }
@@ -168,15 +236,22 @@ observe({
   )
 })
 
+# Helper function to get category choices for a data type
+get_category_choices <- function(data_type) {
+  if (data_type == "simulation") {
+    return(c("participant", "condition", "trialNum", "phase", "arcDeg"))
+  } else if (data_type == "raw_tracker") {
+    return(c("participant", "condition", "trialNum"))
+  } else {
+    return(categoriesExtraInputs)
+  }
+}
+
 # Use create_dynamic_category_observer for group selection
 create_dynamic_category_observer(
   data_reactive = currentData,
   input_id = "group",
-  category_choices = if (input$dataType == "simulation") {
-    c("participant", "condition", "trialNum", "phase", "arcDeg")
-  } else {
-    categoriesExtraInputs
-  },
+  category_choices = get_category_choices(input$dataType),
   default_selection = "participant",
   multiple = FALSE,
   input = input
@@ -186,41 +261,59 @@ create_dynamic_category_observer(
 create_dynamic_category_observer(
   data_reactive = currentData,
   input_id = "split",
-  category_choices = c("None", if (input$dataType == "simulation") {
-    c("participant", "condition", "trialNum", "phase", "arcDeg")
-  } else {
-    categoriesExtraInputs
-  }),
+  category_choices = c("None", get_category_choices(input$dataType)),
   default_selection = "None",
   multiple = FALSE,
   input = input
 )
 
-# Trigger simulation data update when button is clicked
-observeEvent(input$simUpdateData, {
-  # Flag that simulation data should be (re)loaded
-  sim_cache_manager$request_data()
-})
+# Create button observers for all cacheable data types
+for (data_type in names(cacheable_data_types)) {
+  config <- cacheable_data_types[[data_type]]
+  button_id <- config$button_id
+  
+  # Create observer for this data type's update button
+  observeEvent(input[[button_id]], {
+    # Flag that data should be (re)loaded
+    cache_managers[[data_type]]$request_data()
+  }, ignoreNULL = TRUE)
+}
 
-# Status display for simulation data
-output$simulationStatus <- renderText({
-  if (input$dataType == "simulation") {
-    # Get current cached simulation data
-    data <- cachedSimulationData()
-    if (nrow(data) > 0) {
-      sprintf(
-        "Ready: %d participants, %d trials, %d samples",
-        length(unique(data$participant)),
-        length(unique(data$trialNum)),
-        nrow(data)
-      )
+# Create status displays for all cacheable data types
+for (data_type in names(cacheable_data_types)) {
+  config <- cacheable_data_types[[data_type]]
+  status_id <- config$status_id
+  display_name <- config$display_name
+  
+  # Create status output for this data type
+  output[[status_id]] <- renderText({
+    if (input$dataType == data_type) {
+      # Get current cached data
+      data <- get_cached_data(data_type)
+      if (nrow(data) > 0) {
+        # Build status message with data type specific info
+        status_msg <- sprintf(
+          "Ready: %d participants, %d trials, %d samples",
+          length(unique(data$participant)),
+          length(unique(data$trialNum)),
+          nrow(data)
+        )
+        
+        # Add data type specific info
+        if (data_type == "raw_tracker" && !is.null(input$rawTracker)) {
+          status_msg <- paste0(status_msg, sprintf(" (tracker: %s)", input$rawTracker))
+        }
+        
+        return(status_msg)
+      } else {
+        return(sprintf("No %s loaded. Click 'Update %s' to load %s for the selected participants/trials.", 
+                      tolower(display_name), display_name, tolower(display_name)))
+      }
     } else {
-      "No simulation data loaded. Click 'Update Simulation Data' to load simulation data for the selected participants/trials."
+      return("")
     }
-  } else {
-    ""
-  }
-})
+  })
+}
 
 plotCount <- reactive({
   colName <- as.character(input$split)
@@ -264,10 +357,12 @@ output$hist <- renderSVG({
     # Check if we have data
     if (nrow(data) == 0) {
       # Create empty plot with message
-      message <- if (input$dataType == "simulation") {
-        "No simulation data available. Please check your filters and ensure participants/trials are selected."
+      if (input$dataType %in% names(cacheable_data_types)) {
+        config <- cacheable_data_types[[input$dataType]]
+        message <- sprintf("No %s available. Please check your filters and ensure participants/trials are selected.", 
+                          tolower(config$display_name))
       } else {
-        "No data available for the selected filters and data type"
+        message <- "No data available for the selected filters and data type"
       }
       ggplot() +
         annotate("text",
@@ -310,10 +405,12 @@ output$hist_plotly <- renderPlotly({
 
   # Check if we have data
   if (nrow(data) == 0) {
-    message <- if (input$dataType == "simulation") {
-      "No simulation data available. Please check your filters and ensure participants/trials are selected."
+    if (input$dataType %in% names(cacheable_data_types)) {
+      config <- cacheable_data_types[[input$dataType]]
+      message <- sprintf("No %s available. Please check your filters and ensure participants/trials are selected.", 
+                        tolower(config$display_name))
     } else {
-      "No data available for the selected filters and data type"
+      message <- "No data available for the selected filters and data type"
     }
     p <- ggplot() +
       annotate("text",
