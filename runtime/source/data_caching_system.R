@@ -17,8 +17,9 @@ global_data_cache <<- list()
 
 #' Create a Shiny-compatible cache manager
 #' @param cache_name Unique name for this cache (e.g., "simulation", "power_spectrum")
+#' @param parallel Whether to enable parallel processing (default: FALSE)
 #' @return List of functions to manage the cache with Shiny integration
-create_shiny_cache_manager <- function(cache_name) {
+create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   # Create unique variable names for this cache
   trigger_var <- paste0(".", cache_name, "DataTrigger")
   cancel_var <- paste0(".", cache_name, "DataCancel")
@@ -121,6 +122,10 @@ create_shiny_cache_manager <- function(cache_name) {
   # Create cache-specific logger
   cache_logger <- create_module_logger(paste0("CACHE-", toupper(cache_name)))
   
+  # Store parallel setting
+  parallel_enabled <- parallel
+  cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled)
+  
   # Control functions
   request_data <- function() {
     cache_logger("DEBUG", "request_data() called")
@@ -160,7 +165,8 @@ create_shiny_cache_manager <- function(cache_name) {
     show_notification = show_notification,
     request_data = request_data,
     cancel_data = cancel_data,
-    reset_data = reset_data
+    reset_data = reset_data,
+    parallel_enabled = function() parallel_enabled
   )
 }
 
@@ -213,7 +219,8 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
         data_type = data_type,
         participants = current_filters$participants,
         trials = current_filters$trials,
-        condition_filter = current_filters$condition
+        condition_filter = current_filters$condition,
+        parallel = cache_manager$parallel_enabled()
       )
       
       shiny_logger("DEBUG", "got", nrow(cached_data), "rows from get_cached_data")
@@ -360,67 +367,34 @@ clear_cache <- function(data_type) {
 # DATA LOADING FUNCTIONS
 # =============================================================================
 
-#' Check if data exists for a participant-trial combination
-#' @param data_type The type of data
-#' @param participant The participant ID
-#' @param trial The trial number
-#' @return TRUE if data exists, FALSE otherwise
-has_data <- function(data_type, participant, trial) {
-  validator <- data_validators[[data_type]]
-  if (is.null(validator)) {
-    warning(sprintf("No validator defined for data type: %s", data_type))
-    return(FALSE)
-  }
-  
-  tryCatch({
-    return(validator(participant, trial))
-  }, error = function(e) {
-    warning(sprintf("Error validating %s data for participant %s, trial %s: %s", 
-                   data_type, participant, trial, e$message))
-  return(FALSE)
-  })
-}
-
-#' Get all available participant-trial combinations for a data type
-#' @param data_type The type of data
-#' @param participants Vector of participant IDs to check
-#' @param trials Vector of trial numbers to check
-#' @return Data frame with participant and trial columns for available combinations
-get_available_combinations <- function(data_type, participants, trials) {
-  # Create all possible combinations
-  all_combinations <- expand.grid(
-    participant = participants,
-    trial = trials,
-    stringsAsFactors = FALSE
-  )
-  
-  # Check which combinations have data
-  has_data_mask <- mapply(has_data, data_type, all_combinations$participant, all_combinations$trial)
-  available_combinations <- all_combinations[has_data_mask, ]
-  
-  return(available_combinations)
-}
 
 #' Load missing data for a data type
 #' @param data_type The type of data
-#' @param participants Vector of participant IDs
-#' @param trials Vector of trial numbers
+#' @param combinations Data frame with participant and trial columns, or separate vectors
 #' @param existing_data Existing data to avoid reloading
+#' @param parallel Whether to use parallel processing (default: FALSE)
 #' @return List of newly loaded data frames
-load_missing_data <- function(data_type, participants, trials, existing_data = data.frame()) {
+load_missing_data <- function(data_type, combinations, existing_data = data.frame(), parallel = FALSE) {
   load_logger <- create_module_logger(paste0("LOAD-", toupper(data_type)))
   
   log_operation_start(load_logger, paste("load_missing_data for", data_type))
-  load_logger("DEBUG", "Participants:", paste(participants, collapse = ", "))
-  load_logger("DEBUG", "Trials:", paste(trials, collapse = ", "))
+  
+  # Handle both data frame and separate vector inputs for backward compatibility
+  if (is.data.frame(combinations)) {
+    # New format: combinations data frame
+    load_logger("DEBUG", "Using combinations data frame with", nrow(combinations), "combinations")
+    load_logger("DEBUG", "Participants:", paste(unique(combinations$participant), collapse = ", "))
+    load_logger("DEBUG", "Trials:", paste(unique(combinations$trial), collapse = ", "))
+    missing_combinations <- combinations
+  } else {
+    # This should not happen with the new interface, but handle gracefully
+    load_logger("ERROR", "Invalid combinations parameter - expected data frame")
+    return(list())
+  }
+  
   load_logger("DEBUG", "Existing data:", nrow(existing_data), "rows")
   
-  # Get available combinations
-  load_logger("DEBUG", "Getting available combinations...")
-  available_combinations <- get_available_combinations(data_type, participants, trials)
-  load_logger("DEBUG", "Found", nrow(available_combinations), "available combinations")
-  
-  if (nrow(available_combinations) == 0) {
+  if (nrow(missing_combinations) == 0) {
     load_logger("WARN", "No data available for", data_type, "with given participants/trials")
     return(list())
   }
@@ -429,12 +403,11 @@ load_missing_data <- function(data_type, participants, trials, existing_data = d
   if (nrow(existing_data) > 0) {
     existing_combinations <- unique(paste(existing_data$participant, existing_data$trialNum, sep = "_"))
     load_logger("DEBUG", "Found", length(existing_combinations), "existing combinations in cache")
-    available_combinations$combo_id <- paste(available_combinations$participant, available_combinations$trial, sep = "_")
-    missing_combinations <- available_combinations[!available_combinations$combo_id %in% existing_combinations, ]
+    missing_combinations$combo_id <- paste(missing_combinations$participant, missing_combinations$trial, sep = "_")
+    missing_combinations <- missing_combinations[!missing_combinations$combo_id %in% existing_combinations, ]
     missing_combinations$combo_id <- NULL
     load_logger("DEBUG", "Need to load", nrow(missing_combinations), "missing combinations")
   } else {
-    missing_combinations <- available_combinations
     load_logger("DEBUG", "No existing data, need to load all", nrow(missing_combinations), "combinations")
   }
   
@@ -445,43 +418,44 @@ load_missing_data <- function(data_type, participants, trials, existing_data = d
   
   load_logger("INFO", "Loading", nrow(missing_combinations), "missing", data_type, "combinations")
   
-  # Load missing data
+  # Always use the loop system for efficient batch loading
+  load_logger("DEBUG", "Using loop system for batch loading (parallel =", parallel, ", combinations =", nrow(missing_combinations), ")")
+  
+  # Get the individual data loader
   data_loader <- data_loaders[[data_type]]
   if (is.null(data_loader)) {
     load_logger("ERROR", "No data loader defined for type:", data_type)
     stop(sprintf("No data loader defined for type: %s", data_type))
   }
-  load_logger("DEBUG", "Using data loader for", data_type)
   
-  loaded_data_list <- list()
+  # Create cache file for this specific batch
+  batch_id <- digest::digest(paste(missing_combinations$participant, missing_combinations$trial, collapse = "_"))
+  cache_file <- file.path(dataExtraFolder, paste0("batch_", data_type, "_", batch_id, ".rds"))
   
-  for (i in seq_len(nrow(missing_combinations))) {
-    participant <- missing_combinations$participant[i]
-    trial <- missing_combinations$trial[i]
-    
-    log_progress(load_logger, i, nrow(missing_combinations), paste("Loading", data_type, "data: P", participant, "-T", trial))
-    
-    tryCatch({
-      new_data <- data_loader(participant, trial)
-      if (!is.null(new_data) && nrow(new_data) > 0) {
-        loaded_data_list[[i]] <- new_data
-        load_logger("DEBUG", "SUCCESS: P", participant, "-T", trial, "(", nrow(new_data), "rows)")
-      } else {
-        load_logger("WARN", "EMPTY: P", participant, "-T", trial, "(no data returned)")
-      }
-    }, error = function(e) {
-      load_logger("ERROR", "ERROR: P", participant, "-T", trial, "-", e$message)
-      warning(sprintf("Error loading %s data for participant %s, trial %s: %s", 
-                     data_type, participant, trial, e$message))
-    })
+  # Get the datasets to verify for this data type
+  datasets_to_verify <- get_datasets_to_verify(data_type)
+  
+  # Use load_or_calculate with specific combinations
+  batch_data <- load_or_calculate(
+    filePath = cache_file,
+    calculate_function = function(loop_function) {
+      # The loop_function will handle the specific combinations automatically
+      return(loop_function(data_loader, datasets_to_verify = datasets_to_verify))
+    },
+    parallel = parallel,
+    force_recalc = FALSE,
+    combinations_df = missing_combinations
+  )
+  
+  if (nrow(batch_data) > 0) {
+    load_logger("INFO", "Successfully loaded", nrow(batch_data), "rows using loop system")
+    log_operation_end(load_logger, paste("load_missing_data for", data_type), success = TRUE)
+    return(list(batch_data))  # Return as list for consistency
+  } else {
+    load_logger("WARN", "Loop system returned empty data")
+    log_operation_end(load_logger, paste("load_missing_data for", data_type), success = FALSE)
+    return(list())
   }
-  
-  # Remove NULL entries
-  loaded_data_list <- loaded_data_list[!sapply(loaded_data_list, is.null)]
-  load_logger("INFO", "Successfully loaded", length(loaded_data_list), "data objects")
-  log_operation_end(load_logger, paste("load_missing_data for", data_type), success = TRUE)
-  
-  return(loaded_data_list)
 }
 
 # =============================================================================
@@ -493,8 +467,9 @@ load_missing_data <- function(data_type, participants, trials, existing_data = d
 #' @param participants Vector of participant IDs
 #' @param trials Vector of trial numbers
 #' @param condition_filter Optional condition filter to apply
+#' @param parallel Whether to use parallel processing (default: FALSE)
 #' @return The requested data
-get_cached_data <- function(data_type, participants, trials, condition_filter = NULL) {
+get_cached_data <- function(data_type, participants, trials, condition_filter = NULL, parallel = FALSE) {
   cache_logger <- create_module_logger("CACHE")
   
   log_operation_start(cache_logger, paste("get_cached_data for", data_type))
@@ -551,9 +526,9 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     
     # Load missing data
     new_data_list <- load_missing_data(data_type, 
-                                      missing_combinations$participant, 
-                                      missing_combinations$trial, 
-                                      current_cache)
+                                      missing_combinations, 
+                                      current_cache,
+                                      parallel)
     
     cache_logger("DEBUG", "Loaded", length(new_data_list), "new data objects")
     

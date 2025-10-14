@@ -99,8 +99,8 @@ tableOutput("overallMeanTable")
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
 
-# Create simulation data cache manager
-sim_cache_manager <- create_shiny_cache_manager("simulation")
+# Create simulation data cache manager (with parallel processing disabled by default)
+sim_cache_manager <- create_shiny_cache_manager("simulation", parallel = FALSE)
 
 # Create cached simulation data reactive using the new system
 cachedSimulationData <- create_shiny_cached_data_reactive(
