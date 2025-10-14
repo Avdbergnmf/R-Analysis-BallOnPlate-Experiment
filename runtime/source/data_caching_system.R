@@ -191,6 +191,44 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
       return(data.frame())
     }
     
+    # Check for changes in Shiny inputs that affect this data type
+    input_changed <- FALSE
+    if (exists("input")) {
+      # Get relevant inputs for this data type from centralized definition
+      relevant_inputs <- get_relevant_shiny_inputs(data_type)
+      
+      # Check if any relevant inputs have changed
+      if (length(relevant_inputs) > 0) {
+        # Get current input values using centralized function
+        current_inputs <- capture_shiny_inputs(data_type)
+        
+        # Get stored input values from cache manager
+        stored_filters <- cache_manager$filters()
+        stored_inputs <- list()
+        if (!is.null(stored_filters) && !is.null(stored_filters$shiny_inputs)) {
+          stored_inputs <- stored_filters$shiny_inputs
+        }
+        
+        # Compare current vs stored inputs
+        for (input_name in relevant_inputs) {
+          current_val <- current_inputs[[input_name]]
+          stored_val <- stored_inputs[[input_name]]
+          
+          if (!identical(current_val, stored_val)) {
+            shiny_logger("DEBUG", "Input changed:", input_name, "from", stored_val, "to", current_val)
+            input_changed <- TRUE
+            break
+          }
+        }
+        
+        # If inputs changed, reset the cache
+        if (input_changed) {
+          shiny_logger("INFO", "Shiny inputs changed, resetting cache before loading new data")
+          cache_manager$reset_data()
+        }
+      }
+    }
+    
     # Use isolate() to prevent reactive dependencies on filter inputs
     # Use the universal filter function from sidebar
     shiny_logger("DEBUG", "getting universal filters...")
@@ -213,6 +251,23 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
     # Use the main caching system to get data
     tryCatch({
       shiny_logger("DEBUG", "calling get_cached_data...")
+      shiny_logger("DEBUG", "input exists in reactive context:", exists("input"))
+      
+      # Debug log relevant inputs for this data type
+      if (exists("input")) {
+        relevant_inputs <- get_relevant_shiny_inputs(data_type)
+        if (length(relevant_inputs) > 0) {
+          for (input_name in relevant_inputs) {
+            shiny_logger("DEBUG", paste0("input$", input_name, " exists in reactive context:"), !is.null(input[[input_name]]))
+            if (!is.null(input[[input_name]])) {
+              shiny_logger("DEBUG", paste0("input$", input_name, " value in reactive context:"), input[[input_name]])
+            }
+          }
+        }
+      }
+      
+      # Capture Shiny input values for data loaders that need them using centralized function
+      shiny_inputs <- capture_shiny_inputs(data_type)
       
       # Get cached data using the main system
       cached_data <- get_cached_data(
@@ -220,14 +275,20 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type) {
         participants = current_filters$participants,
         trials = current_filters$trials,
         condition_filter = current_filters$condition,
-        parallel = cache_manager$parallel_enabled()
+        parallel = cache_manager$parallel_enabled(),
+        shiny_inputs = shiny_inputs
       )
       
       shiny_logger("DEBUG", "got", nrow(cached_data), "rows from get_cached_data")
       
       # Update Shiny cache manager state
       cache_manager$cache(cached_data)
-      cache_manager$filters(current_filters)
+      
+      # Store both filters and shiny inputs for change detection
+      stored_state <- current_filters
+      stored_state$shiny_inputs <- shiny_inputs
+      cache_manager$filters(stored_state)
+      
       cache_manager$loading(FALSE)
       
       # Show success notification
@@ -285,8 +346,14 @@ source("source/data_caching_setup.R", local = FALSE)
 #' @return Path to the RDS cache file
 get_cache_file_path <- function(data_type) {
   ensure_global_data_initialized()
+  
+  # Ensure cache directory exists
+  if (!dir.exists(cacheFolder)) {
+    dir.create(cacheFolder, recursive = TRUE)
+  }
+  
   cache_filename <- paste0(data_type, "_cache.rds")
-  return(file.path(dataExtraFolder, cache_filename))
+  return(file.path(cacheFolder, cache_filename))
 }
 
 # =============================================================================
@@ -379,8 +446,9 @@ clear_cache <- function(data_type) {
 #' @param trials Vector of trial numbers
 #' @param condition_filter Optional condition filter to apply
 #' @param parallel Whether to use parallel processing (default: FALSE)
+#' @param shiny_inputs Optional list of Shiny input values for data loaders
 #' @return The requested data
-get_cached_data <- function(data_type, participants, trials, condition_filter = NULL, parallel = FALSE) {
+get_cached_data <- function(data_type, participants, trials, condition_filter = NULL, parallel = FALSE, shiny_inputs = NULL) {
   cache_logger <- create_module_logger("CACHE")
   
   log_operation_start(cache_logger, paste("get_cached_data for", data_type))
@@ -428,8 +496,46 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     stop(sprintf("No data loader defined for type: %s", data_type))
   }
   
+  cache_logger("DEBUG", "data_loader type:", typeof(data_loader))
+  cache_logger("DEBUG", "data_loader is function:", is.function(data_loader))
+  
+  # Create a wrapper function that provides shiny_inputs to the data loader
+  if (!is.null(shiny_inputs) && length(shiny_inputs) > 0) {
+    cache_logger("DEBUG", "Creating data loader wrapper with shiny_inputs:", paste(names(shiny_inputs), collapse = ", "))
+    original_loader <- data_loader
+    data_loader <- function(participant, trial) {
+      # Temporarily set up input environment for the data loader
+      if (!exists("input", envir = .GlobalEnv)) {
+        assign("input", list(), envir = .GlobalEnv)
+      }
+      # Set the input values
+      for (name in names(shiny_inputs)) {
+        .GlobalEnv$input[[name]] <- shiny_inputs[[name]]
+      }
+      # Call the original loader
+      result <- original_loader(participant, trial)
+      return(result)
+    }
+  }
+  
   # Get the datasets to verify for this data type
   datasets_to_verify <- get_datasets_to_verify(data_type)
+  
+  # If we have shiny_inputs, we need to handle dynamic datasets_to_verify
+  if (!is.null(shiny_inputs) && length(shiny_inputs) > 0) {
+    # Temporarily set up input environment for datasets_to_verify function
+    if (!exists("input", envir = .GlobalEnv)) {
+      assign("input", list(), envir = .GlobalEnv)
+    }
+    # Set the input values
+    for (name in names(shiny_inputs)) {
+      .GlobalEnv$input[[name]] <- shiny_inputs[[name]]
+    }
+    # Re-get datasets_to_verify with input context
+    datasets_to_verify <- get_datasets_to_verify(data_type)
+  }
+  
+  cache_logger("DEBUG", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
   
   cache_logger("INFO", "Loading", nrow(requested_combinations), data_type, "combinations using loop system")
   

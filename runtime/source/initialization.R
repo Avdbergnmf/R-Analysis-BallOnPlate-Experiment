@@ -15,6 +15,7 @@ initialize_global_parameters <- function() {
     dataExtraFolder <<- "data_extra"
     questionnaireInfoFolder <<- "questionnaires"
     resultsFolder <<- "results"
+    cacheFolder <<- "cache"
 
     # =============================================================================
     # OUTLIER FILE NAMES

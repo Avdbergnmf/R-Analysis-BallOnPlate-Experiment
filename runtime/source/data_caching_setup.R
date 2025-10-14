@@ -4,6 +4,18 @@
 #' Add new data types here by defining their loader and validator functions.
 
 # =============================================================================
+# CONFIGURATION
+# =============================================================================
+
+#' Configuration for Shiny inputs relevant to each data type
+#' Add new data types and their relevant inputs here
+shiny_inputs_config <<- list(
+  "raw_tracker" = c("rawTracker"),
+  "power_spectrum" = c("psTracker", "psVar", "psMaxFreq"),
+  "simulation" = character(0)  # No Shiny inputs needed
+)
+
+# =============================================================================
 # DATA LOADER FUNCTIONS
 # =============================================================================
 
@@ -90,26 +102,55 @@ data_loaders <<- list(
   
   "raw_tracker" = list(
     loader = function(participant, trial) {
+      debug_logger <- create_module_logger("RAW-TRACKER-LOADER")
+      debug_logger("DEBUG", "=== raw_tracker loader called ===")
+      debug_logger("DEBUG", "participant:", participant, "trial:", trial)
+      debug_logger("DEBUG", "input exists:", exists("input"))
+      if (exists("input")) {
+        debug_logger("DEBUG", "input$rawTracker exists:", !is.null(input$rawTracker))
+        if (!is.null(input$rawTracker)) {
+          debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
+        }
+      }
+      
       # Load raw tracker data for a specific participant and trial
       # This will be called from Shiny context where input$rawTracker is available
       if (!exists("input") || is.null(input$rawTracker)) {
+        debug_logger("WARN", "input$rawTracker not available, returning empty data frame")
         return(data.frame())
       }
       
+      debug_logger("DEBUG", "About to call get_t_data with tracker:", input$rawTracker)
       # Load raw tracker data using get_t_data
       tracker_data <- get_t_data(participant, input$rawTracker, trial)
+      debug_logger("DEBUG", "get_t_data returned:", if(is.null(tracker_data)) "NULL" else paste(nrow(tracker_data), "rows"))
+      
       if (is.null(tracker_data) || nrow(tracker_data) == 0) {
+        debug_logger("WARN", "No tracker data found, returning empty data frame")
         return(data.frame())
       }
       
+      debug_logger("DEBUG", "Returning tracker data with", nrow(tracker_data), "rows")
       # Metadata (participant, trialNum, condition) is added by the load_or_calc loop system
       return(tracker_data)
     },
     datasets_to_verify = function() {
+      debug_logger <- create_module_logger("RAW-TRACKER-DATASETS")
+      debug_logger("DEBUG", "=== raw_tracker datasets_to_verify called ===")
+      debug_logger("DEBUG", "input exists:", exists("input"))
+      if (exists("input")) {
+        debug_logger("DEBUG", "input$rawTracker exists:", !is.null(input$rawTracker))
+        if (!is.null(input$rawTracker)) {
+          debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
+        }
+      }
+      
       # Dynamic datasets_to_verify based on selected tracker
       if (!exists("input") || is.null(input$rawTracker)) {
+        debug_logger("WARN", "input$rawTracker not available, using default fallback")
         return(c("leftfoot", "rightfoot", "hip"))  # Default fallback
       }
+      debug_logger("DEBUG", "Returning datasets_to_verify:", input$rawTracker)
       return(input$rawTracker)
     }
   )
@@ -200,12 +241,46 @@ get_datasets_to_verify <- function(data_type) {
   return(c("sim"))  # Default fallback
 }
 
+#' Get relevant Shiny inputs for a specific data type
+#' @param data_type The data type
+#' @return Vector of input names that are relevant for this data type
+get_relevant_shiny_inputs <- function(data_type) {
+  # Get relevant inputs from centralized configuration
+  relevant_inputs <- shiny_inputs_config[[data_type]]
+  
+  # Return empty vector if not found
+  if (is.null(relevant_inputs)) {
+    return(character(0))
+  }
+  
+  return(relevant_inputs)
+}
+
+#' Capture current Shiny input values for a specific data type
+#' @param data_type The data type
+#' @return List of current input values, or empty list if no inputs available
+capture_shiny_inputs <- function(data_type) {
+  relevant_inputs <- get_relevant_shiny_inputs(data_type)
+  shiny_inputs <- list()
+  
+  if (exists("input") && length(relevant_inputs) > 0) {
+    for (input_name in relevant_inputs) {
+      if (!is.null(input[[input_name]])) {
+        shiny_inputs[[input_name]] <- input[[input_name]]
+      }
+    }
+  }
+  
+  return(shiny_inputs)
+}
+
 
 #' Add a new data type to the system
 #' @param data_type The name of the data type
 #' @param loader_function Function that loads data for a participant-trial combination
 #' @param datasets_to_verify Vector of dataset names to verify (optional, defaults to c("sim"))
-add_data_type <- function(data_type, loader_function, datasets_to_verify = c("sim")) {
+#' @param relevant_inputs Vector of Shiny input names that affect this data type (optional, defaults to character(0))
+add_data_type <- function(data_type, loader_function, datasets_to_verify = c("sim"), relevant_inputs = character(0)) {
   if (!is.function(loader_function)) {
     stop("loader_function must be a function")
   }
@@ -216,7 +291,13 @@ add_data_type <- function(data_type, loader_function, datasets_to_verify = c("si
     datasets_to_verify = datasets_to_verify
   )
   
+  # Update the shiny inputs configuration
+  shiny_inputs_config[[data_type]] <<- relevant_inputs
+  
   cat(sprintf("Added data type '%s' to caching system\n", data_type))
+  if (length(relevant_inputs) > 0) {
+    cat(sprintf("  Relevant Shiny inputs: %s\n", paste(relevant_inputs, collapse = ", ")))
+  }
 }
 
 #' Remove a data type from the system
@@ -224,6 +305,11 @@ add_data_type <- function(data_type, loader_function, datasets_to_verify = c("si
 remove_data_type <- function(data_type) {
   if (data_type %in% names(data_loaders)) {
     data_loaders[[data_type]] <<- NULL
+  }
+  
+  # Also remove from shiny inputs configuration
+  if (data_type %in% names(shiny_inputs_config)) {
+    shiny_inputs_config[[data_type]] <<- NULL
   }
   
   cat(sprintf("Removed data type '%s' from caching system\n", data_type))

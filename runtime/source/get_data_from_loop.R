@@ -63,14 +63,20 @@ load_or_calculate <- function(filePath,
                               combinations_df = NULL,
                               allow_add_missing = FALSE,
                               threshold_parallel = NULL) {
+    
+    # Create logger for this function
+    logger <- create_module_logger("LOAD-OR-CALC")
+    
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
     if (parallel && stop_cluster) {
+        logger("DEBUG", "Setting up cluster cleanup on exit")
         on.exit(
             {
                 if (exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)) {
                     tryCatch(
                         {
                             cl_to_stop <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+                            logger("DEBUG", "Stopping global parallel cluster")
                             stopCluster(cl_to_stop)
                         },
                         error = function(e) {
@@ -84,62 +90,102 @@ load_or_calculate <- function(filePath,
         )
     }
 
-    if (!force_recalc && file.exists(filePath)) {
-        data <- readRDS(filePath)
+    # Determine if we need to recalculate
+    should_recalc <- force_recalc || 
+                     !file.exists(filePath) || 
+                     (file.exists(filePath) && !is.null(combinations_df) && nrow(readRDS(filePath)) == 0)
+    
+    if (should_recalc) {
+        # Recalculate data
+        if (force_recalc) {
+            logger("INFO", "Force recalc requested")
+        } else if (!file.exists(filePath)) {
+            logger("INFO", "No cache file found")
+        } else {
+            logger("INFO", "Cache file has 0 rows, recalculating")
+        }
         
-        # Check for missing combinations if combinations_df is provided (allow_add_missing is now default behavior)
+        data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
+        
+        logger("INFO", "Saving data to cache file:", filePath)
+        saveRDS(data, filePath)
+        logger("INFO", "Cache file saved successfully")
+    } else {
+        # Use existing cache
+        logger("INFO", "Loading existing cache file:", filePath)
+        data <- readRDS(filePath)
+        logger("DEBUG", "Loaded", nrow(data), "rows from cache file")
+        
+        # Check for missing combinations if needed
         if (!is.null(combinations_df) && nrow(data) > 0) {
-            # Use global threshold if not provided
-            if (is.null(threshold_parallel)) {
-                ensure_global_data_initialized()
-                threshold_parallel <- THRESHOLD_PARALLEL
-            }
+            logger("DEBUG", "Checking for missing combinations...")
             data <- handle_missing_combinations(data, combinations_df, calculate_function, 
                                                threshold_parallel, extra_global_vars, filePath)
+            logger("DEBUG", "After handling missing combinations:", nrow(data), "rows")
+        }
+    }
+    
+    logger("INFO", "=== load_or_calculate completed ===")
+    logger("INFO", "Final result:", nrow(data), "rows")
+    return(data)
+}
+
+#' Helper function to calculate data using the appropriate processing method
+#' @param calculate_function The function to calculate data
+#' @param parallel Whether to use parallel processing
+#' @param combinations_df Data frame of combinations to process
+#' @param extra_global_vars Extra global variables for parallel processing
+#' @param logger Logger function for debugging
+#' @return Calculated data
+calculate_data <- function(calculate_function, parallel, combinations_df, extra_global_vars, logger = NULL) {
+    # Create logger for this function if not provided
+    if (is.null(logger)) {
+        logger <- create_module_logger("CALC-DATA")
+    }
+    
+    # Choose the appropriate loop function based on parallel setting
+    if (parallel) {
+        logger("INFO", "Using parallel processing")
+        
+        # Obtain or create a reusable cluster
+        if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
+            is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
+            logger("DEBUG", "Creating new global parallel cluster")
+            assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+        } else {
+            logger("DEBUG", "Using existing global parallel cluster")
+        }
+
+        cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+        main_func_name <- deparse(substitute(calculate_function))
+        log_file_name <- sprintf("parallel_log_%s.txt", main_func_name)
+        logger("DEBUG", "Parallel log file:", log_file_name)
+
+        loop_function <- function(calc_func, ...) {
+            logger("DEBUG", "=== parallel loop_function called ===")
+            result <- get_data_from_loop_parallel(
+                calc_func, ..., cl = cl,
+                log_to_file = ENABLE_FILE_LOGGING, log_file = log_file_name,
+                extra_global_vars = extra_global_vars, combinations_df = combinations_df
+            )
+            logger("DEBUG", "Parallel processing returned", nrow(result), "rows")
+            return(result)
         }
     } else {
-        # ------------------------------------------------------------------
-        # Choose the appropriate loop function based on parallel setting and combinations
-        # ------------------------------------------------------------------
-        if (parallel) {
-            # ------------------------------------------------------------------
-            # Obtain or create a reusable cluster to avoid repeated start-ups
-            # ------------------------------------------------------------------
-            if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
-                is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
-                assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
-            }
-
-            cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
-
-            # Extract the main function name for meaningful log file names
-            main_func_name <- deparse(substitute(calculate_function))
-            log_file_name <- sprintf("parallel_log_%s.txt", main_func_name)
-
-            loop_function <- function(calc_func, ...) {
-                # Use full parallel processing with optional combinations
-                get_data_from_loop_parallel(
-                    calc_func,
-                    ...,
-                    cl = cl,
-                    log_to_file = ENABLE_FILE_LOGGING,
-                    log_file = log_file_name,
-                    extra_global_vars = extra_global_vars,
-                    combinations_df = combinations_df
-                )
-            }
-        } else {
-            loop_function <- function(calc_func, ...) {
-                # Use full sequential processing with optional combinations
-                get_data_from_loop(calc_func, combinations_df = combinations_df, ...)
-            }
+        logger("INFO", "Using sequential processing")
+        loop_function <- function(calc_func, ...) {
+            logger("DEBUG", "=== sequential loop_function called ===")
+            result <- get_data_from_loop(calc_func, combinations_df = combinations_df, ...)
+            logger("DEBUG", "Sequential processing returned", nrow(result), "rows")
+            return(result)
         }
-
-        # Pass the loop function to the calculation function
-        data <- calculate_function(loop_function)
-
-        saveRDS(data, filePath)
     }
+
+    # Call the calculation function with the loop function
+    logger("INFO", "Calling calculate_function with loop_function")
+    data <- calculate_function(loop_function)
+    logger("INFO", "calculate_function returned", nrow(data), "rows")
+    
     return(data)
 }
 
