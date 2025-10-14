@@ -19,5 +19,6 @@ runtime/Rplots.pdf
 
 runtime/outlier_prediction/models/
 runtime/data_extra/
+runtime/cache/
 runtime/index.knit.md
 runtime/render-log.txt
