@@ -296,6 +296,12 @@ initialize_global_parameters <- function() {
         # Add more reference levels here as needed
     )
 
+    # =============================================================================
+    # STATISTICAL ANALYSIS CONFIGURATION
+    # =============================================================================
+    # General correction method choices for multiple comparisons
+    general_correction_choices <<- c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY", "fdr", "none")
+
     cat(sprintf("[%s] Global parameters initialized.\n", format(Sys.time(), "%H:%M:%S")))
 }
 
