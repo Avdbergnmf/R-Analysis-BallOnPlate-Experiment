@@ -15,10 +15,6 @@ data_loaders <<- list(
       # Load simulation data for a specific participant and trial
       sim_data <- get_simulation_data(participant, trial)
       if (!is.null(sim_data) && nrow(sim_data) > 0) {
-        # Add metadata
-        sim_data$condition <- condition_number(participant)
-        sim_data$participant <- participant
-        sim_data$trialNum <- trial
       }
       return(sim_data)
     },
@@ -75,10 +71,6 @@ data_loaders <<- list(
           return(data.frame())
         }
         
-        # Add metadata
-        psd_df$participant <- participant
-        psd_df$trialNum <- as.numeric(as.character(trial))
-        psd_df$condition <- condition_number(participant)
         
         return(psd_df)
       }, error = function(e) {
@@ -93,6 +85,32 @@ data_loaders <<- list(
         return(c("leftfoot", "rightfoot", "hip"))  # Default fallback
       }
       return(input$psTracker)
+    }
+  ),
+  
+  "raw_tracker" = list(
+    loader = function(participant, trial) {
+      # Load raw tracker data for a specific participant and trial
+      # This will be called from Shiny context where input$rawTracker is available
+      if (!exists("input") || is.null(input$rawTracker)) {
+        return(data.frame())
+      }
+      
+      # Load raw tracker data using get_t_data
+      tracker_data <- get_t_data(participant, input$rawTracker, trial)
+      if (is.null(tracker_data) || nrow(tracker_data) == 0) {
+        return(data.frame())
+      }
+      
+      # Metadata (participant, trialNum, condition) is added by the load_or_calc loop system
+      return(tracker_data)
+    },
+    datasets_to_verify = function() {
+      # Dynamic datasets_to_verify based on selected tracker
+      if (!exists("input") || is.null(input$rawTracker)) {
+        return(c("leftfoot", "rightfoot", "hip"))  # Default fallback
+      }
+      return(input$rawTracker)
     }
   )
   
