@@ -9,12 +9,22 @@ add_identifiers_and_categories <- function(data, participant, trial) {
 }
 
 add_identifiers <- function(data, participant, trial) {
+  # Handle empty data frames gracefully
+  if (nrow(data) == 0) {
+    return(data)
+  }
+  
   data$participant <- as.factor(participant)
   data$trialNum <- as.ordered(trial)
   return(data)
 }
 
 add_category_columns <- function(data) {
+  # Handle empty data frames gracefully
+  if (nrow(data) == 0) {
+    return(data)
+  }
+  
   ensure_global_data_initialized()
   # Compute category and demographic columns for each individual row rather than assuming
   # the whole data frame belongs to a single participant/trial.
