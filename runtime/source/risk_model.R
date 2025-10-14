@@ -105,10 +105,9 @@ build_hazard_samples <- function(sim_data, tau = 0.2) {
     n_haz <- nrow(haz)
     positives <- sum(haz$drop_within_tau, na.rm = TRUE)
     dt_med <- if (n_on > 1) stats::median(diff(sim_data$time), na.rm = TRUE) else NA_real_
-    cat(sprintf(
-        "[hazard] tau=%.3fs | rows_in=%d | rows_out=%d | dt~%.3fs | positives=%d (%.4f%%)\n",
-        tau, n_on, n_haz, dt_med, positives, ifelse(n_haz > 0, 100 * positives / n_haz, 0)
-    ))
+    hazard_logger <- create_module_logger("HAZARD")
+    hazard_logger("DEBUG", sprintf("tau=%.3fs | rows_in=%d | rows_out=%d | dt~%.3fs | positives=%d (%.4f%%)",
+        tau, n_on, n_haz, dt_med, positives, ifelse(n_haz > 0, 100 * positives / n_haz, 0)))
 
     return(haz)
 }
@@ -279,35 +278,32 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
     }
 
     # Debug: Check data structure
-    cat(sprintf("Data structure check:\n"))
-    cat(sprintf("  - Rows: %d\n", nrow(hazard_samples)))
-    cat(sprintf("  - Columns: %s\n", paste(names(hazard_samples), collapse = ", ")))
-    cat(sprintf("  - Participant column type: %s\n", class(hazard_samples$participant)))
-    cat(sprintf("  - Unique participants: %d\n", length(unique(hazard_samples$participant))))
-    cat(sprintf("  - Participant values: %s\n", paste(head(unique(hazard_samples$participant)), collapse = ", ")))
-    cat(sprintf("  - Drop_within_tau range: %.0f to %.0f\n", min(hazard_samples$drop_within_tau, na.rm = TRUE), max(hazard_samples$drop_within_tau, na.rm = TRUE)))
-    cat(sprintf("  - E range: %.3f to %.3f\n", min(hazard_samples$e, na.rm = TRUE), max(hazard_samples$e, na.rm = TRUE)))
-    cat(sprintf("  - V range: %.3f to %.3f\n", min(hazard_samples$v, na.rm = TRUE), max(hazard_samples$v, na.rm = TRUE)))
+    model_logger <- create_module_logger("RISK-MODEL")
+    model_logger("DEBUG", "Data structure check:")
+    model_logger("DEBUG", "  - Rows:", nrow(hazard_samples))
+    model_logger("DEBUG", "  - Columns:", paste(names(hazard_samples), collapse = ", "))
+    model_logger("DEBUG", "  - Participant column type:", class(hazard_samples$participant))
+    model_logger("DEBUG", "  - Unique participants:", length(unique(hazard_samples$participant)))
+    model_logger("DEBUG", "  - Participant values:", paste(head(unique(hazard_samples$participant)), collapse = ", "))
+    model_logger("DEBUG", "  - Drop_within_tau range:", min(hazard_samples$drop_within_tau, na.rm = TRUE), "to", max(hazard_samples$drop_within_tau, na.rm = TRUE))
+    model_logger("DEBUG", "  - E range:", min(hazard_samples$e, na.rm = TRUE), "to", max(hazard_samples$e, na.rm = TRUE))
+    model_logger("DEBUG", "  - V range:", min(hazard_samples$v, na.rm = TRUE), "to", max(hazard_samples$v, na.rm = TRUE))
 
     # Ensure participant is a factor for random effects
     if (!is.factor(hazard_samples$participant)) {
-        cat("Converting participant to factor...\n")
+        model_logger("DEBUG", "Converting participant to factor...")
         hazard_samples$participant <- as.factor(hazard_samples$participant)
     }
 
     # Create condition×phase interaction factor for factor-by smooths (if enabled)
     if (use_by_interaction && "condition" %in% names(hazard_samples) && "phase" %in% names(hazard_samples)) {
-        cat("Creating condition×phase interaction factor for shape differences...\n")
+        model_logger("DEBUG", "Creating condition×phase interaction factor for shape differences...")
         hazard_samples$cond_phase <- interaction(hazard_samples$condition, hazard_samples$phase, drop = TRUE)
-        cat(sprintf(
-            "  - Created %d unique condition×phase combinations: %s\n",
-            length(levels(hazard_samples$cond_phase)),
-            paste(levels(hazard_samples$cond_phase), collapse = ", ")
-        ))
+        model_logger("DEBUG", "  - Created", length(levels(hazard_samples$cond_phase)), "unique condition×phase combinations:", paste(levels(hazard_samples$cond_phase), collapse = ", "))
     } else if (!use_by_interaction) {
-        cat("Factor-by smooths disabled by use_by_interaction=FALSE. Using simple smooths.\n")
+        model_logger("DEBUG", "Factor-by smooths disabled by use_by_interaction=FALSE. Using simple smooths.")
     } else {
-        cat("WARNING: condition or phase columns not found. Using simple smooths only.\n")
+        model_logger("WARN", "condition or phase columns not found. Using simple smooths only.")
     }
 
     # Remove any rows with missing values
@@ -317,19 +313,19 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
     }
     complete_rows <- complete.cases(hazard_samples[, required_cols])
     if (sum(!complete_rows) > 0) {
-        cat(sprintf("Removing %d rows with missing values...\n", sum(!complete_rows)))
+        model_logger("DEBUG", "Removing", sum(!complete_rows), "rows with missing values...")
         hazard_samples <- hazard_samples[complete_rows, ]
     }
 
     # Mixed-effects model with global smooths and parametric condition×phase effects
     if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
-        cat("Fitting mixed-effects GAM model with global smooths and parametric effects...\n")
-        cat("Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')\n")
-        cat("  - Global shapes: s(e) + s(v) capture average state-risk mapping\n")
-        cat("  - Parametric effects: condition*phase captures level differences across groups\n")
+        model_logger("DEBUG", "Fitting mixed-effects GAM model with global smooths and parametric effects...")
+        model_logger("DEBUG", "Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')")
+        model_logger("DEBUG", "  - Global shapes: s(e) + s(v) capture average state-risk mapping")
+        model_logger("DEBUG", "  - Parametric effects: condition*phase captures level differences across groups")
     } else {
-        cat("Fitting mixed-effects GAM model with simple smooths...\n")
-        cat("Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')\n")
+        model_logger("DEBUG", "Fitting mixed-effects GAM model with simple smooths...")
+        model_logger("DEBUG", "Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')")
     }
 
     tryCatch(
@@ -366,25 +362,21 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
                     nthreads = parallel::detectCores()
                 )
             }
-            cat("Model fitting completed successfully!\n")
-            cat(sprintf("Model class: %s\n", class(model)[1]))
+            model_logger("INFO", "Model fitting completed successfully!")
+            model_logger("DEBUG", "Model class:", class(model)[1])
 
             # Log model structure for debugging
             if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
-                cat(sprintf(
-                    "Model includes %d condition×phase combinations: %s\n",
-                    length(levels(hazard_samples$cond_phase)),
-                    paste(levels(hazard_samples$cond_phase), collapse = ", ")
-                ))
-                cat("Model structure: Global shapes + condition×phase deviations\n")
+                model_logger("DEBUG", "Model includes", length(levels(hazard_samples$cond_phase)), "condition×phase combinations:", paste(levels(hazard_samples$cond_phase), collapse = ", "))
+                model_logger("DEBUG", "Model structure: Global shapes + condition×phase deviations")
             } else {
-                cat("Model structure: Simple smooths only\n")
+                model_logger("DEBUG", "Model structure: Simple smooths only")
             }
 
             return(model)
         },
         error = function(e) {
-            cat(sprintf("ERROR in model fitting: %s\n", e$message))
+            model_logger("ERROR", "ERROR in model fitting:", e$message)
             return(NULL)
         }
     )
@@ -426,10 +418,11 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
         tryCatch(
             {
                 haz_all <- readRDS(preds_path)
-                cat(sprintf("[SCORE] Loaded saved predictions from: %s\n", preds_path))
+                score_logger <- create_module_logger("SCORE")
+                score_logger("DEBUG", "Loaded saved predictions from:", preds_path)
             },
             error = function(e) {
-                cat(sprintf("[SCORE] Failed to load saved predictions: %s\n", e$message))
+                score_logger("ERROR", "Failed to load saved predictions:", e$message)
                 haz_all <- NULL
             }
         )
@@ -449,17 +442,14 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
         if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
 
         haz_trial <- haz_all[sel, , drop = FALSE]
-        cat(sprintf("[SCORE] Filtered to %d rows for participant %s, trial %s\n", nrow(haz_trial), pid, trial))
+        score_logger("DEBUG", "Filtered to", nrow(haz_trial), "rows for participant", pid, "trial", trial)
         if (nrow(haz_trial) > 0) {
             # Pick preferred prediction column
             pred_col <- prefer[prefer %in% names(haz_trial)][1]
             if (is.na(pred_col)) {
                 warning("No predicted columns found in saved file; computing on the fly.")
             } else {
-                cat(sprintf(
-                    "[SCORE] Using saved predictions (%s) for participant %s, trial %s\n",
-                    pred_col, pid, trial
-                ))
+                score_logger("DEBUG", "Using saved predictions (", pred_col, ") for participant", pid, "trial", trial)
                 return(list(
                     individual_predictions = haz_trial[[pred_col]],
                     hazard_samples = haz_trial
@@ -469,7 +459,7 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
     }
 
     # Fallback: compute predictions on the fly for this trial only
-    cat(sprintf("[SCORE] Computing predictions on-the-fly for participant %s, trial %s\n", pid, trial))
+    score_logger("DEBUG", "Computing predictions on-the-fly for participant", pid, "trial", trial)
     return(score_trial_with_model(sim_data, model, tau, standardized = standardized, use_factors = use_factors))
 }
 
@@ -497,11 +487,12 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
     trial <- unique(sim_data$trial)
     if (length(trial) != 1) trial <- trial[1]
 
-    cat(sprintf("[SCORE] Computing predictions on-the-fly for participant %s, trial %s\n", pid, trial))
+    score_logger <- create_module_logger("SCORE")
+    score_logger("DEBUG", "Computing predictions on-the-fly for participant", pid, "trial", trial)
 
     hazard_samples <- build_hazard_samples(sim_data, tau)
     if (nrow(hazard_samples) == 0) {
-        cat("[DEBUG] score_trial_with_model: returning empty list\n")
+        score_logger("DEBUG", "score_trial_with_model: returning empty list")
         return(list(
             individual_predictions = numeric(0),
             hazard_samples = data.frame()
@@ -590,21 +581,22 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
 #' @export
 save_risk_model <- function(model, file_path, tau = NULL) {
     # Add tau as an attribute if provided
+    save_logger <- create_module_logger("SAVE")
     if (!is.null(tau)) {
         attr(model, "tau") <- tau
-        cat(sprintf("[SAVE] Adding tau attribute to model: %.3f seconds\n", tau))
+        save_logger("DEBUG", "Adding tau attribute to model:", tau, "seconds")
     } else {
-        cat("[SAVE] WARNING: No tau provided, model will be saved without tau attribute\n")
+        save_logger("WARN", "No tau provided, model will be saved without tau attribute")
     }
     
     # Verify the attribute was added
     if (!is.null(tau)) {
         saved_tau <- attr(model, "tau")
-        cat(sprintf("[SAVE] Verified tau attribute: %.3f seconds\n", saved_tau))
+        save_logger("DEBUG", "Verified tau attribute:", saved_tau, "seconds")
     }
     
     saveRDS(model, file_path)
-    cat(sprintf("[SAVE] Model saved to: %s\n", file_path))
+    save_logger("INFO", "Model saved to:", file_path)
 }
 
 #' Load risk model from RDS file
@@ -617,16 +609,17 @@ load_risk_model <- function(file_path) {
         model <- readRDS(file_path)
         
         # Check if tau attribute exists
+        load_logger <- create_module_logger("LOAD")
         tau <- attr(model, "tau")
         if (!is.null(tau)) {
-            cat(sprintf("[LOAD] Model loaded with tau attribute: %.3f seconds\n", tau))
+            load_logger("DEBUG", "Model loaded with tau attribute:", tau, "seconds")
         } else {
-            cat("[LOAD] WARNING: Model loaded without tau attribute\n")
+            load_logger("WARN", "Model loaded without tau attribute")
         }
         
         return(model)
     } else {
-        cat(sprintf("[LOAD] Model file not found: %s\n", file_path))
+        load_logger("ERROR", "Model file not found:", file_path)
         return(NULL)
     }
 }
@@ -654,20 +647,21 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
             model_path <- risk_model_path
         }
         
+        global_logger <- create_module_logger("GLOBAL")
         if (file.exists(model_path)) {
             GLOBAL_RISK_MODEL <<- load_risk_model(model_path)
             GLOBAL_RISK_TAU <<- attr(GLOBAL_RISK_MODEL, "tau")
-            cat("[GLOBAL] Risk model loaded from:", model_path, "\n")
+            global_logger("INFO", "Risk model loaded from:", model_path)
             if (!is.null(GLOBAL_RISK_TAU)) {
-                cat("[GLOBAL] Risk model tau:", GLOBAL_RISK_TAU, "seconds\n")
+                global_logger("DEBUG", "Risk model tau:", GLOBAL_RISK_TAU, "seconds")
             } else {
-                cat("[GLOBAL] No tau found in risk model\n")
+                global_logger("WARN", "No tau found in risk model")
             }
         } else {
-            cat("[GLOBAL] No risk model found at:", model_path, "- use dashboard to load one\n")
+            global_logger("WARN", "No risk model found at:", model_path, "- use dashboard to load one")
         }
     } else {
-        cat("[GLOBAL] Skipping risk model loading (model_path = FALSE)\n")
+        global_logger("DEBUG", "Skipping risk model loading (model_path = FALSE)")
     }
     
     # Load hazard samples with predictions into global workspace (only if not explicitly skipped)
@@ -679,13 +673,13 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
         
         if (file.exists(hazard_samples_path)) {
             GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(hazard_samples_path)
-            cat("[GLOBAL] Hazard samples with predictions loaded from:", hazard_samples_path, "\n")
-            cat("[GLOBAL] Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows\n")
+            global_logger("INFO", "Hazard samples with predictions loaded from:", hazard_samples_path)
+            global_logger("DEBUG", "Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows")
         } else {
-            cat("[GLOBAL] No hazard samples with predictions found at:", hazard_samples_path, "\n")
+            global_logger("WARN", "No hazard samples with predictions found at:", hazard_samples_path)
         }
     } else {
-        cat("[GLOBAL] Skipping hazard samples loading (hazard_samples_path = FALSE)\n")
+        global_logger("DEBUG", "Skipping hazard samples loading (hazard_samples_path = FALSE)")
     }
     
     # Load analysis results into global workspace (only if not explicitly skipped)
@@ -697,18 +691,18 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
         
         if (file.exists(analysis_results_path)) {
             GLOBAL_HAZARD_ANALYSIS_RESULTS <<- readRDS(analysis_results_path)
-            cat("[GLOBAL] Analysis results loaded from:", analysis_results_path, "\n")
+            global_logger("INFO", "Analysis results loaded from:", analysis_results_path)
             if (!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS)) {
-                cat("[GLOBAL] Loaded analysis results with", 
+                global_logger("DEBUG", "Loaded analysis results with", 
                     ifelse(!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 
                            nrow(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 0), 
-                    "standardized risk combinations\n")
+                    "standardized risk combinations")
             }
         } else {
-            cat("[GLOBAL] No analysis results found at:", analysis_results_path, "\n")
+            global_logger("WARN", "No analysis results found at:", analysis_results_path)
         }
     } else {
-        cat("[GLOBAL] Skipping analysis results loading (analysis_results_path = FALSE)\n")
+        global_logger("DEBUG", "Skipping analysis results loading (analysis_results_path = FALSE)")
     }
 }
 
@@ -745,15 +739,16 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
         combinations_df <- unique(combinations_df) # Remove any duplicates
         total_combinations <- nrow(combinations_df)
 
-        cat(sprintf("Processing %d unique participant-trial combinations...\n", total_combinations))
+        train_logger <- create_module_logger("TRAIN")
+        train_logger("INFO", "Processing", total_combinations, "unique participant-trial combinations...")
 
         # Process each combination
         for (i in 1:nrow(combinations_df)) {
             participant <- combinations_df$participant[i]
             trial <- combinations_df$trial[i]
-            cat(sprintf("[DEBUG] Processing participant %s, trial %s (combination %d/%d)\n", participant, trial, i, total_combinations))
+            train_logger("DEBUG", "Processing participant", participant, "trial", trial, "(combination", i, "/", total_combinations, ")")
             if (i %% 10 == 0 || i == total_combinations) {
-                cat(sprintf("Progress: %d/%d combinations processed\n", i, total_combinations))
+                train_logger("DEBUG", "Progress:", i, "/", total_combinations, "combinations processed")
             }
 
             tryCatch(
@@ -774,46 +769,36 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
                     }
                 },
                 error = function(e) {
-                    cat(sprintf(
-                        "Error processing participant %s, trial %s: %s\n",
-                        participant, trial, e$message
-                    ))
+                    train_logger("ERROR", "Error processing participant", participant, "trial", trial, ":", e$message)
                 }
             )
         }
 
         if (nrow(all_hazard_samples) == 0) {
-            cat("No hazard samples found. Cannot train risk model.\n")
+            train_logger("ERROR", "No hazard samples found. Cannot train risk model.")
             return(NULL)
         }
 
-        cat(sprintf(
-            "Training risk model with %d hazard samples from %d participants, %d trials\n",
-            nrow(all_hazard_samples), length(unique(all_hazard_samples$participant)), length(unique(all_hazard_samples$trial))
-        ))
+        train_logger("INFO", "Training risk model with", nrow(all_hazard_samples), "hazard samples from", length(unique(all_hazard_samples$participant)), "participants,", length(unique(all_hazard_samples$trial)), "trials")
 
         # Show data summary
-        cat(sprintf("Data summary:\n"))
-        cat(sprintf("  - Total samples: %d\n", nrow(all_hazard_samples)))
-        cat(sprintf("  - Participants: %d\n", length(unique(all_hazard_samples$participant))))
-        cat(sprintf("  - Trials: %d\n", length(unique(all_hazard_samples$trial))))
-        cat(sprintf(
-            "  - Positive labels (drops): %d (%.1f%%)\n",
-            sum(all_hazard_samples$drop_within_tau),
-            100 * mean(all_hazard_samples$drop_within_tau)
-        ))
+        train_logger("DEBUG", "Data summary:")
+        train_logger("DEBUG", "  - Total samples:", nrow(all_hazard_samples))
+        train_logger("DEBUG", "  - Participants:", length(unique(all_hazard_samples$participant)))
+        train_logger("DEBUG", "  - Trials:", length(unique(all_hazard_samples$trial)))
+        train_logger("DEBUG", "  - Positive labels (drops):", sum(all_hazard_samples$drop_within_tau), "(", round(100 * mean(all_hazard_samples$drop_within_tau), 1), "%)")
 
         # Train risk model
-        cat("Step 2/3: Fitting mixed-effects GLM model...\n")
+        train_logger("INFO", "Step 2/3: Fitting mixed-effects GLM model...")
         model <- train_risk_model(all_hazard_samples, use_by_interaction = use_by_interaction)
 
         if (is.null(model)) {
-            cat("Failed to train risk model\n")
+            train_logger("ERROR", "Failed to train risk model")
             return(NULL)
         }
 
         # Save risk model
-        cat("Step 3/3: Saving model and hazard samples to disk...\n")
+        train_logger("INFO", "Step 3/3: Saving model and hazard samples to disk...")
         save_risk_model(model, file_path, tau = tau)
 
         # Save hazard samples alongside the model
@@ -823,22 +808,22 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
         # Verify the files were created
         if (file.exists(file_path)) {
             file_size <- file.info(file_path)$size
-            cat(sprintf("Risk model saved successfully to %s (%.2f MB)\n", file_path, file_size / 1024^2))
+            train_logger("INFO", "Risk model saved successfully to", file_path, "(", round(file_size / 1024^2, 2), "MB)")
         } else {
-            cat(sprintf("ERROR: Model file was not created at %s\n", file_path))
+            train_logger("ERROR", "Model file was not created at", file_path)
         }
 
         if (file.exists(risk_hazard_samples_path)) {
             file_size <- file.info(risk_hazard_samples_path)$size
-            cat(sprintf("Hazard samples saved successfully to %s (%.2f MB)\n", risk_hazard_samples_path, file_size / 1024^2))
+            train_logger("INFO", "Hazard samples saved successfully to", risk_hazard_samples_path, "(", round(file_size / 1024^2, 2), "MB)")
         } else {
-            cat(sprintf("ERROR: Hazard samples file was not created at %s\n", risk_hazard_samples_path))
+            train_logger("ERROR", "Hazard samples file was not created at", risk_hazard_samples_path)
         }
 
         # Stuff for pooled standardized risks analysis, abandoned this as things were getting too complicated
 
         # ── NEW: Add per-sample predictions to saved hazard samples ──
-        cat("Step 4/5: Adding per-sample predictions to hazard samples...\n")
+        train_logger("INFO", "Step 4/5: Adding per-sample predictions to hazard samples...")
         ensure_global_data_initialized()
 
         # Add fixed-effects predictions (recommended for comparability across participants)
@@ -849,12 +834,12 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
 
 
         # Set up global variables with the newly trained model
-        cat("Step 5/6: Setting up global risk variables...\n")
+        train_logger("INFO", "Step 5/6: Setting up global risk variables...")
         setup_global_risk_variables(analysis_results_path = FALSE)
 
         # Abandoned this as things were getting too complicated
         # ── NEW: pooled standardized predictions by Condition × Phase ──
-        cat("Step 6/6: Computing pooled standardized risks by Condition × Phase...\n")
+        train_logger("INFO", "Step 6/6: Computing pooled standardized risks by Condition × Phase...")
         std_means <- compute_pooled_standardized_risks(
             model,
             all_hazard_samples
@@ -884,7 +869,8 @@ score_all_trials_with_saved_model <- function(participants, trials,
     model <- load_risk_model(file_path)
 
     if (is.null(model)) {
-        cat(sprintf("No risk model found at %s\n", file_path))
+        score_logger <- create_module_logger("SCORE")
+        score_logger("ERROR", "No risk model found at", file_path)
         return(data.frame())
     }
 
@@ -903,10 +889,7 @@ score_all_trials_with_saved_model <- function(participants, trials,
                     }
                 },
                 error = function(e) {
-                    cat(sprintf(
-                        "Error scoring participant %s, trial %s: %s\n",
-                        participant, trial, e$message
-                    ))
+                    score_logger("ERROR", "Error scoring participant", participant, "trial", trial, ":", e$message)
                 }
             )
         }
@@ -942,10 +925,8 @@ annotate_hazard_predictions <- function(model,
         out_path <- NULL
     }
 
-    cat(sprintf(
-        "[PREDICT] Annotating hazard samples with %s predictions...\n",
-        if (include_re) "subject-specific" else "fixed-effects"
-    ))
+    predict_logger <- create_module_logger("PREDICT")
+    predict_logger("INFO", "Annotating hazard samples with", if (include_re) "subject-specific" else "fixed-effects", "predictions...")
 
     # Ensure factors are properly set - use original values if model levels are empty
     if ("condition" %in% names(model$model)) {
@@ -988,7 +969,7 @@ annotate_hazard_predictions <- function(model,
     split_idx <- split(seq_len(nrow(hazard_samples)), hazard_samples[[chunk_by[1]]])
 
     p_hat <- numeric(nrow(hazard_samples))
-    cat(sprintf("[PREDICT] Processing %d participants in chunks...\n", length(split_idx)))
+    predict_logger("DEBUG", "Processing", length(split_idx), "participants in chunks...")
 
     for (i in seq_along(split_idx)) {
         ix <- split_idx[[i]]
@@ -1000,16 +981,13 @@ annotate_hazard_predictions <- function(model,
                 p_hat[ix] <- pred_result
             },
             error = function(e) {
-                cat(sprintf("[PREDICT] ERROR in chunk %d: %s\n", i, e$message))
+                predict_logger("ERROR", "ERROR in chunk", i, ":", e$message)
                 p_hat[ix] <- NA_real_
             }
         )
 
         if (i %% 10 == 0 || i == length(split_idx)) {
-            cat(sprintf(
-                "[PREDICT] Progress: %d/%d participants (%.1f%%)\n",
-                i, length(split_idx), 100 * i / length(split_idx)
-            ))
+            predict_logger("DEBUG", "Progress:", i, "/", length(split_idx), "participants (", round(100 * i / length(split_idx), 1), "%)")
         }
     }
 
@@ -1043,9 +1021,9 @@ annotate_hazard_predictions <- function(model,
     if (!is.null(out_path)) {
         saveRDS(hazard_samples, out_path)
         setup_global_risk_variables(hazard_samples_path = out_path, model_path = FALSE, analysis_results_path = FALSE)
-        message(sprintf("[PREDICT] Saved hazard samples with predictions to: %s", out_path))
+        predict_logger("INFO", "Saved hazard samples with predictions to:", out_path)
     } else {
-        message("[PREDICT] Skipped saving hazard samples (out_path = FALSE)")
+        predict_logger("DEBUG", "Skipped saving hazard samples (out_path = FALSE)")
     }
     invisible(hazard_samples)
 }
@@ -1062,7 +1040,8 @@ annotate_hazard_predictions <- function(model,
 #' @return List containing standardized_risks and analysis_results
 #' @export
 compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_results_path = NULL) {
-    cat("[DEBUG] compute_pooled_standardized_risks called\n")
+    std_logger <- create_module_logger("STANDARDIZED")
+    std_logger("DEBUG", "compute_pooled_standardized_risks called")
 
     # sanity
     need <- c("e", "v", "participant", "condition", "phase")
@@ -1075,14 +1054,14 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
         # Try to get tau from global variable as fallback
         if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
             tau <- GLOBAL_RISK_TAU
-            cat(sprintf("[STANDARDIZED] Model missing tau attribute, using global tau = %.3f seconds\n", tau))
+            std_logger("WARN", "Model missing tau attribute, using global tau =", tau, "seconds")
         } else {
             # Use default tau as last resort
             tau <- 0.2
-            cat(sprintf("[STANDARDIZED] Model missing tau attribute and no global tau found, using default tau = %.3f seconds\n", tau))
+            std_logger("WARN", "Model missing tau attribute and no global tau found, using default tau =", tau, "seconds")
         }
     } else {
-        cat(sprintf("[STANDARDIZED] Using model tau = %.3f seconds for rate calculations\n", tau))
+        std_logger("DEBUG", "Using model tau =", tau, "seconds for rate calculations")
     }
 
     # factor levels to match the model
@@ -1119,7 +1098,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
             ) |>
             dplyr::pull(dt_med)
         dt <- stats::median(dt_vec[is.finite(dt_vec) & dt_vec > 0], na.rm = TRUE)
-        cat(sprintf("[STANDARDIZED] Estimated dt = %.3f seconds (for info only)\n", dt))
+        std_logger("DEBUG", "Estimated dt =", dt, "seconds (for info only)")
     }
 
     # Condition levels
@@ -1150,31 +1129,28 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 
     res_list <- list()
 
-    cat(sprintf(
-        "[STANDARDIZED] Computing standardized mapping scores for %d condition × %d phase combinations\n",
-        length(cond_levels), length(phase_levels)
-    ))
-    cat("[STANDARDIZED] Using fixed reference state distribution (e, v, participant) with standardized condition×phase labels\n")
+    std_logger("INFO", "Computing standardized mapping scores for", length(cond_levels), "condition ×", length(phase_levels), "phase combinations")
+    std_logger("DEBUG", "Using fixed reference state distribution (e, v, participant) with standardized condition×phase labels")
 
     # Ensure we have valid levels to work with
     if (length(cond_levels) == 0) {
-        cat("[STANDARDIZED] ERROR: No valid condition levels found\n")
+        std_logger("ERROR", "No valid condition levels found")
         return(NULL)
     }
     if (length(phase_levels) == 0) {
-        cat("[STANDARDIZED] ERROR: No valid phase levels found\n")
+        std_logger("ERROR", "No valid phase levels found")
         return(NULL)
     }
 
     # Debug: Show model's factor levels
     if ("condition" %in% names(model$model)) {
-        cat(sprintf("[STANDARDIZED] Model condition levels: %s\n", paste(levels(model$model$condition), collapse = ", ")))
+        std_logger("DEBUG", "Model condition levels:", paste(levels(model$model$condition), collapse = ", "))
     }
     if ("phase" %in% names(model$model)) {
-        cat(sprintf("[STANDARDIZED] Model phase levels: %s\n", paste(levels(model$model$phase), collapse = ", ")))
+        std_logger("DEBUG", "Model phase levels:", paste(levels(model$model$phase), collapse = ", "))
     }
     if ("cond_phase" %in% names(model$model)) {
-        cat(sprintf("[STANDARDIZED] Model cond_phase levels: %s\n", paste(levels(model$model$cond_phase), collapse = ", ")))
+        std_logger("DEBUG", "Model cond_phase levels:", paste(levels(model$model$cond_phase), collapse = ", "))
     }
 
     # Process all condition × phase combinations
@@ -1182,7 +1158,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 
     for (cn in cond_levels) {
         for (ph in phase_levels) {
-            cat(sprintf("[STANDARDIZED] Processing: condition='%s', phase='%s'\n", cn, ph))
+            std_logger("DEBUG", "Processing: condition='", cn, "', phase='", ph, "'")
 
             # Create standardized prediction data using fixed reference states
             newdf <- ref_df
@@ -1195,17 +1171,14 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
                 model_cond_levels <- levels(model$model$condition)
                 # If model levels are empty, use the levels we determined earlier
                 if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
-                    cat("[STANDARDIZED] Model condition levels are empty, using fallback levels\n")
+                    std_logger("WARN", "Model condition levels are empty, using fallback levels")
                     model_cond_levels <- cond_levels
                 }
 
                 if (cn %in% model_cond_levels) {
                     newdf$condition <- factor(cn, levels = model_cond_levels)
                 } else {
-                    cat(sprintf(
-                        "[STANDARDIZED] WARNING: Condition '%s' not in model training levels: %s\n",
-                        cn, paste(model_cond_levels, collapse = ", ")
-                    ))
+                    std_logger("WARN", "Condition '", cn, "' not in model training levels:", paste(model_cond_levels, collapse = ", "))
                     skip_combination <- TRUE
                 }
             } else {
@@ -1216,17 +1189,14 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
                 model_phase_levels <- levels(model$model$phase)
                 # If model levels are empty, use the levels we determined earlier
                 if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
-                    cat("[STANDARDIZED] Model phase levels are empty, using fallback levels\n")
+                    std_logger("WARN", "Model phase levels are empty, using fallback levels")
                     model_phase_levels <- phase_levels
                 }
 
                 if (ph %in% model_phase_levels) {
                     newdf$phase <- factor(ph, levels = model_phase_levels)
                 } else {
-                    cat(sprintf(
-                        "[STANDARDIZED] WARNING: Phase '%s' not in model training levels: %s\n",
-                        ph, paste(model_phase_levels, collapse = ", ")
-                    ))
+                    std_logger("WARN", "Phase '", ph, "' not in model training levels:", paste(model_phase_levels, collapse = ", "))
                     skip_combination <- TRUE
                 }
             } else {
@@ -1235,7 +1205,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 
             # Skip prediction if factor levels don't match
             if (skip_combination) {
-                cat("[STANDARDIZED] Skipping prediction due to factor level mismatch\n")
+                std_logger("WARN", "Skipping prediction due to factor level mismatch")
                 next
             }
 
@@ -1248,14 +1218,12 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
                 model_cond_phase_levels <- levels(model$model$cond_phase)
 
                 # Debug: Show what we're trying to create vs what the model expects
-                cat(sprintf("[STANDARDIZED] Created cond_phase: %s\n", paste(levels(newdf$cond_phase), collapse = ", ")))
-                cat(sprintf("[STANDARDIZED] Model expects cond_phase: %s\n", paste(model_cond_phase_levels, collapse = ", ")))
+                std_logger("DEBUG", "Created cond_phase:", paste(levels(newdf$cond_phase), collapse = ", "))
+                std_logger("DEBUG", "Model expects cond_phase:", paste(model_cond_phase_levels, collapse = ", "))
 
                 # Check if our created levels match the model's levels
                 if (!all(levels(newdf$cond_phase) %in% model_cond_phase_levels)) {
-                    cat(sprintf(
-                        "[STANDARDIZED] WARNING: Some cond_phase levels not in model training levels\n"
-                    ))
+                    std_logger("WARN", "Some cond_phase levels not in model training levels")
                     # Try to align the levels
                     newdf$cond_phase <- factor(newdf$cond_phase, levels = model_cond_phase_levels)
                 }
@@ -1263,23 +1231,23 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 
             # Skip prediction if cond_phase levels don't match
             if (skip_combination) {
-                cat("[STANDARDIZED] Skipping prediction due to cond_phase level mismatch\n")
+                std_logger("WARN", "Skipping prediction due to cond_phase level mismatch")
                 next
             }
 
-            cat(sprintf("[STANDARDIZED] Computing standardized risk for condition='%s', phase='%s'\n", cn, ph))
+            std_logger("DEBUG", "Computing standardized risk for condition='", cn, "', phase='", ph, "'")
 
             # Predict fixed-effects hazard; exclude random effect smooth for population-level mapping
             # Use parallel processing for faster prediction (same as training)
             n_cores <- parallel::detectCores()
-            cat(sprintf("[STANDARDIZED] Using %d cores for parallel prediction\n", n_cores))
-            cat(sprintf("[STANDARDIZED] Predicting on %d rows...\n", nrow(newdf)))
+            std_logger("DEBUG", "Using", n_cores, "cores for parallel prediction")
+            std_logger("DEBUG", "Predicting on", nrow(newdf), "rows...")
 
             # Add timing
             start_time <- Sys.time()
             eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)", nthreads = n_cores)
             end_time <- Sys.time()
-            cat(sprintf("[STANDARDIZED] Prediction completed in %.2f seconds\n", as.numeric(end_time - start_time, units = "secs")))
+            std_logger("DEBUG", "Prediction completed in", round(as.numeric(end_time - start_time, units = "secs"), 2), "seconds")
 
             # per-τ drop probability (for backward compat with 'mean_hazard'):
             p_tau <- 1 - exp(-exp(eta))
@@ -1306,14 +1274,11 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
     out <- do.call(rbind, res_list)
     rownames(out) <- NULL
 
-    cat(sprintf("[STANDARDIZED] Successfully computed standardized risks for %d condition×phase combinations\n", nrow(out)))
+    std_logger("INFO", "Successfully computed standardized risks for", nrow(out), "condition×phase combinations")
     if (nrow(out) > 0) {
-        cat("[STANDARDIZED] Computed combinations:\n")
+        std_logger("DEBUG", "Computed combinations:")
         for (i in seq_len(nrow(out))) {
-            cat(sprintf(
-                "  - %s × %s: risk_1s = %.6f, mean_hazard = %.6f\n",
-                out$condition[i], out$phase[i], out$risk_1s[i], out$mean_hazard[i]
-            ))
+            std_logger("DEBUG", "  -", out$condition[i], "×", out$phase[i], ": risk_1s =", round(out$risk_1s[i], 6), ", mean_hazard =", round(out$mean_hazard[i], 6))
         }
     }
 
@@ -1321,7 +1286,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
     analysis_results <- perform_risk_analysis(model, hazard_samples, out, analysis_results_path)
 
     # Always print standardized risks to console
-    cat("[STANDARDIZED] Pooled standardized risks computed:\n")
+    std_logger("INFO", "Pooled standardized risks computed:")
     print(out)
 
 
@@ -1345,7 +1310,8 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 #' @return Analysis results list
 #' @export
 perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_results_path = NULL) {
-    cat("[ANALYSIS] Performing comprehensive risk analysis...\n")
+    analysis_logger <- create_module_logger("ANALYSIS")
+    analysis_logger("INFO", "Performing comprehensive risk analysis...")
 
     # 0) Sanity: std_means must be non-empty
     if (is.null(std_means) || !nrow(std_means)) {
@@ -1368,16 +1334,16 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     # Use levels from std_means (robust)
     cond_levels <- unique(as.character(std_means$condition))
     phase_levels <- unique(as.character(std_means$phase))
-    cat("[ANALYSIS] cond_levels =", cond_levels, "\n")
-    cat("[ANALYSIS] phase_levels =", phase_levels, "\n")
+    analysis_logger("DEBUG", "cond_levels =", cond_levels)
+    analysis_logger("DEBUG", "phase_levels =", phase_levels)
 
     # 1) Condition × Phase interaction (hazard model) - try ML LRT, else Wald
-    cat("[ANALYSIS] Testing condition × phase interaction...\n")
+    analysis_logger("DEBUG", "Testing condition × phase interaction...")
     m_full_ml <- tryCatch(update(model, method = "ML"), error = function(e) NULL)
     m_noint_ml <- tryCatch(update(model, . ~ . - condition:phase, method = "ML"), error = function(e) NULL)
 
     interaction_test <- if (!is.null(m_full_ml) && !is.null(m_noint_ml)) {
-        cat("[ANALYSIS] Using LRT (ML) for interaction test...\n")
+        analysis_logger("DEBUG", "Using LRT (ML) for interaction test...")
         anova(m_noint_ml, m_full_ml, test = "Chisq")
     } else {
         warning("[ANALYSIS] Could not refit models with ML for LRT. Will use Wald test.")
@@ -1387,7 +1353,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     # Fallback: Wald test
     wald_interaction <- NULL
     if (is.null(interaction_test)) {
-        cat("[ANALYSIS] Using Wald test for interaction...\n")
+        analysis_logger("DEBUG", "Using Wald test for interaction...")
         cf <- coef(model)
         V <- model$Vp
         idx <- grep("condition.*:phase", names(cf))
@@ -1411,7 +1377,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     }
 
     # 2) Within-condition deltas and DiD (from std_means)
-    cat("[ANALYSIS] Computing within-condition changes and DiD...\n")
+    analysis_logger("DEBUG", "Computing within-condition changes and DiD...")
     mm <- std_means |>
         dplyr::mutate(
             condition = as.character(condition),
@@ -1462,7 +1428,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     )
 
     # 3) Parametric bootstrap CIs (guarded)
-    cat("[ANALYSIS] Computing parametric bootstrap CIs...\n")
+    analysis_logger("DEBUG", "Computing parametric bootstrap CIs...")
     means_CI <- NULL
     DiD_boot <- NULL
     within_ci <- NULL
@@ -1483,21 +1449,21 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             warning("[ANALYSIS] No valid covariance matrix; skipping bootstrap.")
         } else {
             B <- 100L # increase to 1000 for final runs
-            cat(sprintf("[ANALYSIS] Starting optimized parametric bootstrap with %d iterations...\n", B))
-            cat("[ANALYSIS] OPTIMIZATIONS: Vectorized bootstrap + rowsum aggregation + outer combo loop\n")
-            cat("[ANALYSIS] METRIC: Computing 1-second risk only (risk_1s)\n")
-            cat("[ANALYSIS] EXPECTED BENEFITS: Memory efficient + 10-50x faster + full condition×phase coverage\n")
+            analysis_logger("INFO", "Starting optimized parametric bootstrap with", B, "iterations...")
+            analysis_logger("DEBUG", "OPTIMIZATIONS: Vectorized bootstrap + rowsum aggregation + outer combo loop")
+            analysis_logger("DEBUG", "METRIC: Computing 1-second risk only (risk_1s)")
+            analysis_logger("DEBUG", "EXPECTED BENEFITS: Memory efficient + 10-50x faster + full condition×phase coverage")
             flush.console()
 
             # Get tau from model attributes for rate calculations
             tau_model <- attr(model, "tau")
             if (is.null(tau_model)) {
                 tau_model <- 0.2 # fallback
-                cat("[ANALYSIS] No tau found in model, using fallback: 0.2s\n")
+                analysis_logger("WARN", "No tau found in model, using fallback: 0.2s")
             }
 
             # 1) BEFORE THE LOOP: Cache reference frame and participant indices
-            cat("[ANALYSIS] Caching reference frame and participant indices...\n")
+            analysis_logger("DEBUG", "Caching reference frame and participant indices...")
             ref_df <- hazard_samples[, c("e", "v", "participant")]
             ref_df$participant <- factor(ref_df$participant)
 
@@ -1506,7 +1472,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             n_g <- tabulate(pid) # length = #participants
             G <- length(n_g) # number of participants
 
-            cat(sprintf("[ANALYSIS] Reference frame: %d rows, %d participants\n", nrow(ref_df), G))
+            analysis_logger("DEBUG", "Reference frame:", nrow(ref_df), "rows,", G, "participants")
 
             # Precompute Cholesky decomposition for coefficient sampling
             set.seed(123)
@@ -1524,7 +1490,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             for (cond in cond_levels_b) {
                 for (ph in phase_levels_b) {
                     key <- paste(cond, ph, sep = "|")
-                    cat(sprintf("[ANALYSIS] Processing combo: %s\n", key))
+                    analysis_logger("DEBUG", "Processing combo:", key)
 
                     # Create newdf by copying ref_df and setting condition/phase
                     newdf <- ref_df
@@ -1538,10 +1504,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                         if (expected_cond_phase %in% model_cond_phase_levels) {
                             newdf$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
                         } else {
-                            cat(sprintf(
-                                "[ANALYSIS] WARNING: Skipping combo '%s' - cond_phase '%s' not in model levels\n",
-                                key, expected_cond_phase
-                            ))
+                            analysis_logger("WARN", "Skipping combo '", key, "' - cond_phase '", expected_cond_phase, "' not in model levels")
                             next
                         }
                     }
@@ -1569,18 +1532,18 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                     # 5) STORE RESULTS (only 1-second risk)
                     combo_results[[key]] <- overall_1s
 
-                    cat(sprintf("[ANALYSIS] Completed combo %s: %d bootstrap samples\n", key, B))
+                    analysis_logger("DEBUG", "Completed combo", key, ":", B, "bootstrap samples")
                 }
             }
 
             # OLD CHUNKED PROCESSING REMOVED - REPLACED WITH VECTORIZED APPROACH ABOVE
 
             # Convert to expected format for downstream analysis
-            cat("[ANALYSIS] Converting results to expected format...\n")
+            analysis_logger("DEBUG", "Converting results to expected format...")
             boot_list <- vector("list", B)
             for (b in seq_len(B)) {
                 if (b %% 20 == 0 || b == B) {
-                    cat(sprintf("[ANALYSIS] Converting bootstrap iteration: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
+                    analysis_logger("DEBUG", "Converting bootstrap iteration:", b, "/", B, "(", round(100 * b / B, 1), "%)")
                     flush.console()
                 }
 
@@ -1622,10 +1585,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                         if (expected_cond_phase %in% model_cond_phase_levels) {
                             newdf_chunk$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
                         } else {
-                            cat(sprintf(
-                                "[ANALYSIS] WARNING: Skipping chunk for combo '%s' - cond_phase '%s' not in model levels\n",
-                                key, expected_cond_phase
-                            ))
+                            analysis_logger("WARN", "Skipping chunk for combo '", key, "' - cond_phase '", expected_cond_phase, "' not in model levels")
                             next
                         }
                     }
@@ -1671,10 +1631,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                     }
 
                     if (chunk_idx %% 5 == 0 || chunk_idx == n_chunks) {
-                        cat(sprintf(
-                            "[ANALYSIS] Completed chunk %d/%d for combo %s\n",
-                            chunk_idx, n_chunks, key
-                        ))
+                        analysis_logger("DEBUG", "Completed chunk", chunk_idx, "/", n_chunks, "for combo", key)
                     }
                 }
 
@@ -1685,10 +1642,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                 # Store only the B-length result vector
                 combo_results[[key]] <- overall_means
 
-                cat(sprintf("[ANALYSIS] Completed combo %s: %d bootstrap samples\n", key, length(overall_means)))
+                analysis_logger("DEBUG", "Completed combo", key, ":", length(overall_means), "bootstrap samples")
             } # End of disabled old code block
 
-            cat("[ANALYSIS] Bootstrap completed, computing confidence intervals...\n")
+            analysis_logger("INFO", "Bootstrap completed, computing confidence intervals...")
             flush.console()
             boot_arr <- dplyr::bind_rows(boot_list, .id = "boot_id")
 
@@ -1726,11 +1683,11 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                 )
                 pts <- apply(did_names, 1, \(r) did_from_df(std_means, r[1], r[2], r[3]))
 
-                cat("[ANALYSIS] Computing DiD bootstrap samples...\n")
+                analysis_logger("DEBUG", "Computing DiD bootstrap samples...")
                 flush.console()
                 did_boot_mat <- sapply(seq_len(B), function(b) {
                     if (b %% 20 == 0 || b == B) {
-                        cat(sprintf("[ANALYSIS] DiD bootstrap progress: %d/%d (%.1f%%)\n", b, B, 100 * b / B))
+                        analysis_logger("DEBUG", "DiD bootstrap progress:", b, "/", B, "(", round(100 * b / B, 1), "%)")
                         flush.console()
                     }
                     dfb <- boot_list[[b]]
@@ -1762,7 +1719,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                 )
 
                 # Within-condition deltas: CIs + p-values
-                cat("[ANALYSIS] Computing bootstrap p-values for within-condition changes...\n")
+                analysis_logger("DEBUG", "Computing bootstrap p-values for within-condition changes...")
                 flush.console()
 
                 within_boot_list <- lapply(boot_list, function(dfb) {
@@ -1820,7 +1777,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 
     # 4) Optional plot (only if means_CI exists and has data)
     if (!is.null(means_CI) && nrow(means_CI) > 0) {
-        cat("[ANALYSIS] Creating visualization...\n")
+        analysis_logger("DEBUG", "Creating visualization...")
         p <- ggplot2::ggplot(
             means_CI,
             ggplot2::aes(phase, mean,
@@ -1872,17 +1829,17 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             analysis_results = results
         )
         saveRDS(analysis_results_to_save, final_path)
-        cat("[ANALYSIS] Analysis results saved to:", final_path, "\n")
+        analysis_logger("INFO", "Analysis results saved to:", final_path)
         
         # Set up global variables with the analysis results
         setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE, analysis_results_path = final_path)
     } else {
-        cat("[ANALYSIS] Skipped saving analysis results (analysis_results_path = FALSE)\n")
+        analysis_logger("DEBUG", "Skipped saving analysis results (analysis_results_path = FALSE)")
     }
     
     print_analysis_summary(results)
 
-    cat("[ANALYSIS] Analysis complete!\n")
+    analysis_logger("INFO", "Analysis complete!")
     return(results)
 }
 
@@ -1904,7 +1861,7 @@ save_analysis_to_txt <- function(results, std_means, txt_path) {
         new_filename <- paste0(base_name, "_", timestamp, ".", ext)
         txt_path <- file.path(dir_path, new_filename)
 
-        cat(sprintf("[ANALYSIS] File already exists, saving to: %s\n", txt_path))
+        analysis_logger("WARN", "File already exists, saving to:", txt_path)
     }
 
     sink(txt_path)
