@@ -148,7 +148,7 @@ for (data_type in names(cacheable_data_types)) {
 }
 
 # Helper function to get cached data for a data type
-get_cached_data <- function(data_type) {
+get_cached_data_local <- function(data_type) {
   if (data_type %in% names(cached_data_reactive)) {
     return(cached_data_reactive[[data_type]]())
   }
@@ -198,7 +198,7 @@ currentData <- reactive({
     # Use full data when checkbox is unchecked
     if (input$dataType %in% names(cacheable_data_types)) {
       # Use cached data for cacheable data types
-      data <- get_cached_data(input$dataType)
+      data <- get_cached_data_local(input$dataType)
       
       if (nrow(data) > 0) {
         # Apply data-specific filters
@@ -289,7 +289,7 @@ for (data_type in names(cacheable_data_types)) {
   output[[status_id]] <- renderText({
     if (input$dataType == data_type) {
       # Get current cached data
-      data <- get_cached_data(data_type)
+      data <- get_cached_data_local(data_type)
       if (nrow(data) > 0) {
         # Build status message with data type specific info
         status_msg <- sprintf(
