@@ -126,9 +126,6 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   parallel_enabled <- parallel
   cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled)
   
-  # Fast cache reference - stores the actual data for quick access
-  fast_cache <- reactiveVal(data.frame())
-  
   # Control functions
   request_data <- function() {
     cache_logger("DEBUG", "request_data() called")
@@ -152,7 +149,6 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   reset_data <- function() {
     cache_logger("DEBUG", "reset_data() called")
     cache(data.frame())
-    fast_cache(data.frame())  # Clear fast cache too
     filters(list())
     loading(FALSE)
     clear_notifications()
@@ -166,12 +162,12 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     cache_logger("DEBUG", "condition_filter:", if(is.null(condition_filter)) "NULL" else paste(condition_filter, collapse = ", "))
     cache_logger("DEBUG", "downsample_factor:", downsample_factor)
     
-    # Get cached data
-    cached_data <- fast_cache()
-    cache_logger("DEBUG", "fast_cache has", nrow(cached_data), "rows")
+    # Get cached data from global cache (no duplication)
+    cached_data <- get_current_cache(cache_name)
+    cache_logger("DEBUG", "global cache has", nrow(cached_data), "rows")
     
     if (nrow(cached_data) == 0) {
-      cache_logger("WARN", "No data in fast cache - returning NULL")
+      cache_logger("WARN", "No data in global cache - returning NULL")
       return(NULL)
     }
     
@@ -212,21 +208,6 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     return(filtered_data)
   }
   
-  # Update fast cache function
-  update_fast_cache <- function(data) {
-    cache_logger("DEBUG", "update_fast_cache called with", nrow(data), "rows")
-    
-    # Log memory usage
-    if (nrow(data) > 0) {
-      memory_usage <- format(object.size(data), units = "MB")
-      cache_logger("DEBUG", "Data memory usage:", memory_usage)
-    } else {
-      cache_logger("DEBUG", "Data memory usage: 0 MB (empty data frame)")
-    }
-    
-    fast_cache(data)
-    cache_logger("DEBUG", "fast_cache updated")
-  }
   
   # Return the manager functions
   list(
@@ -241,8 +222,7 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     cancel_data = cancel_data,
     reset_data = reset_data,
     parallel_enabled = parallel_enabled,
-    get_fast_cache = get_fast_cache,
-    update_fast_cache = update_fast_cache
+    get_fast_cache = get_fast_cache
   )
 }
 
@@ -360,9 +340,6 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
       
       # Update Shiny cache manager state
       cache_manager$cache(cached_data)
-      
-      # Update fast cache for quick access
-      cache_manager$update_fast_cache(cached_data)
       
       # Store both filters and shiny inputs for change detection
       stored_state <- current_filters
