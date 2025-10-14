@@ -774,10 +774,14 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
 
         # Calculate gait data and parameters
         newData <- get_data_function(participant, trial, ...)
+        loop_logger("DEBUG", "get_data_function returned", nrow(newData), "rows")
+        
         newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
+        loop_logger("DEBUG", "add_identifiers_and_categories completed, final data has", nrow(newData), "rows")
 
         # Store in list instead of repeated rbind for efficiency
         data_list[[i]] <- newData
+        loop_logger("DEBUG", "Stored data in list, moving to next iteration")
     }
 
     # Combine all data frames efficiently using rbindlist

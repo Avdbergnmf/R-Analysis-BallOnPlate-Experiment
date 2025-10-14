@@ -369,8 +369,27 @@ load_cache_from_file <- function(data_type) {
   
   if (file.exists(cache_path)) {
     tryCatch({
+      # Get file info for diagnostics
+      file_info <- file.info(cache_path)
+      file_size_mb <- round(file_info$size / (1024 * 1024), 2)
+      cache_logger("DEBUG", "RDS file size:", file_size_mb, "MB")
+      
+      # Time the readRDS operation
+      start_time <- Sys.time()
       cached_data <- readRDS(cache_path)
+      end_time <- Sys.time()
+      read_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
+      
+      cache_logger("DEBUG", "readRDS completed in", read_duration, "seconds")
       cache_logger("DEBUG", "Loaded", data_type, "cache from file:", nrow(cached_data), "rows")
+      
+      # Additional diagnostics
+      if (nrow(cached_data) > 0) {
+        cache_logger("DEBUG", "Data frame memory usage:", format(object.size(cached_data), units = "MB"))
+        cache_logger("DEBUG", "Column names:", paste(names(cached_data), collapse = ", "))
+        cache_logger("DEBUG", "Data types:", paste(sapply(cached_data, class), collapse = ", "))
+      }
+      
       return(cached_data)
     }, error = function(e) {
       cache_logger("ERROR", "Error loading cache file", cache_path, ":", e$message)
@@ -391,8 +410,22 @@ save_cache_to_file <- function(data_type, data) {
   cache_path <- get_cache_file_path(data_type)
   
   tryCatch({
-    saveRDS(data, cache_path)
-    cache_logger("DEBUG", "Saved", data_type, "cache to file:", nrow(data), "rows")
+    # Get data info for diagnostics
+    data_size_mb <- round(object.size(data) / (1024 * 1024), 2)
+    cache_logger("DEBUG", "Data frame size:", data_size_mb, "MB, rows:", nrow(data))
+    
+    # Time the saveRDS operation with compression
+    start_time <- Sys.time()
+    saveRDS(data, cache_path, compress = "xz")  # Use xz compression for better compression ratio
+    end_time <- Sys.time()
+    save_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
+    
+    # Get final file size
+    file_info <- file.info(cache_path)
+    file_size_mb <- round(file_info$size / (1024 * 1024), 2)
+    
+    cache_logger("DEBUG", "saveRDS completed in", save_duration, "seconds")
+    cache_logger("DEBUG", "Saved", data_type, "cache to file:", nrow(data), "rows, file size:", file_size_mb, "MB")
   }, error = function(e) {
     cache_logger("ERROR", "Error saving cache file", cache_path, ":", e$message)
     warning(sprintf("Error saving cache file %s: %s", cache_path, e$message))

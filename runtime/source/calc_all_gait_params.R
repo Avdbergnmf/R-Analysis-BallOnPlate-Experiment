@@ -26,10 +26,14 @@ add_category_columns <- function(data) {
   }
   
   ensure_global_data_initialized()
-  # Compute category and demographic columns for each individual row rather than assuming
-  # the whole data frame belongs to a single participant/trial.
-  data <- data %>%
-    dplyr::rowwise() %>%
+  
+  # Get unique participant and trial combinations to avoid redundant calculations
+  unique_combinations <- data %>%
+    dplyr::select(participant, trialNum) %>%
+    dplyr::distinct()
+  
+  # Pre-calculate all values for unique combinations
+  combination_data <- unique_combinations %>%
     dplyr::mutate(
       perturbations = has_perturbations(as.character(participant), as.numeric(as.character(trialNum))),
       visualizations = has_visualizations(as.character(participant), as.numeric(as.character(trialNum))),
@@ -37,11 +41,7 @@ add_category_columns <- function(data) {
       treadmillSpeed = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
       condition = condition_number(as.character(participant)),
       phase = get_trial_phase(as.character(participant), as.numeric(as.character(trialNum))),
-      trialNumWithinPhase = if (as.numeric(as.character(trialNum)) == 8) {
-        2
-      } else {
-        1
-      }, # training second trial within training phase
+      trialNumWithinPhase = ifelse(as.numeric(as.character(trialNum)) == 8, 2, 1),
       phaseNum = match(phase, allPhases),
       taskNum = task_num_lookup(as.numeric(as.character(trialNum))),
 
@@ -53,8 +53,11 @@ add_category_columns <- function(data) {
       education = get_p_detail(as.character(participant), "education"),
       vr_experience = get_p_detail(as.character(participant), "vr_experience"),
       height_meters = as.numeric(get_p_detail(as.character(participant), "height_scale")) * avatar_height_m
-    ) %>%
-    dplyr::ungroup() %>%
+    )
+  
+  # Join the pre-calculated data back to the original data
+  data <- data %>%
+    dplyr::left_join(combination_data, by = c("participant", "trialNum")) %>%
     # Convert categorical variables to factors
     dplyr::mutate(
       perturbations   = as.factor(perturbations),

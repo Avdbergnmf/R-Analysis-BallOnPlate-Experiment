@@ -247,9 +247,6 @@ get_universal_filters <- function() {
       participant_condition <- condition_number(participant)
       if (participant_condition %in% input$filterCondition) {
         condition_participants <- c(condition_participants, participant)
-        filter_logger("DEBUG", "Participant", participant, "(condition", participant_condition, ") matches filter")
-      } else {
-        filter_logger("DEBUG", "Participant", participant, "(condition", participant_condition, ") does NOT match filter")
       }
     }
     filtered_participants <- condition_participants

@@ -731,8 +731,8 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             dir.create(dataExtraFolder, recursive = TRUE)
         }
 
-        # Collect hazard samples from all trials
-        all_hazard_samples <- data.frame()
+        # Collect hazard samples from all trials using list for efficiency
+        hazard_samples_list <- list()
 
         # Create all combinations efficiently
         combinations_df <- expand.grid(participant = participants, trial = trials, stringsAsFactors = FALSE)
@@ -764,7 +764,7 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
                         if (nrow(hazard_samples) > 0) {
                             hazard_samples$participant <- participant
                             hazard_samples$trial <- trial
-                            all_hazard_samples <- rbind(all_hazard_samples, hazard_samples)
+                            hazard_samples_list[[length(hazard_samples_list) + 1]] <- hazard_samples
                         }
                     }
                 },
@@ -772,6 +772,14 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
                     train_logger("ERROR", "Error processing participant", participant, "trial", trial, ":", e$message)
                 }
             )
+        }
+
+        # Combine all hazard samples efficiently
+        if (length(hazard_samples_list) > 0) {
+            all_hazard_samples <- data.table::rbindlist(hazard_samples_list, fill = TRUE)
+            all_hazard_samples <- as.data.frame(all_hazard_samples)
+        } else {
+            all_hazard_samples <- data.frame()
         }
 
         if (nrow(all_hazard_samples) == 0) {
@@ -874,7 +882,7 @@ score_all_trials_with_saved_model <- function(participants, trials,
         return(data.frame())
     }
 
-    results <- data.frame()
+    results_list <- list()
 
     for (participant in participants) {
         for (trial in trials) {
@@ -885,7 +893,7 @@ score_all_trials_with_saved_model <- function(participants, trials,
                         risk_scores <- score_trial_with_model(sim_data, model, tau, use_factors = FALSE)
                         risk_scores$participant <- participant
                         risk_scores$trial <- trial
-                        results <- rbind(results, risk_scores)
+                        results_list[[length(results_list) + 1]] <- risk_scores
                     }
                 },
                 error = function(e) {
@@ -893,6 +901,14 @@ score_all_trials_with_saved_model <- function(participants, trials,
                 }
             )
         }
+    }
+
+    # Combine all results efficiently
+    if (length(results_list) > 0) {
+        results <- data.table::rbindlist(results_list, fill = TRUE)
+        results <- as.data.frame(results)
+    } else {
+        results <- data.frame()
     }
 
     return(results)
