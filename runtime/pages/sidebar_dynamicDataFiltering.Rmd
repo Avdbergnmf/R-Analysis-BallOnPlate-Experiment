@@ -221,29 +221,55 @@ numericInput("baseSize", "Base Size",
 ```{r, context="server"}
 # Universal filter function that can be used by any caching system
 get_universal_filters <- function() {
+  filter_logger <- create_module_logger("UNIVERSAL-FILTER")
+  
+  filter_logger("DEBUG", "get_universal_filters() called")
+  
   # Check if required inputs exist
   if (any(is.null(input$filterParticipants), is.null(input$filterTrials))) {
+    filter_logger("WARN", "Missing required inputs - participants or trials is NULL")
+    filter_logger("DEBUG", "filterParticipants:", if(is.null(input$filterParticipants)) "NULL" else paste(input$filterParticipants, collapse = ", "))
+    filter_logger("DEBUG", "filterTrials:", if(is.null(input$filterTrials)) "NULL" else paste(input$filterTrials, collapse = ", "))
     return(NULL)
   }
+  
+  filter_logger("DEBUG", "Raw participants:", paste(input$filterParticipants, collapse = ", "))
+  filter_logger("DEBUG", "Raw trials:", paste(input$filterTrials, collapse = ", "))
+  filter_logger("DEBUG", "Raw conditions:", if(is.null(input$filterCondition)) "NULL" else paste(input$filterCondition, collapse = ", "))
   
   # Pre-filter participants by condition if specified
   filtered_participants <- input$filterParticipants
   if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
+    filter_logger("DEBUG", "Filtering participants by conditions:", paste(input$filterCondition, collapse = ", "))
     # Get participants that match any of the selected conditions
     condition_participants <- c()
     for (participant in input$filterParticipants) {
-      if (condition_number(participant) %in% input$filterCondition) {
+      participant_condition <- condition_number(participant)
+      if (participant_condition %in% input$filterCondition) {
         condition_participants <- c(condition_participants, participant)
+        filter_logger("DEBUG", "Participant", participant, "(condition", participant_condition, ") matches filter")
+      } else {
+        filter_logger("DEBUG", "Participant", participant, "(condition", participant_condition, ") does NOT match filter")
       }
     }
     filtered_participants <- condition_participants
+    filter_logger("DEBUG", "After condition filtering:", length(filtered_participants), "participants")
+  } else {
+    filter_logger("DEBUG", "No condition filtering applied")
   }
   
   # Return universal filter state
-  list(
+  result <- list(
     participants = filtered_participants,
     trials = input$filterTrials,
     condition = input$filterCondition
   )
+  
+  filter_logger("DEBUG", "Returning filters:", length(result$participants), "participants,", length(result$trials), "trials,", 
+                if(is.null(result$condition)) 0 else length(result$condition), "conditions")
+  filter_logger("DEBUG", "Final participants:", paste(result$participants, collapse = ", "))
+  filter_logger("DEBUG", "Final trials:", paste(result$trials, collapse = ", "))
+  
+  return(result)
 }
 ```

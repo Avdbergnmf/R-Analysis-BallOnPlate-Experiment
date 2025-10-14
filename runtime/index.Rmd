@@ -21,6 +21,7 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # Configuration variables are now centralized in source/initialization.R
 
 source("source/setup.R")
+source("source/logging_utils.R", local = FALSE)
 source("source/outlier_utils.R", local = FALSE)
 source("source/data_loading.R", local = FALSE)
 source("source/pre_processing.R", local = FALSE)

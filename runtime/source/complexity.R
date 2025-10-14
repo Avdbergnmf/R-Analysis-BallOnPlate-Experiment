@@ -26,37 +26,6 @@
 #' - dfa_alpha() - Detrended Fluctuation Analysis Alpha
 #' - lyapunov() - Largest Lyapunov Exponent
 
-#' Create a logging function with different log levels
-#' @param enabled Whether logging is enabled
-#' @param messages Vector to collect messages (for parallel processing)
-#' @return A logging function that can be called with level and message
-create_logger <- function(enabled = TRUE, messages = NULL) {
-  function(level = "DEBUG", ...) {
-    if (enabled) {
-      prefix <- switch(level,
-        "DEBUG" = "[DEBUG]",
-        "INFO" = "[INFO]",
-        "WARN" = "[WARN]",
-        "ERROR" = "[ERROR]",
-        "[DEBUG]" # default
-      )
-      msg <- paste(prefix, paste(..., collapse = " "))
-
-      # Collect messages if messages vector is provided
-      if (!is.null(messages)) {
-        # Use parent environment to modify the messages vector
-        parent_env <- parent.frame()
-        if (exists("debug_messages", envir = parent_env)) {
-          assign("debug_messages", c(get("debug_messages", envir = parent_env), msg), envir = parent_env)
-        }
-      }
-
-      # Always output immediately for capture.output() to catch it
-      cat(msg, "\n")
-      flush.console()
-    }
-  }
-}
 
 #' Helper function to create metric column names
 #' @param variable Variable name (e.g., "stepTimes")
@@ -1068,8 +1037,8 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   # Initialize debug messages collection for parallel processing compatibility
   debug_messages <- character(0)
 
-  # Create logger function with access to debug_messages
-  log_msg <- create_logger(enabled = debug, messages = debug_messages)
+  # Create complexity logger with access to debug_messages
+  log_msg <- create_module_logger("COMPLEXITY", enabled = debug, messages = debug_messages)
 
   log_msg("DEBUG", "Processing participant:", participant, "trial:", trial)
 
@@ -1264,19 +1233,27 @@ calc_complexity_for_loop <- function(participant, trial, ...) {
 #' @note This function requires allGaitParams to be available in the global environment
 get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
+  # Create complexity logger for this function
+  complexity_logger <- create_module_logger("COMPLEXITY")
+  
+  log_operation_start(complexity_logger, "get_all_complexity_metrics")
+  
   # Ensure global parameters and data are initialized
   ensure_global_data_initialized()
 
   # Check if allGaitParams exists in the global environment
   if (!exists("allGaitParams", envir = .GlobalEnv)) {
+    complexity_logger("ERROR", "allGaitParams not found in global environment")
     stop("allGaitParams not found in global environment. Please ensure gait parameters are calculated first.")
   }
 
   # Get allGaitParams from global environment
   allGaitParams <- get("allGaitParams", envir = .GlobalEnv)
+  complexity_logger("DEBUG", "Retrieved allGaitParams from global environment")
 
   # Use centralized parameters - debug is now supported in parallel mode
   debug <- TRUE # Always enable debug now that parallel debugging is supported
+  complexity_logger("DEBUG", "Debug logging enabled for parallel processing")
 
   # Create a wrapper function that matches get_data_from_loop expectations
   complexity_function <- function(participant, trial) {
@@ -1290,14 +1267,19 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   # Continuous metrics will be attempted opportunistically inside the worker
   # if simulation/task data exist, but are not required to run.
   datasets_to_verify <- c("udp") # , "hip", "sim")
+  complexity_logger("DEBUG", "Datasets to verify:", paste(datasets_to_verify, collapse = ", "))
 
   # Use the provided loop function
+  complexity_logger("INFO", "Starting complexity calculation using loop function")
   result <- loop_function(complexity_function, datasets_to_verify = datasets_to_verify)
+  complexity_logger("INFO", "Completed complexity calculation, got", nrow(result), "results")
 
   # Remove debug messages from the final result (they were already output during execution)
   if ("debug_messages" %in% colnames(result)) {
     result$debug_messages <- NULL
+    complexity_logger("DEBUG", "Removed debug_messages column from final result")
   }
 
+  log_operation_end(complexity_logger, "get_all_complexity_metrics", success = TRUE)
   return(result)
 }
