@@ -362,6 +362,9 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
 
 
 make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize) {
+  # Create logger for this function
+  plot_logger <- create_module_logger("PLOT")
+  
   # Check if the variable is categorical or numeric
   is_categorical <- !is.numeric(data[[xinput]])
   plot_logger("DEBUG", "Variable is categorical:", is_categorical)

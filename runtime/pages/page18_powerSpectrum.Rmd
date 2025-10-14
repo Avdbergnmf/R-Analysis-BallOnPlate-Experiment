@@ -80,7 +80,7 @@ source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
 
 # Create power spectrum data cache manager (with parallel processing disabled by default)
-ps_cache_manager <- create_shiny_cache_manager("power_spectrum", parallel = FALSE)
+ps_cache_manager <- create_shiny_cache_manager("power_spectrum", use_parallel = FALSE)
 
 # Create cached power spectrum data reactive using the new system
 cachedPowerSpectrumData <- create_shiny_cached_data_reactive(

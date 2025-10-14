@@ -64,7 +64,8 @@ MODULE_LOG_LEVELS <- list(
   # "VERIFICATION" = "DEBUG"
   
   # Active overrides (uncomment to enable):
-  "UNIVERSAL-FILTER" = "WARN"
+  "UNIVERSAL-FILTER" = "WARN",
+  "SUMMARIZE-GAITPARAMS" = "INFO"
 )
 
 # =============================================================================

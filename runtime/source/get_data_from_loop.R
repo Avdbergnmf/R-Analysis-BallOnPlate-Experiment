@@ -67,6 +67,14 @@ load_or_calculate <- function(filePath,
     # Create logger for this function
     logger <- create_module_logger("LOAD-OR-CALC")
     
+    logger("DEBUG", "=== load_or_calculate called ===")
+    logger("DEBUG", "filePath:", filePath)
+    logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+    logger("DEBUG", "calculate_function class:", class(calculate_function))
+    logger("DEBUG", "parallel:", parallel)
+    logger("DEBUG", "force_recalc:", force_recalc)
+    logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
+    
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
     if (parallel && stop_cluster) {
         logger("DEBUG", "Setting up cluster cleanup on exit")
@@ -91,9 +99,15 @@ load_or_calculate <- function(filePath,
     }
 
     # Determine if we need to recalculate
+    logger("DEBUG", "Checking if recalculation is needed...")
+    logger("DEBUG", "force_recalc:", force_recalc)
+    logger("DEBUG", "file.exists(filePath):", file.exists(filePath))
+    
     should_recalc <- force_recalc || 
                      !file.exists(filePath) || 
                      (file.exists(filePath) && !is.null(combinations_df) && nrow(readRDS(filePath)) == 0)
+    
+    logger("DEBUG", "should_recalc:", should_recalc)
     
     if (should_recalc) {
         # Recalculate data
@@ -105,7 +119,18 @@ load_or_calculate <- function(filePath,
             logger("INFO", "Cache file has 0 rows, recalculating")
         }
         
-        data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
+        logger("DEBUG", "About to call calculate_data")
+        logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+        logger("DEBUG", "calculate_function class:", class(calculate_function))
+        
+        tryCatch({
+            data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
+            logger("DEBUG", "calculate_data returned successfully with", nrow(data), "rows")
+        }, error = function(e) {
+            logger("ERROR", "Error in calculate_data:", e$message)
+            logger("ERROR", "calculate_function type:", typeof(calculate_function))
+            stop(e)
+        })
         
         logger("INFO", "Saving data to cache file:", filePath)
         saveRDS(data, filePath)
@@ -142,6 +167,12 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
     if (is.null(logger)) {
         logger <- create_module_logger("CALC-DATA")
     }
+    
+    logger("DEBUG", "=== calculate_data called ===")
+    logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+    logger("DEBUG", "calculate_function class:", class(calculate_function))
+    logger("DEBUG", "parallel:", parallel)
+    logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
     
     # Choose the appropriate loop function based on parallel setting
     if (parallel) {
@@ -183,10 +214,21 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
 
     # Call the calculation function with the loop function
     logger("INFO", "Calling calculate_function with loop_function")
-    data <- calculate_function(loop_function)
-    logger("INFO", "calculate_function returned", nrow(data), "rows")
+    logger("DEBUG", "loop_function type:", typeof(loop_function))
+    logger("DEBUG", "loop_function class:", class(loop_function))
+    logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+    logger("DEBUG", "calculate_function class:", class(calculate_function))
     
-    return(data)
+    tryCatch({
+        data <- calculate_function(loop_function)
+        logger("INFO", "calculate_function returned", nrow(data), "rows")
+        return(data)
+    }, error = function(e) {
+        logger("ERROR", "Error calling calculate_function:", e$message)
+        logger("ERROR", "loop_function type:", typeof(loop_function))
+        logger("ERROR", "calculate_function type:", typeof(calculate_function))
+        stop(e)
+    })
 }
 
 #' Load or calculate data using loop system with automatic loop function handling
@@ -196,7 +238,7 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
 #' @param data_loader Function that loads data for a single participant-trial combination
 #' @param datasets_to_verify Vector of dataset names to verify before loading
 #' @param combinations_df Optional data frame with participant and trial columns to process only specific combinations (default: NULL for all combinations)
-#' @param parallel Whether to use parallel processing (default: USE_PARALLEL global setting)
+#' @param use_parallel Whether to use parallel processing (default: USE_PARALLEL global setting)
 #' @param force_recalc Whether to force recalculation even if cache exists (default: FORCE_RECALC global setting)
 #' @param stop_cluster Whether to stop the parallel cluster after this operation (default: FALSE)
 #' @param extra_global_vars Additional global variables to pass to parallel workers
@@ -207,30 +249,74 @@ load_or_calc_from_loop <- function(filePath,
                                    data_loader, 
                                    datasets_to_verify = NULL,
                                    combinations_df = NULL,
-                                   parallel = USE_PARALLEL,
+                                   use_parallel = USE_PARALLEL,
                                    force_recalc = FORCE_RECALC,
                                    stop_cluster = FALSE,
                                    extra_global_vars = NULL,
                                    allow_add_missing = FALSE,
                                    threshold_parallel = NULL) {
   
+  # Create logger for this function
+  loop_logger <- create_module_logger("LOAD-OR-CALC-FROM-LOOP")
+  
+  loop_logger("DEBUG", "=== load_or_calc_from_loop called ===")
+  loop_logger("DEBUG", "filePath:", filePath)
+  loop_logger("DEBUG", "data_loader type:", typeof(data_loader))
+  loop_logger("DEBUG", "data_loader class:", class(data_loader))
+  loop_logger("DEBUG", "data_loader name:", if(is.function(data_loader)) "function" else "not a function")
+  loop_logger("DEBUG", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+  loop_logger("DEBUG", "combinations_df rows:", if(is.null(combinations_df)) "NULL" else nrow(combinations_df))
+  loop_logger("DEBUG", "use_parallel:", use_parallel)
+  loop_logger("DEBUG", "force_recalc:", force_recalc)
+  
   # Create a simple calculate function that uses the provided data_loader
   calculate_function <- function(loop_function) {
-    return(loop_function(data_loader, datasets_to_verify = datasets_to_verify))
+    loop_logger("DEBUG", "=== calculate_function called ===")
+    loop_logger("DEBUG", "loop_function type:", typeof(loop_function))
+    loop_logger("DEBUG", "loop_function class:", class(loop_function))
+    loop_logger("DEBUG", "About to call loop_function with data_loader and datasets_to_verify")
+    loop_logger("DEBUG", "data_loader in calculate_function:", if(is.function(data_loader)) "function" else "NOT a function")
+    loop_logger("DEBUG", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+    
+    tryCatch({
+      result <- loop_function(data_loader, datasets_to_verify = datasets_to_verify)
+      loop_logger("DEBUG", "loop_function returned successfully with", nrow(result), "rows")
+      return(result)
+    }, error = function(e) {
+      loop_logger("ERROR", "Error in calculate_function:", e$message)
+      loop_logger("ERROR", "data_loader:", if(is.function(data_loader)) "function" else "NOT a function")
+      loop_logger("ERROR", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+      stop(e)
+    })
   }
   
+  loop_logger("DEBUG", "About to call load_or_calculate")
+  loop_logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+  loop_logger("DEBUG", "calculate_function class:", class(calculate_function))
+  
   # Use the existing load_or_calculate function with our simple calculate_function
-  return(load_or_calculate(
-    filePath = filePath,
-    calculate_function = calculate_function,
-    parallel = parallel,
-    force_recalc = force_recalc,
-    stop_cluster = stop_cluster,
-    extra_global_vars = extra_global_vars,
-    combinations_df = combinations_df,
-    allow_add_missing = allow_add_missing,
-    threshold_parallel = threshold_parallel
-  ))
+  tryCatch({
+    result <- load_or_calculate(
+      filePath = filePath,
+      calculate_function = calculate_function,
+      parallel = use_parallel,
+      force_recalc = force_recalc,
+      stop_cluster = stop_cluster,
+      extra_global_vars = extra_global_vars,
+      combinations_df = combinations_df,
+      allow_add_missing = allow_add_missing,
+      threshold_parallel = threshold_parallel
+    )
+    loop_logger("DEBUG", "load_or_calculate returned successfully with", nrow(result), "rows")
+    return(result)
+  }, error = function(e) {
+    loop_logger("ERROR", "Error in load_or_calculate:", e$message)
+    loop_logger("ERROR", "calculate_function type:", typeof(calculate_function))
+    loop_logger("ERROR", "calculate_function class:", class(calculate_function))
+    loop_logger("ERROR", "data_loader:", if(is.function(data_loader)) "function" else "NOT a function")
+    loop_logger("ERROR", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+    stop(e)
+  })
 }
 
 # Helper function to verify data availability for a trial

@@ -17,9 +17,9 @@ global_data_cache <<- list()
 
 #' Create a Shiny-compatible cache manager
 #' @param cache_name Unique name for this cache (e.g., "simulation", "power_spectrum")
-#' @param parallel Whether to enable parallel processing (default: FALSE)
+#' @param use_parallel Whether to enable parallel processing (default: FALSE)
 #' @return List of functions to manage the cache with Shiny integration
-create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
+create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   # Create unique variable names for this cache
   trigger_var <- paste0(".", cache_name, "DataTrigger")
   cancel_var <- paste0(".", cache_name, "DataCancel")
@@ -177,7 +177,7 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
   cache_logger <- create_module_logger(paste0("CACHE-", toupper(cache_name)))
   
   # Store parallel setting
-  parallel_enabled <- parallel
+  parallel_enabled <- use_parallel
   cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled)
   
   # Control functions
@@ -333,7 +333,7 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
         participants = current_filters$participants,
         trials = current_filters$trials,
         condition_filter = current_filters$condition,
-        parallel = cache_manager$parallel_enabled(),
+        use_parallel = cache_manager$parallel_enabled,
         shiny_inputs = shiny_inputs
       )
       
@@ -539,7 +539,7 @@ clear_cache <- function(data_type) {
 #' @param parallel Whether to use parallel processing (default: FALSE)
 #' @param shiny_inputs Optional list of Shiny input values for data loaders
 #' @return The requested data
-get_cached_data <- function(data_type, participants, trials, condition_filter = NULL, parallel = FALSE, shiny_inputs = NULL) {
+get_cached_data <- function(data_type, participants, trials, condition_filter = NULL, use_parallel = FALSE, shiny_inputs = NULL) {
   cache_logger <- create_module_logger("CACHE")
   
   log_operation_start(cache_logger, paste("get_cached_data for", data_type))
@@ -637,7 +637,7 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     data_loader = data_loader,
     datasets_to_verify = datasets_to_verify,
     combinations_df = requested_combinations,
-    parallel = parallel,
+    use_parallel = use_parallel,
     force_recalc = FALSE,
     threshold_parallel = NULL
   )

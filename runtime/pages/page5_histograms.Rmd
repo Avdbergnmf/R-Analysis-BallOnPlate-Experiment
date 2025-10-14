@@ -3,7 +3,7 @@
 ```{r}
 # Data type selection
 selectizeInput("dataType", "Data Type",
-  choices = c("Gait Data" = "gait", "Simulation Data" = "simulation", "Raw Tracker Data" = "raw_tracker"),
+  choices = c("Summarized Data" = "summarized", "Gait Data" = "gait", "Simulation Data" = "simulation", "Raw Tracker Data" = "raw_tracker"),
   selected = "gait", multiple = FALSE
 )
 
@@ -68,17 +68,13 @@ checkboxInput("interactiveHist", "Interactive histograms (hover tooltips)",
   value = FALSE
 )
 
-checkboxInput("useSummarizedData", "Use summarized data (means per participant/trial)",
-  value = FALSE
-)
-
 # Downsampling control for large datasets
 numericInput("downsampleFactor", "Downsampling factor (1=no downsampling, 10=every 10th row)",
   min = 1, max = 100, value = 10, step = 1
 )
 # Additional checkbox for summarizing across conditions
 conditionalPanel(
-  condition = "input.useSummarizedData == true",
+  condition = "input.dataType == 'summarized'",
   checkboxInput("summarizeAcrossConditions", "Also summarize across conditions (means per participant only)",
     value = FALSE
   )
@@ -147,7 +143,7 @@ cached_data_reactive <- list()
 
 for (data_type in names(cacheable_data_types)) {
   # Create cache manager
-  cache_managers[[data_type]] <- create_shiny_cache_manager(data_type, parallel = FALSE)
+  cache_managers[[data_type]] <- create_shiny_cache_manager(data_type, use_parallel = FALSE)
   
   # Create cached data reactive
   cached_data_reactive[[data_type]] <- create_shiny_cached_data_reactive(
@@ -227,11 +223,10 @@ get_empty_data_structure <- function(data_type) {
 # Reactive data source based on data type selection
 currentData <- reactive({
   page_logger("DEBUG", "currentData reactive triggered")
-  page_logger("DEBUG", "useSummarizedData:", input$useSummarizedData)
   page_logger("DEBUG", "dataType:", input$dataType)
   
-  if (input$useSummarizedData) {
-    # Use summarized data when checkbox is checked
+  if (input$dataType == "summarized") {
+    # Use summarized data when "Summarized Data" is selected
     page_logger("DEBUG", "Using summarized data")
     summarized_data <- get_mu_dyn_long()
     page_logger("DEBUG", "Summarized data loaded:", nrow(summarized_data), "rows")
@@ -243,9 +238,7 @@ currentData <- reactive({
       page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
     }
     return(summarized_data)
-  } else {
-    # Use full data when checkbox is unchecked
-    if (input$dataType %in% names(cacheable_data_types)) {
+  } else if (input$dataType %in% names(cacheable_data_types)) {
       # Use cached data for cacheable data types
       page_logger("DEBUG", "Using cached data for type:", input$dataType)
       data <- get_cached_data_local(input$dataType)
@@ -449,7 +442,7 @@ output$hist <- renderSVG({
       page_logger("DEBUG", "  - baseSize:", input$baseSize)
       
       # When using summarized data, pass the same data as both parameters
-      mu_data <- if (input$useSummarizedData) data else get_mu_dyn_long()
+      mu_data <- if (input$dataType == "summarized") data else get_mu_dyn_long()
       page_logger("DEBUG", "mu_data for histogram:", nrow(mu_data), "rows")
       
       page_logger("DEBUG", "About to call make_histogram...")
@@ -533,7 +526,7 @@ output$hist_plotly <- renderPlotly({
   page_logger("DEBUG", "  - baseSize:", input$baseSize)
   
   # When using summarized data, pass the same data as both parameters
-  mu_data <- if (input$useSummarizedData) data else get_mu_dyn_long()
+  mu_data <- if (input$dataType == "summarized") data else get_mu_dyn_long()
   page_logger("DEBUG", "mu_data for Plotly histogram:", nrow(mu_data), "rows")
   
   page_logger("DEBUG", "About to call make_histogram for Plotly...")
