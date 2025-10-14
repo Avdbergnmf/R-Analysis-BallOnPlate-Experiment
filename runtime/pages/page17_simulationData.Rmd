@@ -57,8 +57,9 @@ selectizeInput("hazard_samples_file", "Hazard Samples File",
 actionButton("load_hazard_samples", "Load Hazard Samples & Apply Model",
   class = "btn-info", style = "margin-top: 5px;"
 )
+
 actionButton("perform_risk_analysis", "Perform Risk Analysis",
-  class = "btn-success", style = "margin-top: 5px; margin-left: 10px;"
+  class = "btn-success", style = "margin-top: 5px;"
 )
 
 textOutput("risk_model_status")

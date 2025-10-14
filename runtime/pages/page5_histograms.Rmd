@@ -7,20 +7,14 @@ selectizeInput("dataType", "Data Type",
   selected = "gait", multiple = FALSE
 )
 
-# Update button for simulation data
+# Status display for simulation data
 conditionalPanel(
   condition = "input.dataType == 'simulation'",
   div(
-    actionButton("updateSimulationData", "Update Simulation Data",
-      class = "btn-primary", style = "margin-bottom: 10px; margin-right: 10px;"
-    ),
-    actionButton("cancelSimulationData", "Cancel Loading",
-      class = "btn-warning", style = "margin-bottom: 10px;"
-    ),
     div(id = "simulationStatus", style = "margin-top: 5px; font-size: 12px; color: #666;"),
     div(
       style = "margin-top: 5px; font-size: 11px; color: #888;",
-      "Note: Progress bar shows during loading. Use Cancel button or press Esc to stop."
+      "Note: Simulation data is automatically loaded and cached when needed."
     )
   )
 )
@@ -109,29 +103,36 @@ currentData <- reactive({
     }
     return(summarized_data)
   } else {
-    # Use full data when checkbox is unchecked (existing logic)
+    # Use full data when checkbox is unchecked
     if (input$dataType == "simulation") {
-      # Use simulation data if available
-      sim_data <- filteredSimulationData()
-      if (nrow(sim_data) > 0) {
-        # Optionally filter to only samples where the ball is on the plate
-        if (!is.null(input$sim_only_on_plate) && input$sim_only_on_plate &&
-          ("simulating" %in% colnames(sim_data))) {
-          sim_data <- sim_data[sim_data$simulating == TRUE, , drop = FALSE]
+      # Use new caching system for simulation data
+      if (!is.null(input$filterParticipants) && !is.null(input$filterTrials)) {
+        # Get simulation data using the new caching system
+        sim_data <- get_cached_data(
+          data_type = "simulation",
+          participants = input$filterParticipants,
+          trials = input$filterTrials,
+          condition_filter = input$filterCondition
+        )
+        
+        if (nrow(sim_data) > 0) {
+          # Optionally filter to only samples where the ball is on the plate
+          if (!is.null(input$sim_only_on_plate) && input$sim_only_on_plate &&
+            ("simulating" %in% colnames(sim_data))) {
+            sim_data <- sim_data[sim_data$simulating == TRUE, , drop = FALSE]
+          }
+          return(sim_data)
         }
-        return(sim_data)
-      } else {
-        # Return empty data frame with expected structure
-        return(data.frame(
-          participant = character(0),
-          trialNum = numeric(0),
-          condition = character(0),
-          phase = character(0)
-        ))
       }
+      
+      # Return empty data frame with expected structure if no data available
+      return(data.frame(
+        participant = character(0),
+        trialNum = numeric(0),
+        condition = character(0),
+        phase = character(0)
+      ))
     } else {
-      # Reset simulation data when switching to gait data
-      reset_simulation_data()
       # Use regular gait data
       return(filteredParams())
     }
@@ -187,40 +188,13 @@ create_dynamic_category_observer(
   input = input
 )
 
-# Trigger simulation data update when button is clicked
-observeEvent(input$updateSimulationData, {
-  # Flag that simulation data should be (re)loaded
-  request_simulation_data()
-  # Bump the reactive trigger so all downstream reactives recompute
-  refresh_trigger(refresh_trigger() + 1)
-})
-
-# Handle cancel button for simulation data loading
-observeEvent(input$cancelSimulationData,
-  {
-    cancel_simulation_data()
-  },
-  ignoreNULL = TRUE,
-  ignoreInit = TRUE
-)
-
-# Alternative cancellation when switching away from simulation data
-observeEvent(input$dataType,
-  {
-    if (input$dataType != "simulation") {
-      cancel_simulation_data()
-    }
-  },
-  ignoreNULL = TRUE,
-  ignoreInit = TRUE
-)
-
-# Note: withProgress() shows progress bar, custom cancel button provides explicit cancellation
+# Note: Simulation data is now automatically loaded and cached using the new caching system
 
 # Status display for simulation data
 output$simulationStatus <- renderText({
   if (input$dataType == "simulation") {
-    data <- filteredSimulationData()
+    # Get current data using the new caching system
+    data <- currentData()
     if (nrow(data) > 0) {
       sprintf(
         "Ready: %d participants, %d trials, %d samples",
@@ -229,7 +203,11 @@ output$simulationStatus <- renderText({
         nrow(data)
       )
     } else {
-      "No simulation data available. Click 'Update Simulation Data' to load."
+      if (!is.null(input$filterParticipants) && !is.null(input$filterTrials)) {
+        "Loading simulation data... (automatically cached)"
+      } else {
+        "Please select participants and trials to load simulation data."
+      }
     }
   } else {
     ""
@@ -279,7 +257,7 @@ output$hist <- renderSVG({
     if (nrow(data) == 0) {
       # Create empty plot with message
       message <- if (input$dataType == "simulation") {
-        "No simulation data available. Please check your filters and click 'Update Simulation Data'."
+        "No simulation data available. Please check your filters and ensure participants/trials are selected."
       } else {
         "No data available for the selected filters and data type"
       }
@@ -325,7 +303,7 @@ output$hist_plotly <- renderPlotly({
   # Check if we have data
   if (nrow(data) == 0) {
     message <- if (input$dataType == "simulation") {
-      "No simulation data available. Please check your filters and click 'Update Simulation Data'."
+      "No simulation data available. Please check your filters and ensure participants/trials are selected."
     } else {
       "No data available for the selected filters and data type"
     }

@@ -584,30 +584,6 @@ make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize =
 }
 
 
-#### Target plots
-
-make_target_histogram <- function(data, group, split, xinput, binwidth, position, baseSize = 10) {
-  aes <- aes_string(x = xinput)
-  a <- 1
-  fill <- "grey"
-  if (group != "None") {
-    fill <- "white"
-    aes <- modifyList(aes, aes_string(col = group))
-    if (position == "identity") {
-      a <- 1 / 2
-    }
-  }
-
-  p <- ggplot(data, aes) +
-    geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
-    theme_minimal(base_size = baseSize)
-
-  if (split != "None") {
-    p <- p + facet_grid(sym(split))
-  }
-
-  return(p)
-}
 
 circleFun <- function(center = c(0, 0), r = 1, npoints = 100) {
   tt <- seq(0, 2 * pi, length.out = npoints)
