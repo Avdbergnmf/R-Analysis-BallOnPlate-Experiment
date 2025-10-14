@@ -85,6 +85,8 @@ initialize_global_parameters <- function() {
         "11" = 5 # transfer
     )
 
+    allTaskNums <<- c(0, 1, 2, 3, 4, 5)
+
     # Define all phase names in order
     allPhases <<- c(
         "warmup", "baseline", "familiarisation_walk", "familiarisation_stand",

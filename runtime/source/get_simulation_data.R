@@ -488,47 +488,14 @@ add_velocity_towards_edge_metrics <- function(data) {
         data$approach_speed_cond <- NA_real_
         data$approach_speed_cond[data$simulating] <- approach_speed_cond[data$simulating]
 
-        # Add log(v_to_edge) column: log1p(velocity_towards_edge) to handle zeros properly
+        # Add log(v_to_edge) column: log1p(approach_pressure) to handle zeros properly
         data$log_v_to_edge <- NA_real_
-        data$log_v_to_edge[data$simulating] <- log1p(v_towards_edge[data$simulating])
+        data$log_v_to_edge[data$simulating] <- log1p(approach_pressure[data$simulating])
 
         # Add absqd column: absolute value of qd (velocity magnitude)
         data$absqd <- NA_real_
         data$absqd[data$simulating] <- abs(data$qd[data$simulating])
-
-        # Log the results
-        cat(sprintf(
-            "[RISK] Added velocity_towards_edge for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(v_towards_edge[data$simulating], na.rm = TRUE), max(v_towards_edge[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added approach_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(approach_pressure[data$simulating], na.rm = TRUE), max(approach_pressure[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added retreat_pressure for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(retreat_pressure[data$simulating], na.rm = TRUE), max(retreat_pressure[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added retreat_share for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(retreat_share[data$simulating], na.rm = TRUE), max(retreat_share[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added retreat_speed_cond for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(retreat_speed_cond[data$simulating], na.rm = TRUE), max(retreat_speed_cond[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added approach_speed_cond for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(approach_speed_cond[data$simulating], na.rm = TRUE), max(approach_speed_cond[data$simulating], na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added log_v_to_edge (log1p) for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(log1p(v_towards_edge[data$simulating]), na.rm = TRUE), max(log1p(v_towards_edge[data$simulating]), na.rm = TRUE)
-        ))
-        cat(sprintf(
-            "[RISK] Added absqd for %d on-platform samples (range: %.4f to %.4f)\n",
-            sum(data$simulating), min(abs(data$qd[data$simulating]), na.rm = TRUE), max(abs(data$qd[data$simulating]), na.rm = TRUE)
-        ))
+        
     } else {
         data$velocity_towards_edge <- NA_real_
         data$approach_pressure <- NA_real_
@@ -1160,7 +1127,15 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                 model_phase_levels <- levels(model$model$phase)
                 cat(sprintf("[RISK] Model phase levels: %s\n", paste(model_phase_levels, collapse = ", ")))
                 if (length(model_phase_levels) > 0) {
-                    pred_data$phase <- factor(pred_data$phase, levels = model_phase_levels)
+                    # Handle phases not found in model by setting them to baseline_task
+                    pred_phases <- as.character(pred_data$phase)
+                    unknown_phases <- !pred_phases %in% model_phase_levels
+                    if (any(unknown_phases)) {
+                        cat(sprintf("[RISK] Found %d samples with unknown phases, setting to 'baseline_task': %s\n", 
+                            sum(unknown_phases), paste(unique(pred_phases[unknown_phases]), collapse = ", ")))
+                        pred_phases[unknown_phases] <- "baseline_task"
+                    }
+                    pred_data$phase <- factor(pred_phases, levels = model_phase_levels)
                 } else {
                     cat("[RISK] WARNING: Model phase levels are empty, using data levels\n")
                     pred_data$phase <- factor(pred_data$phase)
@@ -1190,13 +1165,22 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                         cat(sprintf("[RISK] Training data conditions: %s\n", paste(train_conditions, collapse = ", ")))
                         cat(sprintf("[RISK] Training data phases: %s\n", paste(train_phases, collapse = ", ")))
 
+                        # Handle phases not found in training data by setting them to baseline_task
+                        pred_phases_fixed <- as.character(pred_data$phase)
+                        unknown_phases <- !pred_phases_fixed %in% train_phases
+                        if (any(unknown_phases)) {
+                            cat(sprintf("[RISK] Found %d samples with unknown phases, setting to 'baseline_task': %s\n", 
+                                sum(unknown_phases), paste(unique(pred_phases_fixed[unknown_phases]), collapse = ", ")))
+                            pred_phases_fixed[unknown_phases] <- "baseline_task"
+                        }
+                        
                         # Create new prediction data with reconstructed levels
                         pred_data_fixed <- data.frame(
                             e = pred_data$e,
                             v = pred_data$v,
                             participant = pred_data$participant,
                             condition = factor(pred_data$condition, levels = train_conditions),
-                            phase = factor(pred_data$phase, levels = train_phases)
+                            phase = factor(pred_phases_fixed, levels = train_phases)
                         )
 
                         # Try prediction with reconstructed levels

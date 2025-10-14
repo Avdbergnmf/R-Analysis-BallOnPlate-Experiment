@@ -212,10 +212,48 @@ create_plotly_hover_text <- function(data, datatype, x_value = NULL, x_label = "
   return(hover_text)
 }
 
-# Helper function to convert trial numbers (possibly character) into a factor whose levels are ordered numerically
-factor_trialnum <- function(x) {
-  numeric_vec <- as.numeric(as.character(x))
-  factor(numeric_vec, levels = sort(unique(numeric_vec)))
+# Helper function to apply proper factor ordering to variables that have defined orderings
+apply_factor_ordering <- function(data_long, columns_to_check = NULL) {
+  # Ensure global data is initialized
+  ensure_global_data_initialized()
+  
+  # Define the mapping of column names to their ordered levels
+  factor_mappings <- list(
+    "trialNum" = list(levels = allTrials, convert_to_numeric = TRUE),
+    "phase" = list(levels = allPhases, convert_to_numeric = FALSE),
+    "taskNum" = list(levels = allTaskNums, convert_to_numeric = TRUE)
+  )
+  
+  # If no specific columns to check, use all available factor mappings
+  if (is.null(columns_to_check)) {
+    columns_to_check <- names(factor_mappings)
+  }
+  
+  # Find overlapping columns between factor mappings, data column names, and columns to check
+  overlapping_cols <- intersect(intersect(names(factor_mappings), names(data_long)), columns_to_check)
+  
+  # Only loop through columns that actually exist in the data and are requested
+  for (col_name in overlapping_cols) {
+    mapping <- factor_mappings[[col_name]]
+    
+    if (mapping$convert_to_numeric) {
+      # Convert to numeric first for trials
+      x_processed <- as.numeric(as.character(data_long[[col_name]]))
+      present_levels <- unique(x_processed)
+    } else {
+      # Keep as character for phases
+      x_processed <- as.character(data_long[[col_name]])
+      present_levels <- unique(x_processed)
+    }
+    
+    # Filter to only include levels that are actually present in the data
+    ordered_present_levels <- mapping$levels[mapping$levels %in% present_levels]
+    
+    # Apply factor ordering
+    data_long[[col_name]] <- factor(x_processed, levels = ordered_present_levels)
+  }
+  
+  return(data_long)
 }
 
 
@@ -416,18 +454,13 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
     )
 
   data_long$condition <- get_pretty_condition_labels(data_long$condition)
-  # Ensure trial numbers are treated as ordered factors so 2 comes before 11
-  if ("trialNum" %in% names(data_long)) {
-    data_long$trialNum <- factor_trialnum(data_long$trialNum)
-  }
+  
+  # Apply proper factor ordering to x-axis variables that have defined orderings
+  data_long <- apply_factor_ordering(data_long, columns_to_check = xaxis)
 
   # Create a combined x-axis variable
   data_long$xaxis_combined <- apply(data_long[, xaxis], 1, paste, collapse = "_")
 
-  # If the only x-axis variable is trialNum, order the x labels numerically
-  if (length(xaxis) == 1 && xaxis == "trialNum") {
-    data_long$xaxis_combined <- factor_trialnum(data_long$xaxis_combined)
-  }
 
   # Create hover text for points
   data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long$xaxis_combined, "Category")
@@ -476,10 +509,9 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
     )
 
   data_long$condition <- get_pretty_condition_labels(data_long$condition)
-  # Ensure trial numbers are treated as ordered factors so 2 comes before 11
-  if ("trialNum" %in% names(data_long)) {
-    data_long$trialNum <- factor_trialnum(data_long$trialNum)
-  }
+  
+  # Apply proper factor ordering to x-axis variables that have defined orderings
+  data_long <- apply_factor_ordering(data_long, columns_to_check = c(xPaired, xaxis))
 
   # Create hover text for points
   data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long[[xPaired]], "X-axis")
