@@ -24,6 +24,8 @@ getTypes <- function(dt) {
 #' @param calculate_function Function to call if cache doesn't exist (must accept loop_function as first parameter)
 #' @param parallel Whether to use parallel processing (default: USE_PARALLEL global setting)
 #' @param combinations_df Optional data frame with participant and trial columns to process only specific combinations (default: NULL for all combinations)
+#' @param allow_add_missing Whether to check for and load missing combinations when loading from cache (default: FALSE, but automatically enabled when combinations_df is provided)
+#' @param threshold_parallel Threshold for using parallel processing when loading missing combinations (default: uses global THRESHOLD_PARALLEL)
 #' @param ... Additional arguments passed to calculate_function
 #' @return The loaded or calculated data
 #'
@@ -37,6 +39,12 @@ getTypes <- function(dt) {
 #'
 #' # You can still override the global setting if needed
 #' allGaitParams <- load_or_calculate("results/gait.rds", calc_all_gait_params, parallel = FALSE)
+#'
+#' # Load specific combinations and allow adding missing ones
+#' specific_combinations <- data.frame(participant = c("101", "102"), trial = c("1", "2"))
+#' data <- load_or_calculate("results/data.rds", calc_function, 
+#'                          combinations_df = specific_combinations, 
+#'                          allow_add_missing = TRUE)
 #'
 # -----------------------------------------------------------------------------
 # load_or_calculate ------------------------------------------------------------
@@ -52,7 +60,9 @@ load_or_calculate <- function(filePath,
                               force_recalc = FORCE_RECALC,
                               stop_cluster = FALSE,
                               extra_global_vars = NULL,
-                              combinations_df = NULL) {
+                              combinations_df = NULL,
+                              allow_add_missing = FALSE,
+                              threshold_parallel = NULL) {
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
     if (parallel && stop_cluster) {
         on.exit(
@@ -76,6 +86,17 @@ load_or_calculate <- function(filePath,
 
     if (!force_recalc && file.exists(filePath)) {
         data <- readRDS(filePath)
+        
+        # Check for missing combinations if combinations_df is provided (allow_add_missing is now default behavior)
+        if (!is.null(combinations_df) && nrow(data) > 0) {
+            # Use global threshold if not provided
+            if (is.null(threshold_parallel)) {
+                ensure_global_data_initialized()
+                threshold_parallel <- THRESHOLD_PARALLEL
+            }
+            data <- handle_missing_combinations(data, combinations_df, calculate_function, 
+                                               threshold_parallel, extra_global_vars, filePath)
+        }
     } else {
         # ------------------------------------------------------------------
         # Choose the appropriate loop function based on parallel setting and combinations
@@ -120,6 +141,50 @@ load_or_calculate <- function(filePath,
         saveRDS(data, filePath)
     }
     return(data)
+}
+
+#' Load or calculate data using loop system with automatic loop function handling
+#' This is a simplified version that handles the loop logic internally
+#'
+#' @param filePath Path to the cached file (usually .rds)
+#' @param data_loader Function that loads data for a single participant-trial combination
+#' @param datasets_to_verify Vector of dataset names to verify before loading
+#' @param combinations_df Optional data frame with participant and trial columns to process only specific combinations (default: NULL for all combinations)
+#' @param parallel Whether to use parallel processing (default: USE_PARALLEL global setting)
+#' @param force_recalc Whether to force recalculation even if cache exists (default: FORCE_RECALC global setting)
+#' @param stop_cluster Whether to stop the parallel cluster after this operation (default: FALSE)
+#' @param extra_global_vars Additional global variables to pass to parallel workers
+#' @param allow_add_missing Whether to check for and load missing combinations when loading from cache (default: FALSE, but automatically enabled when combinations_df is provided)
+#' @param threshold_parallel Threshold for using parallel processing when loading missing combinations (default: uses global THRESHOLD_PARALLEL)
+#' @return The loaded or calculated data
+load_or_calc_from_loop <- function(filePath, 
+                                   data_loader, 
+                                   datasets_to_verify = NULL,
+                                   combinations_df = NULL,
+                                   parallel = USE_PARALLEL,
+                                   force_recalc = FORCE_RECALC,
+                                   stop_cluster = FALSE,
+                                   extra_global_vars = NULL,
+                                   allow_add_missing = FALSE,
+                                   threshold_parallel = NULL) {
+  
+  # Create a simple calculate function that uses the provided data_loader
+  calculate_function <- function(loop_function) {
+    return(loop_function(get_data_function = data_loader, datasets_to_verify = datasets_to_verify))
+  }
+  
+  # Use the existing load_or_calculate function with our simple calculate_function
+  return(load_or_calculate(
+    filePath = filePath,
+    calculate_function = calculate_function,
+    parallel = parallel,
+    force_recalc = force_recalc,
+    stop_cluster = stop_cluster,
+    extra_global_vars = extra_global_vars,
+    combinations_df = combinations_df,
+    allow_add_missing = allow_add_missing,
+    threshold_parallel = threshold_parallel
+  ))
 }
 
 # Helper function to verify data availability for a trial
@@ -751,23 +816,127 @@ get_valid_combinations_for_processing <- function(combinations_df = NULL, datase
     }
 }
 
-#' Create a data loader function that works with the loop system
-#' This is a helper function to create data loaders that can be used
-#' with both the individual loading and batch loading systems
+#' Handle missing combinations in loaded data
+#' This is a helper function to check for missing combinations and load them
+#' if allow_add_missing is enabled
 #'
-#' @param base_function Function that loads data for a participant-trial combination
-#' @param add_metadata Whether to add participant, trial, and condition metadata (default: TRUE)
-#' @return Function that can be used with the loop system
-create_loop_compatible_loader <- function(base_function, add_metadata = TRUE) {
-  function(participant, trial) {
-    data <- base_function(participant, trial)
+#' @param data Existing loaded data
+#' @param combinations_df Requested combinations data frame
+#' @param calculate_function Function to extract data loader from
+#' @param threshold_parallel Threshold for using parallel processing (uses global THRESHOLD_PARALLEL if NULL)
+#' @param extra_global_vars Additional global variables for parallel processing
+#' @param filePath Path to save updated data
+#' @return Updated data with missing combinations loaded
+handle_missing_combinations <- function(data, combinations_df, calculate_function, 
+                                       threshold_parallel, extra_global_vars, filePath) {
+    # Use global threshold if not provided
+    if (is.null(threshold_parallel)) {
+        ensure_global_data_initialized()
+        threshold_parallel <- THRESHOLD_PARALLEL
+    }
     
-    if (add_metadata && !is.null(data) && nrow(data) > 0) {
-      data$participant <- participant
-      data$trialNum <- trial
-      data$condition <- condition_number(participant)
+    missing_logger <- create_module_logger("MISSING-CHECK")
+    missing_logger("DEBUG", "Checking for missing combinations in loaded data")
+    
+    # Get requested combinations
+    requested_combinations <- combinations_df
+    missing_logger("DEBUG", "Requested", nrow(requested_combinations), "combinations")
+    
+    # Check which combinations we have
+    existing_combinations <- unique(paste(data$participant, data$trialNum, sep = "_"))
+    missing_logger("DEBUG", "Found", length(existing_combinations), "existing combinations in loaded data")
+    
+    # Find missing combinations
+    requested_combinations$combo_id <- paste(requested_combinations$participant, requested_combinations$trial, sep = "_")
+    missing_combinations <- requested_combinations[!requested_combinations$combo_id %in% existing_combinations, ]
+    missing_combinations$combo_id <- NULL
+    
+    if (nrow(missing_combinations) > 0) {
+        missing_logger("INFO", "Found", nrow(missing_combinations), "missing combinations, loading them...")
+        
+        # Determine if we should use parallel for missing combinations
+        use_parallel_missing <- nrow(missing_combinations) >= threshold_parallel
+        missing_logger("DEBUG", "Using parallel for missing combinations:", use_parallel_missing, 
+                      "(threshold:", threshold_parallel, ", missing:", nrow(missing_combinations), ")")
+        
+        # Extract the data loader function from calculate_function
+        loader_info <- extract_data_loader_from_calculate_function(calculate_function)
+        
+        if (!is.null(loader_info)) {
+            # Load missing combinations using the extracted data loader
+            missing_data <- load_missing_combinations(
+                data_loader = loader_info$data_loader,
+                datasets_to_verify = loader_info$datasets_to_verify,
+                missing_combinations = missing_combinations,
+                use_parallel = use_parallel_missing,
+                extra_global_vars = extra_global_vars
+            )
+            
+            if (nrow(missing_data) > 0) {
+                missing_logger("INFO", "Successfully loaded", nrow(missing_data), "rows for missing combinations")
+                
+                # Combine with existing data
+                data <- rbind(data, missing_data)
+                missing_logger("INFO", "Combined data now has", nrow(data), "total rows")
+                
+                # Save the updated data
+                saveRDS(data, filePath)
+                missing_logger("DEBUG", "Saved updated data to", filePath)
+            } else {
+                missing_logger("WARN", "No data was loaded for missing combinations")
+            }
+        } else {
+            missing_logger("ERROR", "Could not extract data loader function from calculate_function")
+        }
+    } else {
+        missing_logger("DEBUG", "All requested combinations already present in loaded data")
     }
     
     return(data)
+}
+
+#' Load missing combinations using the loop system
+#' This is a helper function to load missing combinations with appropriate
+#' parallel/sequential processing based on the number of missing combinations
+#'
+#' @param data_loader Function to load data for a participant-trial combination
+#' @param datasets_to_verify Vector of dataset names to verify
+#' @param missing_combinations Data frame with participant and trial columns
+#' @param use_parallel Whether to use parallel processing
+#' @param extra_global_vars Additional global variables to export to parallel workers
+#' @return Data frame with loaded missing combinations data
+load_missing_combinations <- function(data_loader, datasets_to_verify, missing_combinations, 
+                                     use_parallel, extra_global_vars = NULL) {
+  missing_logger <- create_module_logger("LOAD-MISSING")
+  
+  missing_logger("DEBUG", "Loading", nrow(missing_combinations), "missing combinations")
+  missing_logger("DEBUG", "Using parallel:", use_parallel)
+  
+  if (use_parallel) {
+    # Use parallel processing for missing combinations
+    if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
+        is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
+      assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+    }
+    cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+    
+    missing_data <- get_data_from_loop_parallel(
+      get_data_function = data_loader,
+      datasets_to_verify = datasets_to_verify,
+      cl = cl,
+      log_to_file = FALSE, # Don't create separate log files for missing data
+      combinations_df = missing_combinations,
+      extra_global_vars = extra_global_vars
+    )
+  } else {
+    # Use sequential processing for missing combinations
+    missing_data <- get_data_from_loop(
+      get_data_function = data_loader,
+      datasets_to_verify = datasets_to_verify,
+      combinations_df = missing_combinations
+    )
   }
+  
+  missing_logger("DEBUG", "Loaded", nrow(missing_data), "rows for missing combinations")
+  return(missing_data)
 }

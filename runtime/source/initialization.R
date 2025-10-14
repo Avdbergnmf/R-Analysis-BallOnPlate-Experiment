@@ -115,6 +115,7 @@ initialize_global_parameters <- function() {
     # Parallel processing control
     USE_PARALLEL <<- TRUE # Enable/disable parallel processing for expensive operations
     ENABLE_FILE_LOGGING <<- TRUE # Enable/disable parallel process logging to files
+    THRESHOLD_PARALLEL <<- 10 # Threshold for using parallel processing when loading missing combinations
 
     # Cache control
     FORCE_RECALC <<- FALSE # Set to TRUE to ignore cached RDS files and recompute datasets
