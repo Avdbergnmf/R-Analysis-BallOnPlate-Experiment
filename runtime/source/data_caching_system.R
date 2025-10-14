@@ -89,6 +89,60 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     }
   }
   
+  # Fast cache lookup function
+  get_fast_cache <- function(participants = NULL, trials = NULL, condition_filter = NULL, downsample_factor = 1) {
+    cache_logger("DEBUG", "get_fast_cache called")
+    cache_logger("DEBUG", "participants:", if(is.null(participants)) "NULL" else paste(participants, collapse = ", "))
+    cache_logger("DEBUG", "trials:", if(is.null(trials)) "NULL" else paste(trials, collapse = ", "))
+    cache_logger("DEBUG", "condition_filter:", if(is.null(condition_filter)) "NULL" else paste(condition_filter, collapse = ", "))
+    cache_logger("DEBUG", "downsample_factor:", downsample_factor)
+    
+    # Get cached data from global cache (no duplication)
+    cached_data <- cache()
+    cache_logger("DEBUG", "global cache has", nrow(cached_data), "rows")
+    
+    if (nrow(cached_data) == 0) {
+      cache_logger("WARN", "No data in global cache - returning NULL")
+      return(NULL)
+    }
+    
+    # Apply filters if specified
+    filtered_data <- cached_data
+    
+    if (!is.null(participants) && length(participants) > 0) {
+      cache_logger("DEBUG", "Filtering by participants")
+      filtered_data <- filtered_data[filtered_data$participant %in% participants, ]
+      cache_logger("DEBUG", "After participant filter:", nrow(filtered_data), "rows")
+    }
+    
+    if (!is.null(trials) && length(trials) > 0) {
+      cache_logger("DEBUG", "Filtering by trials")
+      filtered_data <- filtered_data[filtered_data$trialNum %in% trials, ]
+      cache_logger("DEBUG", "After trial filter:", nrow(filtered_data), "rows")
+    }
+    
+    if (!is.null(condition_filter) && length(condition_filter) > 0) {
+      cache_logger("DEBUG", "Filtering by conditions")
+      filtered_data <- filtered_data[filtered_data$condition %in% condition_filter, ]
+      cache_logger("DEBUG", "After condition filter:", nrow(filtered_data), "rows")
+    }
+    
+    # Apply downsampling if requested
+    if (downsample_factor > 1 && nrow(filtered_data) > 0) {
+      cache_logger("DEBUG", "Applying downsampling with factor:", downsample_factor)
+      cache_logger("DEBUG", "Before downsampling:", nrow(filtered_data), "rows")
+      
+      # Use fast row indexing for downsampling
+      indices <- seq(1, nrow(filtered_data), by = downsample_factor)
+      filtered_data <- filtered_data[indices, , drop = FALSE]
+      
+      cache_logger("DEBUG", "After downsampling:", nrow(filtered_data), "rows")
+    }
+    
+    cache_logger("DEBUG", "get_fast_cache returning", nrow(filtered_data), "rows")
+    return(filtered_data)
+  }
+  
   # Notification management
   clear_notifications <- function() {
     if (exists(notification_var, envir = .GlobalEnv)) {
@@ -154,60 +208,7 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     clear_notifications()
   }
   
-  # Fast cache lookup function
-  get_fast_cache <- function(participants = NULL, trials = NULL, condition_filter = NULL, downsample_factor = 1) {
-    cache_logger("DEBUG", "get_fast_cache called")
-    cache_logger("DEBUG", "participants:", if(is.null(participants)) "NULL" else paste(participants, collapse = ", "))
-    cache_logger("DEBUG", "trials:", if(is.null(trials)) "NULL" else paste(trials, collapse = ", "))
-    cache_logger("DEBUG", "condition_filter:", if(is.null(condition_filter)) "NULL" else paste(condition_filter, collapse = ", "))
-    cache_logger("DEBUG", "downsample_factor:", downsample_factor)
     
-    # Get cached data from global cache (no duplication)
-    cached_data <- cache()
-    cache_logger("DEBUG", "global cache has", nrow(cached_data), "rows")
-    
-    if (nrow(cached_data) == 0) {
-      cache_logger("WARN", "No data in global cache - returning NULL")
-      return(NULL)
-    }
-    
-    # Apply filters if specified
-    filtered_data <- cached_data
-    
-    if (!is.null(participants) && length(participants) > 0) {
-      cache_logger("DEBUG", "Filtering by participants")
-      filtered_data <- filtered_data[filtered_data$participant %in% participants, ]
-      cache_logger("DEBUG", "After participant filter:", nrow(filtered_data), "rows")
-    }
-    
-    if (!is.null(trials) && length(trials) > 0) {
-      cache_logger("DEBUG", "Filtering by trials")
-      filtered_data <- filtered_data[filtered_data$trialNum %in% trials, ]
-      cache_logger("DEBUG", "After trial filter:", nrow(filtered_data), "rows")
-    }
-    
-    if (!is.null(condition_filter) && length(condition_filter) > 0) {
-      cache_logger("DEBUG", "Filtering by conditions")
-      filtered_data <- filtered_data[filtered_data$condition %in% condition_filter, ]
-      cache_logger("DEBUG", "After condition filter:", nrow(filtered_data), "rows")
-    }
-    
-    # Apply downsampling if requested
-    if (downsample_factor > 1 && nrow(filtered_data) > 0) {
-      cache_logger("DEBUG", "Applying downsampling with factor:", downsample_factor)
-      cache_logger("DEBUG", "Before downsampling:", nrow(filtered_data), "rows")
-      
-      # Use fast row indexing for downsampling
-      indices <- seq(1, nrow(filtered_data), by = downsample_factor)
-      filtered_data <- filtered_data[indices, , drop = FALSE]
-      
-      cache_logger("DEBUG", "After downsampling:", nrow(filtered_data), "rows")
-    }
-    
-    cache_logger("DEBUG", "get_fast_cache returning", nrow(filtered_data), "rows")
-    return(filtered_data)
-  }
-  
   
   # Return the manager functions
   list(

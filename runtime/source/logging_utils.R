@@ -3,7 +3,7 @@
 #' Centralized logging system for consistent debug output across all modules.
 #' Supports different log levels and message collection for parallel processing.
 #'
-#' @author Data Analysis Team
+#' @author Alex van den Berg
 #' @version 1.0
 
 # =============================================================================
