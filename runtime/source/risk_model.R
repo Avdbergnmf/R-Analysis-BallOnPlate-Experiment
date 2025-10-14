@@ -592,8 +592,19 @@ save_risk_model <- function(model, file_path, tau = NULL) {
     # Add tau as an attribute if provided
     if (!is.null(tau)) {
         attr(model, "tau") <- tau
+        cat(sprintf("[SAVE] Adding tau attribute to model: %.3f seconds\n", tau))
+    } else {
+        cat("[SAVE] WARNING: No tau provided, model will be saved without tau attribute\n")
     }
+    
+    # Verify the attribute was added
+    if (!is.null(tau)) {
+        saved_tau <- attr(model, "tau")
+        cat(sprintf("[SAVE] Verified tau attribute: %.3f seconds\n", saved_tau))
+    }
+    
     saveRDS(model, file_path)
+    cat(sprintf("[SAVE] Model saved to: %s\n", file_path))
 }
 
 #' Load risk model from RDS file
@@ -603,9 +614,101 @@ save_risk_model <- function(model, file_path, tau = NULL) {
 #' @export
 load_risk_model <- function(file_path) {
     if (file.exists(file_path)) {
-        return(readRDS(file_path))
+        model <- readRDS(file_path)
+        
+        # Check if tau attribute exists
+        tau <- attr(model, "tau")
+        if (!is.null(tau)) {
+            cat(sprintf("[LOAD] Model loaded with tau attribute: %.3f seconds\n", tau))
+        } else {
+            cat("[LOAD] WARNING: Model loaded without tau attribute\n")
+        }
+        
+        return(model)
     } else {
+        cat(sprintf("[LOAD] Model file not found: %s\n", file_path))
         return(NULL)
+    }
+}
+
+#' Set up global risk model variables
+#'
+#' This function loads the risk model, hazard samples with predictions, and analysis results into global variables.
+#' It should be called whenever a new model is trained or when initializing the system.
+#'
+#' @param model_path Path to the risk model RDS file (optional, uses global path if not provided). 
+#'   Pass FALSE to skip loading the risk model.
+#' @param hazard_samples_path Path to the hazard samples with predictions RDS file (optional, uses global path if not provided).
+#'   Pass FALSE to skip loading the hazard samples.
+#' @param analysis_results_path Path to the analysis results RDS file (optional, uses global path if not provided).
+#'   Pass FALSE to skip loading the analysis results.
+#' @export
+setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path = NULL, analysis_results_path = NULL) {
+    # Ensure global data is initialized to access paths
+    ensure_global_data_initialized()
+    
+    # Load risk model and extract tau for parallel processing (only if not explicitly skipped)
+    if (!identical(model_path, FALSE)) {
+        # Use global path if not provided or if NULL
+        if (is.null(model_path)) {
+            model_path <- risk_model_path
+        }
+        
+        if (file.exists(model_path)) {
+            GLOBAL_RISK_MODEL <<- load_risk_model(model_path)
+            GLOBAL_RISK_TAU <<- attr(GLOBAL_RISK_MODEL, "tau")
+            cat("[GLOBAL] Risk model loaded from:", model_path, "\n")
+            if (!is.null(GLOBAL_RISK_TAU)) {
+                cat("[GLOBAL] Risk model tau:", GLOBAL_RISK_TAU, "seconds\n")
+            } else {
+                cat("[GLOBAL] No tau found in risk model\n")
+            }
+        } else {
+            cat("[GLOBAL] No risk model found at:", model_path, "- use dashboard to load one\n")
+        }
+    } else {
+        cat("[GLOBAL] Skipping risk model loading (model_path = FALSE)\n")
+    }
+    
+    # Load hazard samples with predictions into global workspace (only if not explicitly skipped)
+    if (!identical(hazard_samples_path, FALSE)) {
+        # Use global path if not provided or if NULL
+        if (is.null(hazard_samples_path)) {
+            hazard_samples_path <- risk_hazard_samples_preds_path
+        }
+        
+        if (file.exists(hazard_samples_path)) {
+            GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(hazard_samples_path)
+            cat("[GLOBAL] Hazard samples with predictions loaded from:", hazard_samples_path, "\n")
+            cat("[GLOBAL] Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows\n")
+        } else {
+            cat("[GLOBAL] No hazard samples with predictions found at:", hazard_samples_path, "\n")
+        }
+    } else {
+        cat("[GLOBAL] Skipping hazard samples loading (hazard_samples_path = FALSE)\n")
+    }
+    
+    # Load analysis results into global workspace (only if not explicitly skipped)
+    if (!identical(analysis_results_path, FALSE)) {
+        # Use global path if not provided or if NULL
+        if (is.null(analysis_results_path)) {
+            analysis_results_path <- risk_analysis_results_path
+        }
+        
+        if (file.exists(analysis_results_path)) {
+            GLOBAL_HAZARD_ANALYSIS_RESULTS <<- readRDS(analysis_results_path)
+            cat("[GLOBAL] Analysis results loaded from:", analysis_results_path, "\n")
+            if (!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS)) {
+                cat("[GLOBAL] Loaded analysis results with", 
+                    ifelse(!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 
+                           nrow(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 0), 
+                    "standardized risk combinations\n")
+            }
+        } else {
+            cat("[GLOBAL] No analysis results found at:", analysis_results_path, "\n")
+        }
+    } else {
+        cat("[GLOBAL] Skipping analysis results loading (analysis_results_path = FALSE)\n")
     }
 }
 
@@ -744,18 +847,17 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             out_path = risk_hazard_samples_preds_path
         )
 
-        # (Optionally) also add subject-specific predictions in a separate file
-        # annotate_hazard_predictions(model, all_hazard_samples, include_re = TRUE,
-        #                             out_path = risk_hazard_samples_preds_re_path)
 
+        # Set up global variables with the newly trained model
+        cat("Step 5/6: Setting up global risk variables...\n")
+        setup_global_risk_variables(analysis_results_path = FALSE)
 
         # Abandoned this as things were getting too complicated
         # ── NEW: pooled standardized predictions by Condition × Phase ──
-        cat("Step 5/5: Computing pooled standardized risks by Condition × Phase...\n")
+        cat("Step 6/6: Computing pooled standardized risks by Condition × Phase...\n")
         std_means <- compute_pooled_standardized_risks(
             model,
-            all_hazard_samples,
-            save_csv_path = risk_standardized_path
+            all_hazard_samples
         )
 
         # Return both model and standardized means
@@ -816,19 +918,28 @@ score_all_trials_with_saved_model <- function(participants, trials,
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-sample prediction annotation for saved hazard samples
 # ─────────────────────────────────────────────────────────────────────────────
+
+#' Annotate hazard samples with model predictions
+#'
+#' @param model Fitted model from train_risk_model()
+#' @param hazard_samples Data frame from build_hazard_samples()
+#' @param include_re Whether to include random effects (subject-specific predictions)
+#' @param out_path Path to save the annotated hazard samples (NULL = use global path, FALSE = don't save)
+#' @param chunk_by Column names to chunk by for processing large datasets
+#' @return Annotated hazard samples data frame
+#' @export
 annotate_hazard_predictions <- function(model,
                                         hazard_samples,
                                         include_re = FALSE,
                                         out_path = NULL,
                                         chunk_by = c("participant")) {
-    # Use global path if not specified
+    # Use global path if not specified, skip saving if FALSE
     if (is.null(out_path)) {
         ensure_global_data_initialized()
-        if (include_re) {
-            out_path <- risk_hazard_samples_preds_re_path
-        } else {
-            out_path <- risk_hazard_samples_preds_path
-        }
+        out_path <- risk_hazard_samples_preds_path
+    } else if (identical(out_path, FALSE)) {
+        # Skip saving if explicitly set to FALSE
+        out_path <- NULL
     }
 
     cat(sprintf(
@@ -928,16 +1039,29 @@ annotate_hazard_predictions <- function(model,
     }
     hazard_samples[[eta_colname]] <- eta_hat
 
-    # Save and return
-    saveRDS(hazard_samples, out_path)
-    message(sprintf("[PREDICT] Saved hazard samples with predictions to: %s", out_path))
+    # Save and return (only if out_path is not NULL)
+    if (!is.null(out_path)) {
+        saveRDS(hazard_samples, out_path)
+        setup_global_risk_variables(hazard_samples_path = out_path, model_path = FALSE, analysis_results_path = FALSE)
+        message(sprintf("[PREDICT] Saved hazard samples with predictions to: %s", out_path))
+    } else {
+        message("[PREDICT] Skipped saving hazard samples (out_path = FALSE)")
+    }
     invisible(hazard_samples)
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Pooled, state-conditional standardized mean risks by Condition × Phase
 # ─────────────────────────────────────────────────────────────────────────────
-compute_pooled_standardized_risks <- function(model, hazard_samples, save_csv_path = NULL) {
+
+#' Compute pooled standardized risks by Condition × Phase
+#'
+#' @param model Fitted model from train_risk_model()
+#' @param hazard_samples Data frame from build_hazard_samples()
+#' @param analysis_results_path Path to save analysis results (NULL = use default path, FALSE = skip saving)
+#' @return List containing standardized_risks and analysis_results
+#' @export
+compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_results_path = NULL) {
     cat("[DEBUG] compute_pooled_standardized_risks called\n")
 
     # sanity
@@ -948,9 +1072,18 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, save_csv_pa
     # Get tau from model attributes (CRITICAL for rate calculations)
     tau <- attr(model, "tau")
     if (is.null(tau) || tau <= 0) {
-        stop("Model missing valid tau attribute. Expected tau > 0 for rate calculations.")
+        # Try to get tau from global variable as fallback
+        if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
+            tau <- GLOBAL_RISK_TAU
+            cat(sprintf("[STANDARDIZED] Model missing tau attribute, using global tau = %.3f seconds\n", tau))
+        } else {
+            # Use default tau as last resort
+            tau <- 0.2
+            cat(sprintf("[STANDARDIZED] Model missing tau attribute and no global tau found, using default tau = %.3f seconds\n", tau))
+        }
+    } else {
+        cat(sprintf("[STANDARDIZED] Using model tau = %.3f seconds for rate calculations\n", tau))
     }
-    cat(sprintf("[STANDARDIZED] Using model tau = %.3f seconds for rate calculations\n", tau))
 
     # factor levels to match the model
     hazard_samples$participant <- factor(hazard_samples$participant)
@@ -1184,19 +1317,13 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, save_csv_pa
         }
     }
 
-    if (!is.null(save_csv_path)) {
-        utils::write.csv(out, save_csv_path, row.names = FALSE)
-        message(sprintf("[STANDARDIZED] Saved pooled standardized risks to: %s", save_csv_path))
-    }
-
     # Perform comprehensive statistical analysis
-    analysis_results <- perform_risk_analysis(model, hazard_samples, out, save_csv_path)
+    analysis_results <- perform_risk_analysis(model, hazard_samples, out, analysis_results_path)
 
-    # console summary (only when not called from UI)
-    if (is.null(save_csv_path)) {
-        cat("[STANDARDIZED] Pooled standardized risks computed:\n")
-        print(out)
-    }
+    # Always print standardized risks to console
+    cat("[STANDARDIZED] Pooled standardized risks computed:\n")
+    print(out)
+
 
     return(list(
         standardized_risks = out,
@@ -1208,7 +1335,16 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, save_csv_pa
 # ─────────────────────────────────────────────────────────────────────────────
 # Comprehensive Risk Analysis: Statistical Tests, DiD, Bootstrap CIs
 # ─────────────────────────────────────────────────────────────────────────────
-perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_path = NULL) {
+
+#' Perform comprehensive risk analysis with statistical tests
+#'
+#' @param model Fitted model from train_risk_model()
+#' @param hazard_samples Data frame from build_hazard_samples()
+#' @param std_means Standardized means data frame
+#' @param analysis_results_path Path to save analysis results (NULL = use default path, FALSE = skip saving)
+#' @return Analysis results list
+#' @export
+perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_results_path = NULL) {
     cat("[ANALYSIS] Performing comprehensive risk analysis...\n")
 
     # 0) Sanity: std_means must be non-empty
@@ -1713,10 +1849,37 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
         plot = p
     )
 
-    if (!is.null(save_csv_path)) {
-        txt_path <- gsub("\\.csv$", "_analysis.txt", save_csv_path)
-        save_analysis_to_txt(results, txt_path)
+    # Determine final path for saving
+    final_path <- analysis_results_path
+    if (is.null(final_path)) {
+        # NULL -> use default path
+        ensure_global_data_initialized()
+        final_path <- risk_analysis_results_path
+    } else if (identical(final_path, FALSE)) {
+        # FALSE -> set to NULL (skip saving)
+        final_path <- NULL
     }
+    
+    # Save files only if we have a valid path
+    if (!is.null(final_path)) {
+        # Save analysis to text file using the same path but with .txt extension
+        txt_path <- gsub("\\.rds$", ".txt", final_path)
+        save_analysis_to_txt(results, std_means, txt_path)
+        
+        # Save analysis results to RDS file
+        analysis_results_to_save <- list(
+            standardized_risks = std_means,
+            analysis_results = results
+        )
+        saveRDS(analysis_results_to_save, final_path)
+        cat("[ANALYSIS] Analysis results saved to:", final_path, "\n")
+        
+        # Set up global variables with the analysis results
+        setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE, analysis_results_path = final_path)
+    } else {
+        cat("[ANALYSIS] Skipped saving analysis results (analysis_results_path = FALSE)\n")
+    }
+    
     print_analysis_summary(results)
 
     cat("[ANALYSIS] Analysis complete!\n")
@@ -1725,7 +1888,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, save_csv_pat
 
 
 # Helper function to save analysis to text file
-save_analysis_to_txt <- function(results, txt_path) {
+#' @param results Analysis results from perform_risk_analysis
+#' @param std_means Standardized means data frame
+#' @param txt_path Path to save the text file
+save_analysis_to_txt <- function(results, std_means, txt_path) {
     # Check if file already exists and create unique filename if needed
     if (file.exists(txt_path)) {
         # Extract directory, base name, and extension
@@ -1745,6 +1911,11 @@ save_analysis_to_txt <- function(results, txt_path) {
 
     # Executive summary at the very top
     render_exec_summary(results, stdout())
+
+    cat("=== POOLED STANDARDIZED RISKS ===\n\n")
+    cat("Standardized risk estimates by condition and phase:\n")
+    print(std_means)
+    cat("\n")
 
     cat("=== RISK MODEL STATISTICAL ANALYSIS ===\n\n")
 

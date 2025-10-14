@@ -194,11 +194,13 @@ initialize_global_parameters <- function() {
     risk_standardized_file <<- "risk_standardized_means.csv"
     risk_standardized_path <<- file.path(dataExtraFolder, risk_standardized_file)
 
-    # Risk model hazard samples with predictions file paths
+    # Risk model hazard samples with predictions file path
     risk_hazard_samples_preds_file <<- "hazard_samples_with_preds.rds"
     risk_hazard_samples_preds_path <<- file.path(dataExtraFolder, risk_hazard_samples_preds_file)
-    risk_hazard_samples_preds_re_file <<- "hazard_samples_with_preds_re.rds"
-    risk_hazard_samples_preds_re_path <<- file.path(dataExtraFolder, risk_hazard_samples_preds_re_file)
+
+    # Risk model analysis results file path
+    risk_analysis_results_file <<- "risk_analysis_results.rds"
+    risk_analysis_results_path <<- file.path(dataExtraFolder, risk_analysis_results_file)
 
     # -----------------------------------------------------------------------------
     # LEVEL → ARC-DEG LOOKUP (used to correct mis-recorded 'deg' in level tracker)

@@ -57,6 +57,9 @@ selectizeInput("hazard_samples_file", "Hazard Samples File",
 actionButton("load_hazard_samples", "Load Hazard Samples & Apply Model",
   class = "btn-info", style = "margin-top: 5px;"
 )
+actionButton("perform_risk_analysis", "Perform Risk Analysis",
+  class = "btn-success", style = "margin-top: 5px; margin-left: 10px;"
+)
 
 textOutput("risk_model_status")
 ```
@@ -393,38 +396,75 @@ observeEvent(input$load_hazard_samples, {
         out_path = risk_hazard_samples_preds_path
       )
 
+      # Set up global variables with the loaded model and hazard samples
+      setup_global_risk_variables(model_path = model_path, hazard_samples_path = hazard_samples_path, analysis_results_path = FALSE)
+
+      # Show success popup
+      n_participants <- length(unique(hazard_samples$participant))
+      n_samples <- nrow(hazard_samples)
+
+      showModal(modalDialog(
+        title = "✓ Hazard Samples Loaded & Model Applied Successfully!",
+        paste0(
+          "Loaded ", n_samples, " hazard samples from ",
+          n_participants, " participants\n\n",
+          "Model applied and predictions computed.\n",
+          "Hazard samples with predictions saved to disk.\n\n",
+          "Click 'Perform Risk Analysis' to compute standardized risks and statistical analysis."
+        ),
+        easyClose = TRUE,
+        size = "m",
+        footer = modalButton("Close")
+      ))
+
+      # Clear the status text
+      output$risk_model_status <- renderText("")
+    },
+    error = function(e) {
+      output$risk_model_status <- renderText(paste("Error applying model to hazard samples:", e$message))
+    }
+  )
+})
+
+# Perform Risk Analysis button handler
+observeEvent(input$perform_risk_analysis, {
+  # Check if we have the required data
+  if (is.null(GLOBAL_RISK_MODEL) || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+    output$risk_model_status <- renderText("Please load hazard samples and apply model first")
+    return()
+  }
+
+  tryCatch(
+    {
+      # Get the stored data
+      hazard_samples <- GLOBAL_HAZARD_SAMPLES_PREDS
+      model <- GLOBAL_RISK_MODEL
+
+      # Perform the risk analysis
+      output$risk_model_status <- renderText("Computing pooled standardized risks...")
+
       # Use the compute_pooled_standardized_risks function
       results <- compute_pooled_standardized_risks(
         model = model,
-        hazard_samples = hazard_samples,
-        save_csv_path = risk_standardized_path # Save to the same CSV as training
+        hazard_samples = hazard_samples
       )
 
-      # Store results globally for potential use
-      GLOBAL_HAZARD_PREDICTIONS <<- list(
-        hazard_samples = hazard_samples,
-        standardized_risks = results$standardized_risks,
-        analysis_results = results$analysis_results,
-        model = model
-      )
+      # Set up global variables (skip model and hazard samples, only load analysis results)
+      setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE)
 
       # Show success popup with plot
       n_combinations <- nrow(results$standardized_risks)
       n_participants <- length(unique(hazard_samples$participant))
       n_samples <- nrow(hazard_samples)
 
-      # Always computed fresh predictions
-      prediction_method <- "Computed fresh predictions and saved annotated version"
-
       # Create popup message with plot
       showModal(modalDialog(
-        title = "✓ Pooled Standardized Risks Computed Successfully!",
+        title = "✓ Risk Analysis Completed Successfully!",
         paste0(
           "Results: ", n_combinations, " condition × phase combinations from ",
           n_samples, " samples (", n_participants, " participants)\n\n",
-          "Method: ", prediction_method, "\n\n",
-          "Detailed results printed to console and saved to files.\n",
-          "Analysis results stored in GLOBAL_HAZARD_PREDICTIONS"
+          "Statistical analysis completed and results saved to files.\n",
+          "Analysis results stored in GLOBAL_HAZARD_ANALYSIS_RESULTS"
         ),
         plotOutput("risk_analysis_plot", height = "400px"),
         easyClose = TRUE,
@@ -441,7 +481,7 @@ observeEvent(input$load_hazard_samples, {
       output$risk_model_status <- renderText("")
     },
     error = function(e) {
-      output$risk_model_status <- renderText(paste("Error applying model to hazard samples:", e$message))
+      output$risk_model_status <- renderText(paste("Error performing risk analysis:", e$message))
     }
   )
 })
