@@ -170,7 +170,7 @@ load_or_calc_from_loop <- function(filePath,
   
   # Create a simple calculate function that uses the provided data_loader
   calculate_function <- function(loop_function) {
-    return(loop_function(get_data_function = data_loader, datasets_to_verify = datasets_to_verify))
+    return(loop_function(data_loader, datasets_to_verify = datasets_to_verify))
   }
   
   # Use the existing load_or_calculate function with our simple calculate_function

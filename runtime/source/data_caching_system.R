@@ -421,8 +421,8 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   # Step 4: Load data using the loop system - missing combinations logic is handled automatically
   cache_logger("DEBUG", "Step 4: Loading data using loop system with automatic missing combinations handling")
   
-  # Get the individual data loader
-  data_loader <- data_loaders[[data_type]]
+  # Get the individual data loader using the helper function
+  data_loader <- get_data_loader(data_type)
   if (is.null(data_loader)) {
     cache_logger("ERROR", "No data loader defined for type:", data_type)
     stop(sprintf("No data loader defined for type: %s", data_type))
