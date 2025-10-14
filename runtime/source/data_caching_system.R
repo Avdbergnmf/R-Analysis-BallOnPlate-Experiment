@@ -163,7 +163,7 @@ create_shiny_cache_manager <- function(cache_name, parallel = FALSE) {
     cache_logger("DEBUG", "downsample_factor:", downsample_factor)
     
     # Get cached data from global cache (no duplication)
-    cached_data <- get_current_cache(cache_name)
+    cached_data <- cache()
     cache_logger("DEBUG", "global cache has", nrow(cached_data), "rows")
     
     if (nrow(cached_data) == 0) {

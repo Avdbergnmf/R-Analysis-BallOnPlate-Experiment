@@ -22,6 +22,51 @@ LOG_LEVEL_PRIORITIES <- list(
   "ERROR" = 4
 )
 
+# Module-specific log level overrides
+# Set specific log levels for individual modules (overrides global level)
+MODULE_LOG_LEVELS <- list(
+  # "ANALYSIS" = "INFO",
+  # "CACHE" = "DEBUG",
+  # "CACHE-POWER_SPECTRUM" = "DEBUG",
+  # "CACHE-RAW_TRACKER" = "DEBUG",
+  # "CACHE-SIMULATION" = "DEBUG",
+  # "CALC-DATA" = "DEBUG",
+  # "CLUSTER" = "DEBUG",
+  # "COMBINATIONS" = "DEBUG",
+  # "COMPLEXITY" = "DEBUG",
+  # "GLOBAL" = "DEBUG",
+  # "HAZARD" = "DEBUG",
+  # "LOAD" = "DEBUG",
+  # "LOAD-MISSING" = "DEBUG",
+  # "LOAD-OR-CALC" = "DEBUG",
+  # "LOAD-OR-CALC-FROM-LOOP" = "DEBUG",
+  # "LOOP" = "DEBUG",
+  # "LOOP-FUNCTION-PARALLEL" = "DEBUG",
+  # "LOOP-FUNCTION-SEQUENTIAL" = "DEBUG",
+  # "MISSING-CHECK" = "DEBUG",
+  # "PAGE5-HISTOGRAMS" = "DEBUG",
+  # "PARALLEL" = "DEBUG",
+  # "PREDICT" = "DEBUG",
+  # "RAW-TRACKER-DATASETS" = "DEBUG",
+  # "RAW-TRACKER-LOADER" = "DEBUG",
+  # "RISK-MODEL" = "DEBUG",
+  # "SAVE" = "DEBUG",
+  # "SCORE" = "DEBUG",
+  # "SHINY-CACHE-POWER_SPECTRUM" = "DEBUG",
+  # "SHINY-CACHE-RAW_TRACKER" = "DEBUG",
+  # "SHINY-CACHE-SIMULATION" = "DEBUG",
+  # "SIMULATION-DATA" = "DEBUG",
+  # "STANDARDIZED" = "DEBUG",
+  # "SUMMARIZE-GAITPARAMS" = "DEBUG",
+  # "TEST" = "DEBUG",
+  # "TRAIN" = "DEBUG",
+  # "UNIVERSAL-FILTER" = "WARN",
+  # "VERIFICATION" = "DEBUG"
+  
+  # Active overrides (uncomment to enable):
+  "UNIVERSAL-FILTER" = "WARN"
+)
+
 # =============================================================================
 # LOGGING FUNCTIONS
 # =============================================================================
@@ -44,13 +89,19 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
       level_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]]  # default to DEBUG
     }
     
-    global_priority <- LOG_LEVEL_PRIORITIES[[GLOBAL_LOG_LEVEL]]
-    if (is.null(global_priority)) {
-      global_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]]  # default to DEBUG
+    # Determine the effective log level (module-specific override or global)
+    effective_log_level <- GLOBAL_LOG_LEVEL
+    if (!is.null(module_name) && module_name %in% names(MODULE_LOG_LEVELS)) {
+      effective_log_level <- MODULE_LOG_LEVELS[[module_name]]
     }
     
-    # Only log if current level is >= global level (higher or equal priority)
-    if (level_priority < global_priority) {
+    effective_priority <- LOG_LEVEL_PRIORITIES[[effective_log_level]]
+    if (is.null(effective_priority)) {
+      effective_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]]  # default to DEBUG
+    }
+    
+    # Only log if current level is >= effective level (higher or equal priority)
+    if (level_priority < effective_priority) {
       return(invisible(NULL))
     }
     
@@ -99,23 +150,6 @@ create_module_logger <- function(module_name, enabled = TRUE, messages = NULL) {
 }
 
 # =============================================================================
-# CONVENIENCE LOGGERS
-# =============================================================================
-
-# Note: Specific logger functions have been removed. Use create_module_logger() directly:
-# 
-# For cache logging:
-#   cache_logger <- create_module_logger("CACHE-SIMULATION")
-#   cache_logger <- create_module_logger("CACHE-POWER-SPECTRUM")
-#
-# For data loading:
-#   load_logger <- create_module_logger("LOAD-SIMULATION")
-#   load_logger <- create_module_logger("LOAD-POWER-SPECTRUM")
-#
-# For complexity analysis:
-#   complexity_logger <- create_module_logger("COMPLEXITY")
-
-# =============================================================================
 # LOGGING CONFIGURATION FUNCTIONS
 # =============================================================================
 
@@ -149,7 +183,8 @@ get_logging_config <- function() {
     enabled = GLOBAL_LOGGING_ENABLED,
     level = GLOBAL_LOG_LEVEL,
     level_priority = LOG_LEVEL_PRIORITIES[[GLOBAL_LOG_LEVEL]],
-    available_levels = names(LOG_LEVEL_PRIORITIES)
+    available_levels = names(LOG_LEVEL_PRIORITIES),
+    module_overrides = MODULE_LOG_LEVELS
   )
 }
 
@@ -174,6 +209,52 @@ show_log_levels <- function() {
   return(levels_df)
 }
 
+#' Set module-specific log level
+#' @param module_name Name of the module
+#' @param level Log level ("DEBUG", "INFO", "WARN", "ERROR")
+set_module_log_level <- function(module_name, level = "DEBUG") {
+  valid_levels <- names(LOG_LEVEL_PRIORITIES)
+  if (!level %in% valid_levels) {
+    warning("Invalid log level. Valid levels are: ", paste(valid_levels, collapse = ", "), ". Using DEBUG.")
+    level <- "DEBUG"
+  }
+  MODULE_LOG_LEVELS[[module_name]] <<- level
+  cat(sprintf("[LOGGING] Module '%s' log level set to: %s (priority: %d)\n", 
+              module_name, level, LOG_LEVEL_PRIORITIES[[level]]))
+}
+
+#' Remove module-specific log level override
+#' @param module_name Name of the module
+remove_module_log_level <- function(module_name) {
+  if (module_name %in% names(MODULE_LOG_LEVELS)) {
+    MODULE_LOG_LEVELS[[module_name]] <<- NULL
+    cat(sprintf("[LOGGING] Module '%s' log level override removed (will use global level: %s)\n", 
+                module_name, GLOBAL_LOG_LEVEL))
+  } else {
+    cat(sprintf("[LOGGING] Module '%s' had no log level override\n", module_name))
+  }
+}
+
+#' Show module-specific log level overrides
+#' @return Data frame with module overrides
+show_module_log_levels <- function() {
+  if (length(MODULE_LOG_LEVELS) == 0) {
+    cat("[LOGGING] No module-specific log level overrides set\n")
+    return(data.frame())
+  }
+  
+  modules_df <- data.frame(
+    Module = names(MODULE_LOG_LEVELS),
+    Level = unlist(MODULE_LOG_LEVELS),
+    Priority = sapply(MODULE_LOG_LEVELS, function(x) LOG_LEVEL_PRIORITIES[[x]]),
+    stringsAsFactors = FALSE
+  )
+  
+  cat("[LOGGING] Module-specific log level overrides:\n")
+  print(modules_df)
+  return(modules_df)
+}
+
 #' Test logging levels by outputting a message at each level
 test_logging_levels <- function() {
   test_logger <- create_module_logger("TEST")
@@ -188,6 +269,29 @@ test_logging_levels <- function() {
   
   cat("==========================================\n")
   cat("Only messages at or above the current level (", GLOBAL_LOG_LEVEL, ") should be visible above.\n")
+}
+
+#' Test module-specific logging levels
+#' @param module_name Name of the module to test
+test_module_logging <- function(module_name) {
+  test_logger <- create_module_logger(module_name)
+  
+  # Get effective log level for this module
+  effective_level <- GLOBAL_LOG_LEVEL
+  if (module_name %in% names(MODULE_LOG_LEVELS)) {
+    effective_level <- MODULE_LOG_LEVELS[[module_name]]
+  }
+  
+  cat(sprintf("Testing module '%s' logging (effective level: %s):\n", module_name, effective_level))
+  cat("==========================================\n")
+  
+  test_logger("DEBUG", "This is a DEBUG message")
+  test_logger("INFO", "This is an INFO message")
+  test_logger("WARN", "This is a WARN message")
+  test_logger("ERROR", "This is an ERROR message")
+  
+  cat("==========================================\n")
+  cat(sprintf("Only messages at or above the effective level (%s) should be visible above.\n", effective_level))
 }
 
 
