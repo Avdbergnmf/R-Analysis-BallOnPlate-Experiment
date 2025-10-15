@@ -931,10 +931,10 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
 score_trial_with_cached_predictions <- function(sim_data, tau = 0.2) {
     sim_logger <- create_module_logger("SIM")
 
-    # Get risk model from context variables
+    # Get risk model from global context
     risk_model <- NULL
-    if (exists("model.risk", envir = environment())) {
-        model_ref <- get("model.risk", envir = environment())
+    if (exists("context") && !is.null(context$risk)) {
+        model_ref <- context$risk
         if (is.list(model_ref) && model_ref$type == "model_reference") {
             tryCatch(
                 {
@@ -950,10 +950,10 @@ score_trial_with_cached_predictions <- function(sim_data, tau = 0.2) {
         }
     }
 
-    # Get hazard predictions from context variables
+    # Get hazard predictions from global context
     hazard_preds <- NULL
-    if (exists("cache.hazard_preds", envir = environment())) {
-        hazard_preds <- get("cache.hazard_preds", envir = environment())
+    if (exists("context") && !is.null(context$hazard_preds)) {
+        hazard_preds <- context$hazard_preds
         sim_logger("DEBUG", "Using cached hazard predictions with", nrow(hazard_preds), "rows")
     }
 

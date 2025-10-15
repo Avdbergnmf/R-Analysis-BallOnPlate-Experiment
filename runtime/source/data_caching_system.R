@@ -605,37 +605,24 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   context_vars <- capture_context_vars(data_type)
   if (length(context_vars) > 0) {
     cache_logger("DEBUG", "Creating data loader wrapper with context variables:", paste(names(context_vars), collapse = ", "))
-    original_loader <- data_loader
-    data_loader <- function(participant, trial) {
-      # Set up context variables in the function environment
-      # First try to get from local context_vars, then from global context_vars (for parallel workers)
-      local_context_vars <- context_vars
-      if (exists("context_vars", envir = .GlobalEnv)) {
-        global_context_vars <- get("context_vars", envir = .GlobalEnv)
-        # Merge global context variables with local ones (global takes precedence)
-        for (name in names(global_context_vars)) {
-          local_context_vars[[name]] <- global_context_vars[[name]]
-        }
-      }
 
-      # Set up input environment for shiny inputs
-      if (!exists("input", envir = .GlobalEnv)) {
-        assign("input", list(), envir = .GlobalEnv)
-      }
+    # Set up global context environment for all context variables
+    if (!exists("context", envir = .GlobalEnv)) {
+      assign("context", list(), envir = .GlobalEnv)
+    }
 
-      for (name in names(local_context_vars)) {
-        if (startsWith(name, "input.")) {
-          # Set up shiny input
-          input_name <- substring(name, 7) # Remove "input." prefix
-          .GlobalEnv$input[[input_name]] <- local_context_vars[[name]]
-        } else {
-          # Set up other context variables in function environment
-          assign(name, local_context_vars[[name]], envir = environment())
-        }
+    # Set up context variables in global environment
+    for (name in names(context_vars)) {
+      if (startsWith(name, "input.")) {
+        input_name <- substring(name, 7) # Remove "input." prefix
+        .GlobalEnv$context[[input_name]] <- context_vars[[name]]
+      } else if (startsWith(name, "cache.")) {
+        cache_name <- substring(name, 7) # Remove "cache." prefix
+        .GlobalEnv$context[[cache_name]] <- context_vars[[name]]
+      } else if (startsWith(name, "model.")) {
+        model_name <- substring(name, 7) # Remove "model." prefix
+        .GlobalEnv$context[[model_name]] <- context_vars[[name]]
       }
-      # Call the original loader
-      result <- original_loader(participant, trial)
-      return(result)
     }
   }
 
@@ -646,16 +633,7 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   if (length(context_vars) > 0) {
     input_vars <- context_vars[startsWith(names(context_vars), "input.")]
     if (length(input_vars) > 0) {
-      # Temporarily set up input environment for datasets_to_verify function
-      if (!exists("input", envir = .GlobalEnv)) {
-        assign("input", list(), envir = .GlobalEnv)
-      }
-      # Set the input values
-      for (name in names(input_vars)) {
-        input_name <- substring(name, 7) # Remove "input." prefix
-        .GlobalEnv$input[[input_name]] <- input_vars[[name]]
-      }
-      # Re-get datasets_to_verify with input context
+      # Re-get datasets_to_verify with input context (input environment already set up above)
       datasets_to_verify <- get_datasets_to_verify(data_type)
     }
   }
@@ -687,17 +665,17 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     extra_global_vars = extra_global_vars
   )
 
-  cache_logger("DEBUG", "Loaded", nrow(new_data), "rows from loop system")
+  cache_logger("DEBUG", "Loaded", nrow(data), "rows from loop system")
 
   # Combine with existing data
-  if (nrow(new_data) > 0) {
-    cache_logger("DEBUG", "Combined new data:", nrow(new_data), "rows")
+  if (nrow(data) > 0) {
+    cache_logger("DEBUG", "Combined new data:", nrow(data), "rows")
 
     if (nrow(current_cache) == 0) {
-      current_cache <- new_data
+      current_cache <- data
       cache_logger("DEBUG", "Using new data as cache (was empty)")
     } else {
-      current_cache <- rbind(current_cache, new_data)
+      current_cache <- rbind(current_cache, data)
       cache_logger("DEBUG", "Combined with existing cache")
     }
 

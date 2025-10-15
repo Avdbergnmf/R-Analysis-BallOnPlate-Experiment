@@ -149,16 +149,45 @@ load_or_calculate <- function(filePath,
         # Check for missing combinations if needed
         if (!is.null(combinations_df) && nrow(data) > 0) {
             logger("DEBUG", "Checking for missing combinations...")
-            data <- handle_missing_combinations(
-                data, combinations_df, data_loader, datasets_to_verify,
-                threshold_parallel, extra_global_vars, filePath
-            )
+
+            # First, validate which combinations are actually valid for the current datasets_to_verify
+            if (!is.null(datasets_to_verify)) {
+                logger("DEBUG", "Validating combinations against datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+                valid_combinations <- get_valid_combinations_for_processing(combinations_df, datasets_to_verify, logger)
+                logger("DEBUG", "Valid combinations:", nrow(valid_combinations), "out of", nrow(combinations_df), "requested")
+
+                # Only process valid combinations for missing data
+                if (nrow(valid_combinations) > 0) {
+                    original_rows <- nrow(data)
+                    data <- handle_missing_combinations(
+                        data, valid_combinations, data_loader, NULL,
+                        threshold_parallel, extra_global_vars, filePath
+                    )
+                    logger("DEBUG", "Missing combinations handling completed. Original rows:", original_rows, "Final rows:", nrow(data))
+                } else {
+                    logger("WARN", "No valid combinations found for datasets_to_verify, skipping missing combinations check")
+                }
+            } else {
+                # No datasets_to_verify, proceed with all combinations
+                original_rows <- nrow(data)
+                data <- handle_missing_combinations(
+                    data, combinations_df, data_loader, datasets_to_verify,
+                    threshold_parallel, extra_global_vars, filePath
+                )
+                logger("DEBUG", "Missing combinations handling completed. Original rows:", original_rows, "Final rows:", nrow(data))
+            }
             logger("DEBUG", "After handling missing combinations:", nrow(data), "rows")
         }
     }
 
     logger("INFO", "=== load_or_calculate completed ===")
     logger("INFO", "Final result:", nrow(data), "rows")
+
+    # Safety check: ensure we don't return empty data if we had cached data
+    if (nrow(data) == 0 && file.exists(filePath)) {
+        logger("WARN", "Final result is empty but cache file exists. This might indicate an issue with missing combinations handling.")
+    }
+
     return(data)
 }
 
@@ -1194,10 +1223,96 @@ get_valid_combinations <- function(datasets_to_verify) {
 #' @return Data frame with valid participant-trial combinations
 get_valid_combinations_for_processing <- function(combinations_df = NULL, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), logger = NULL) {
     if (!is.null(combinations_df)) {
+        # Ensure datasets_to_verify is a character vector
+        datasets_to_verify <- as.character(datasets_to_verify)
+
         if (!is.null(logger)) {
-            logger("INFO", sprintf("Using %d specific combinations", nrow(combinations_df)))
+            logger("INFO", "Validating", as.numeric(nrow(combinations_df)), "specific combinations against datasets:", paste(datasets_to_verify, collapse = ", "))
         }
-        return(combinations_df)
+
+        # Truly vectorized validation - process all combinations at once
+        n_combinations <- as.numeric(nrow(combinations_df))
+        participants <- combinations_df$participant
+        trials <- combinations_df$trial
+
+        # Vectorized verification - check all combinations at once
+        verification_results <- mapply(
+            function(p, t) verify_trial_data(p, t, datasets_to_verify),
+            participants, trials,
+            SIMPLIFY = FALSE
+        )
+
+        # Vectorized validation - check all results at once
+        valid_mask <- sapply(verification_results, function(result) {
+            all(sapply(datasets_to_verify, function(dataset) {
+                if (is.null(result[[dataset]])) {
+                    return(FALSE)
+                }
+                result[[dataset]]$exists && result[[dataset]]$has_data
+            }))
+        })
+
+        # Vectorized collection of missing details for debugging
+        missing_details <- character(0)
+        if (!is.null(logger) && any(!valid_mask)) {
+            invalid_indices <- which(!valid_mask)
+            if (length(invalid_indices) > 0) {
+                # Vectorized processing of invalid combinations
+                missing_details <- unlist(mapply(
+                    function(i) {
+                        participant <- participants[i]
+                        trial <- trials[i]
+                        result <- verification_results[[i]]
+
+                        # Check each dataset
+                        missing_datasets <- datasets_to_verify[sapply(datasets_to_verify, function(dataset) {
+                            is.null(result[[dataset]]) || !result[[dataset]]$exists
+                        })]
+
+                        invalid_datasets <- datasets_to_verify[sapply(datasets_to_verify, function(dataset) {
+                            !is.null(result[[dataset]]) && result[[dataset]]$exists && !result[[dataset]]$has_data
+                        })]
+
+                        # Create detail strings
+                        details <- character(0)
+                        if (length(missing_datasets) > 0) {
+                            details <- c(details, paste(
+                                "Participant", participant, "Trial", trial, "Missing datasets [",
+                                paste(missing_datasets, collapse = ", "), "]"
+                            ))
+                        }
+                        if (length(invalid_datasets) > 0) {
+                            details <- c(details, paste(
+                                "Participant", participant, "Trial", trial, "Invalid datasets [",
+                                paste(invalid_datasets, collapse = ", "), "]"
+                            ))
+                        }
+
+                        return(details)
+                    },
+                    invalid_indices,
+                    SIMPLIFY = FALSE
+                ))
+            }
+        }
+
+        # Filter valid combinations using vectorized approach
+        valid_combinations <- combinations_df[valid_mask, , drop = FALSE]
+
+        # Log detailed results
+        if (!is.null(logger)) {
+            logger("INFO", "Found", as.numeric(nrow(valid_combinations)), "valid combinations out of", as.numeric(nrow(combinations_df)), "requested")
+
+            if (length(missing_details) > 0) {
+                logger("DEBUG", "Filtered out", as.numeric(length(missing_details)), "combinations due to missing/invalid datasets:")
+                # Vectorized logging
+                sapply(missing_details, function(detail) {
+                    logger("DEBUG", paste("  -", detail))
+                })
+            }
+        }
+
+        return(valid_combinations)
     } else {
         return(get_valid_combinations(datasets_to_verify))
     }

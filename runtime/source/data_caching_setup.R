@@ -13,10 +13,10 @@
 #' - cache.* : References to cached data (e.g., "cache.hazard" for hazard samples)
 #' - model.* : Model references for smart loading (e.g., "model.risk" for risk model)
 context_vars_config <<- list(
-  "raw_tracker" = character(0), # No context variables needed - directly accesses input$rawTracker
-  "power_spectrum" = character(0), # No context variables needed - directly accesses input$psTracker, input$psVar, input$psMaxFreq
+  "raw_tracker" = c("input.rawTracker"), # Need rawTracker input for data loading
+  "power_spectrum" = c("input.psTracker", "input.psVar", "input.psMaxFreq"), # Need power spectrum inputs
   "simulation" = c("model.risk", "cache.hazard_preds"), # Need risk model and hazard predictions for risk scoring
-  "hazard" = character(0), # No context variables needed - directly accesses input$risk_tau and input$sampling_freq
+  "hazard" = c("input.risk_tau", "input.sampling_freq"), # Need risk analysis inputs
   "hazard_preds" = character(0) # No context variables needed - this is a standalone transformation
 )
 
@@ -39,20 +39,24 @@ data_loaders <<- list(
   ),
   "power_spectrum" = list(
     loader = function(participant, trial) {
+      # Get context variables from global context
+      ps_tracker <- context$psTracker
+      ps_var <- context$psVar
+      ps_max_freq <- context$psMaxFreq
+
       # Load power spectrum data for a specific participant and trial
-      # This will be called from Shiny context where input$psTracker and input$psVar are available
-      if (!exists("input") || is.null(input$psTracker) || is.null(input$psVar)) {
+      if (is.null(ps_tracker) || is.null(ps_var) || is.null(ps_max_freq)) {
         return(data.frame())
       }
 
       # Load raw tracker data first
-      data <- get_t_data(participant, input$psTracker, trial)
+      data <- get_t_data(participant, ps_tracker, trial)
       if (is.null(data) || nrow(data) == 0) {
         return(data.frame())
       }
 
       # Check if we have the required variable
-      if (!input$psVar %in% names(data)) {
+      if (!ps_var %in% names(data)) {
         return(data.frame())
       }
 
@@ -60,8 +64,8 @@ data_loaders <<- list(
       tryCatch(
         {
           # Clean data
-          valid_mask <- is.finite(data[[input$psVar]]) & is.finite(data$time)
-          values <- data[[input$psVar]][valid_mask]
+          valid_mask <- is.finite(data[[ps_var]]) & is.finite(data$time)
+          values <- data[[ps_var]][valid_mask]
           times <- data$time[valid_mask]
 
           if (length(values) < 50) {
@@ -80,7 +84,7 @@ data_loaders <<- list(
           psd_df <- compute_single_psd(
             values,
             fs = fs,
-            max_freq = input$psMaxFreq,
+            max_freq = ps_max_freq,
             normalize = TRUE
           )
 
@@ -99,10 +103,10 @@ data_loaders <<- list(
     },
     datasets_to_verify = function() {
       # Dynamic datasets_to_verify based on selected tracker
-      if (!exists("input") || is.null(input$psTracker)) {
+      if (!exists("context") || is.null(context$psTracker)) {
         return(c("leftfoot", "rightfoot", "hip")) # Default fallback
       }
-      return(input$psTracker)
+      return(context$psTracker)
     }
   ),
   "raw_tracker" = list(
@@ -110,24 +114,20 @@ data_loaders <<- list(
       debug_logger <- create_module_logger("RAW-TRACKER-LOADER")
       debug_logger("DEBUG", "=== raw_tracker loader called ===")
       debug_logger("DEBUG", "participant:", participant, "trial:", trial)
-      debug_logger("DEBUG", "input exists:", exists("input"))
-      if (exists("input")) {
-        debug_logger("DEBUG", "input$rawTracker exists:", !is.null(input$rawTracker))
-        if (!is.null(input$rawTracker)) {
-          debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
-        }
-      }
+
+      # Get the rawTracker value from global context
+      raw_tracker <- context$rawTracker
+      debug_logger("DEBUG", "rawTracker from context:", raw_tracker)
 
       # Load raw tracker data for a specific participant and trial
-      # This will be called from Shiny context where input$rawTracker is available
-      if (!exists("input") || is.null(input$rawTracker)) {
-        debug_logger("WARN", "input$rawTracker not available, returning empty data frame")
+      if (is.null(raw_tracker)) {
+        debug_logger("WARN", "rawTracker not available in context, returning empty data frame")
         return(data.frame())
       }
 
-      debug_logger("DEBUG", "About to call get_t_data with tracker:", input$rawTracker)
+      debug_logger("DEBUG", "About to call get_t_data with tracker:", raw_tracker)
       # Load raw tracker data using get_t_data
-      tracker_data <- get_t_data(participant, input$rawTracker, trial)
+      tracker_data <- get_t_data(participant, raw_tracker, trial)
       debug_logger("DEBUG", "get_t_data returned:", if (is.null(tracker_data)) "NULL" else paste(nrow(tracker_data), "rows"))
 
       if (is.null(tracker_data) || nrow(tracker_data) == 0) {
@@ -142,21 +142,21 @@ data_loaders <<- list(
     datasets_to_verify = function() {
       debug_logger <- create_module_logger("RAW-TRACKER-DATASETS")
       debug_logger("DEBUG", "=== raw_tracker datasets_to_verify called ===")
-      debug_logger("DEBUG", "input exists:", exists("input"))
-      if (exists("input")) {
-        debug_logger("DEBUG", "input$rawTracker exists:", !is.null(input$rawTracker))
-        if (!is.null(input$rawTracker)) {
-          debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
+      debug_logger("DEBUG", "context exists:", exists("context"))
+      if (exists("context")) {
+        debug_logger("DEBUG", "context$rawTracker exists:", !is.null(context$rawTracker))
+        if (!is.null(context$rawTracker)) {
+          debug_logger("DEBUG", "context$rawTracker value:", context$rawTracker)
         }
       }
 
       # Dynamic datasets_to_verify based on selected tracker
-      if (!exists("input") || is.null(input$rawTracker)) {
-        debug_logger("WARN", "input$rawTracker not available, using default fallback")
+      if (!exists("context") || is.null(context$rawTracker)) {
+        debug_logger("WARN", "context$rawTracker not available, using default fallback")
         return(c("leftfoot", "rightfoot", "hip")) # Default fallback
       }
-      debug_logger("DEBUG", "Returning datasets_to_verify:", input$rawTracker)
-      return(input$rawTracker)
+      debug_logger("DEBUG", "Returning datasets_to_verify:", context$rawTracker)
+      return(context$rawTracker)
     }
   ),
   "hazard" = list(
@@ -165,18 +165,13 @@ data_loaders <<- list(
       hazard_logger("DEBUG", "=== hazard loader called ===")
       hazard_logger("DEBUG", "participant:", participant, "trial:", trial)
 
-      # Get risk model parameters from Shiny inputs
-      tau <- 0.2 # Default value
-      sampling_freq <- 90 # Default value
+      # Get risk model parameters from global context
+      tau <- context$risk_tau
+      sampling_freq <- context$sampling_freq
 
-      if (exists("input")) {
-        if (!is.null(input$risk_tau)) {
-          tau <- input$risk_tau
-        }
-        if (!is.null(input$sampling_freq)) {
-          sampling_freq <- input$sampling_freq
-        }
-      }
+      # Use defaults if not available
+      if (is.null(tau)) tau <- 0.2
+      if (is.null(sampling_freq)) sampling_freq <- 90
 
       hazard_logger("DEBUG", "Using parameters - tau:", tau, "sampling_freq:", sampling_freq)
 
