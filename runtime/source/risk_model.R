@@ -22,6 +22,12 @@ risk_logger <- create_module_logger("RISK")
 initialize_hazard_data_type <- function() {
     risk_logger("DEBUG", "Initializing hazard data type in caching system")
     
+    # Check if the caching system is available
+    if (!exists("add_data_type")) {
+        risk_logger("WARN", "Caching system not available yet, hazard data type will be initialized later")
+        return(FALSE)
+    }
+    
     # Add hazard data type to the caching system
     add_data_type(
         data_type = "hazard",
@@ -78,13 +84,15 @@ initialize_hazard_data_type <- function() {
     risk_logger("INFO", "Hazard data type initialized successfully")
 }
 
-# Auto-initialize when this file is loaded
-initialize_hazard_data_type()
+# Note: Hazard data type will be initialized when first needed by the caching system
 
 #' Check if hazard data type is properly initialized
 #' @return TRUE if initialized, FALSE otherwise
 #' @export
 is_hazard_data_type_initialized <- function() {
+    if (!exists("is_data_type_supported")) {
+        return(FALSE)
+    }
     return(is_data_type_supported("hazard"))
 }
 
@@ -99,7 +107,7 @@ get_hazard_data_type_info <- function() {
         relevant_inputs = NULL
     )
     
-    if (info$is_initialized) {
+    if (info$is_initialized && exists("data_loaders")) {
         loader_info <- data_loaders[["hazard"]]
         if (!is.null(loader_info)) {
             info$loader_function_exists <- is.function(loader_info$loader)
@@ -107,7 +115,9 @@ get_hazard_data_type_info <- function() {
         }
         
         # Get relevant inputs from shiny_inputs_config
-        info$relevant_inputs <- shiny_inputs_config[["hazard"]]
+        if (exists("shiny_inputs_config")) {
+            info$relevant_inputs <- shiny_inputs_config[["hazard"]]
+        }
     }
     
     return(info)
@@ -117,14 +127,19 @@ get_hazard_data_type_info <- function() {
 #' @export
 clear_hazard_cache <- function() {
     risk_logger("INFO", "Clearing hazard cache")
-    clear_cache("hazard")
+    
+    if (exists("clear_cache")) {
+        clear_cache("hazard")
+    }
     
     # Also clear the RDS file
     ensure_global_data_initialized()
-    cache_path <- get_cache_file_path("hazard")
-    if (file.exists(cache_path)) {
-        file.remove(cache_path)
-        risk_logger("INFO", "Removed hazard cache file:", cache_path)
+    if (exists("get_cache_file_path")) {
+        cache_path <- get_cache_file_path("hazard")
+        if (file.exists(cache_path)) {
+            file.remove(cache_path)
+            risk_logger("INFO", "Removed hazard cache file:", cache_path)
+        }
     }
 }
 
@@ -132,6 +147,9 @@ clear_hazard_cache <- function() {
 #' @return Data frame with cache statistics for hazard data
 #' @export
 get_hazard_cache_stats <- function() {
+    if (!exists("get_data_cache_stats")) {
+        return(list())
+    }
     stats <- get_data_cache_stats("hazard")
     return(stats)
 }
@@ -858,6 +876,12 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
 
         risk_logger("INFO", "Using cached data system to load hazard samples...")
         risk_logger("DEBUG", "Parameters - tau:", tau, "sampling_freq:", sampling_freq)
+        
+        # Ensure hazard data type is initialized
+        if (!is_hazard_data_type_initialized()) {
+            risk_logger("INFO", "Initializing hazard data type...")
+            initialize_hazard_data_type()
+        }
 
         # Use the caching system to get hazard samples
         # Create a temporary input environment with the required parameters
