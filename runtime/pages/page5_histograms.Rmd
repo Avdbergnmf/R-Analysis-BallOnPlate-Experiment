@@ -279,7 +279,7 @@ observe({
   data <- currentData()
 
   if (is.null(data) || nrow(data) == 0) {
-    updateSelectizeInput(session, "plot", choices = character(0), selected = NULL)
+    #updateSelectizeInput(session, "plot", choices = character(0), selected = NULL)
     return()
   }
 

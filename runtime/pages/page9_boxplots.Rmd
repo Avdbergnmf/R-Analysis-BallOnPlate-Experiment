@@ -129,7 +129,6 @@ generate_boxplot <- function() {
     warning("Error generating boxplot: ", e$message)
     
     # Create a simple error message plot
-    library(ggplot2)
     ggplot() + 
       annotate("text", x = 0.5, y = 0.5, 
               label = paste("Error generating plot:\n", e$message), 
