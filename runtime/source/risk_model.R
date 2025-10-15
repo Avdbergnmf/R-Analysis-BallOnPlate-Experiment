@@ -17,82 +17,12 @@ risk_logger <- create_module_logger("RISK")
 # CACHED DATA INTEGRATION
 # =============================================================================
 
-# Initialize hazard data type in the caching system
-# This must be done after risk_model.R is loaded so all functions are available
-initialize_hazard_data_type <- function() {
-    risk_logger("DEBUG", "Initializing hazard data type in caching system")
-    
-    # Check if the caching system is available
-    if (!exists("add_data_type")) {
-        risk_logger("WARN", "Caching system not available yet, hazard data type will be initialized later")
-        return(FALSE)
-    }
-    
-    # Add hazard data type to the caching system
-    add_data_type(
-        data_type = "hazard",
-        loader_function = function(participant, trial) {
-            risk_logger("DEBUG", "=== hazard loader called ===")
-            risk_logger("DEBUG", "participant:", participant, "trial:", trial)
-            
-            # Get risk model parameters from Shiny inputs
-            tau <- 0.2  # Default value
-            sampling_freq <- 90  # Default value
-            
-            if (exists("input")) {
-                if (!is.null(input$risk_tau)) {
-                    tau <- input$risk_tau
-                }
-                if (!is.null(input$sampling_freq)) {
-                    sampling_freq <- input$sampling_freq
-                }
-            }
-            
-            risk_logger("DEBUG", "Using parameters - tau:", tau, "sampling_freq:", sampling_freq)
-            
-            # Load simulation data first
-            sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
-            if (is.null(sim_data) || nrow(sim_data) == 0) {
-                risk_logger("WARN", "No simulation data found for participant", participant, "trial", trial)
-                return(data.frame())
-            }
-            
-            # Apply episode-based resampling to simulation data if requested
-            if (sampling_freq < 90) {
-                risk_logger("DEBUG", "Applying resampling with frequency:", sampling_freq)
-                sim_data <- resample_simulation_per_episode(sim_data, sampling_freq)
-            }
-            
-            # Build hazard samples from simulation data
-            hazard_samples <- build_hazard_samples(sim_data, tau)
-            if (nrow(hazard_samples) == 0) {
-                risk_logger("WARN", "No hazard samples generated for participant", participant, "trial", trial)
-                return(data.frame())
-            }
-            
-            # Add participant and trial identifiers
-            hazard_samples$participant <- participant
-            hazard_samples$trial <- trial
-            
-            risk_logger("DEBUG", "Generated", nrow(hazard_samples), "hazard samples")
-            return(hazard_samples)
-        },
-        datasets_to_verify = c("sim"),  # Hazard samples depend on simulation data
-        relevant_inputs = c("risk_tau", "sampling_freq")  # Risk model parameters
-    )
-    
-    risk_logger("INFO", "Hazard data type initialized successfully")
-}
-
-# Note: Hazard data type will be initialized when first needed by the caching system
+# Note: Hazard data type is now defined in data_caching_setup.R
 
 #' Check if hazard data type is properly initialized
 #' @return TRUE if initialized, FALSE otherwise
 #' @export
 is_hazard_data_type_initialized <- function() {
-    if (!exists("is_data_type_supported")) {
-        return(FALSE)
-    }
     return(is_data_type_supported("hazard"))
 }
 
@@ -107,7 +37,7 @@ get_hazard_data_type_info <- function() {
         relevant_inputs = NULL
     )
     
-    if (info$is_initialized && exists("data_loaders")) {
+    if (info$is_initialized) {
         loader_info <- data_loaders[["hazard"]]
         if (!is.null(loader_info)) {
             info$loader_function_exists <- is.function(loader_info$loader)
@@ -115,9 +45,7 @@ get_hazard_data_type_info <- function() {
         }
         
         # Get relevant inputs from shiny_inputs_config
-        if (exists("shiny_inputs_config")) {
-            info$relevant_inputs <- shiny_inputs_config[["hazard"]]
-        }
+        info$relevant_inputs <- shiny_inputs_config[["hazard"]]
     }
     
     return(info)
@@ -127,19 +55,14 @@ get_hazard_data_type_info <- function() {
 #' @export
 clear_hazard_cache <- function() {
     risk_logger("INFO", "Clearing hazard cache")
-    
-    if (exists("clear_cache")) {
-        clear_cache("hazard")
-    }
+    clear_cache("hazard")
     
     # Also clear the RDS file
     ensure_global_data_initialized()
-    if (exists("get_cache_file_path")) {
-        cache_path <- get_cache_file_path("hazard")
-        if (file.exists(cache_path)) {
-            file.remove(cache_path)
-            risk_logger("INFO", "Removed hazard cache file:", cache_path)
-        }
+    cache_path <- get_cache_file_path("hazard")
+    if (file.exists(cache_path)) {
+        file.remove(cache_path)
+        risk_logger("INFO", "Removed hazard cache file:", cache_path)
     }
 }
 
@@ -147,9 +70,6 @@ clear_hazard_cache <- function() {
 #' @return Data frame with cache statistics for hazard data
 #' @export
 get_hazard_cache_stats <- function() {
-    if (!exists("get_data_cache_stats")) {
-        return(list())
-    }
     stats <- get_data_cache_stats("hazard")
     return(stats)
 }
@@ -877,13 +797,9 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
         risk_logger("INFO", "Using cached data system to load hazard samples...")
         risk_logger("DEBUG", "Parameters - tau:", tau, "sampling_freq:", sampling_freq)
         
-        # Ensure hazard data type is initialized
-        if (!is_hazard_data_type_initialized()) {
-            risk_logger("INFO", "Initializing hazard data type...")
-            initialize_hazard_data_type()
-        }
+        # Use the caching system for hazard samples
+        risk_logger("INFO", "Using caching system for hazard samples...")
 
-        # Use the caching system to get hazard samples
         # Create a temporary input environment with the required parameters
         temp_input <- list(
             risk_tau = tau,
@@ -906,7 +822,7 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
                 participants = NULL,  # Will be determined by caching system from sidebar
                 trials = NULL,        # Will be determined by caching system from sidebar
                 condition_filter = NULL,
-                use_parallel = FALSE,
+                use_parallel = TRUE,
                 shiny_inputs = temp_input
             )
             

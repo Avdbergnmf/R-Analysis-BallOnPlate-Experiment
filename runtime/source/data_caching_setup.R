@@ -12,7 +12,8 @@
 shiny_inputs_config <<- list(
   "raw_tracker" = c("rawTracker"),
   "power_spectrum" = c("psTracker", "psVar", "psMaxFreq"),
-  "simulation" = character(0)  # No Shiny inputs needed
+  "simulation" = character(0),  # No Shiny inputs needed
+  "hazard" = c("risk_tau", "sampling_freq")  # Risk model parameters
 )
 
 # =============================================================================
@@ -153,6 +154,57 @@ data_loaders <<- list(
       debug_logger("DEBUG", "Returning datasets_to_verify:", input$rawTracker)
       return(input$rawTracker)
     }
+  ),
+  
+  "hazard" = list(
+    loader = function(participant, trial) {
+      hazard_logger <- create_module_logger("HAZARD-LOADER")
+      hazard_logger("DEBUG", "=== hazard loader called ===")
+      hazard_logger("DEBUG", "participant:", participant, "trial:", trial)
+      
+      # Get risk model parameters from Shiny inputs
+      tau <- 0.2  # Default value
+      sampling_freq <- 90  # Default value
+      
+      if (exists("input")) {
+        if (!is.null(input$risk_tau)) {
+          tau <- input$risk_tau
+        }
+        if (!is.null(input$sampling_freq)) {
+          sampling_freq <- input$sampling_freq
+        }
+      }
+      
+      hazard_logger("DEBUG", "Using parameters - tau:", tau, "sampling_freq:", sampling_freq)
+      
+      # Load simulation data first
+      sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
+      if (is.null(sim_data) || nrow(sim_data) == 0) {
+        hazard_logger("WARN", "No simulation data found for participant", participant, "trial", trial)
+        return(data.frame())
+      }
+      
+      # Apply episode-based resampling to simulation data if requested
+      if (sampling_freq < 90) {
+        hazard_logger("DEBUG", "Applying resampling with frequency:", sampling_freq)
+        sim_data <- resample_simulation_per_episode(sim_data, sampling_freq)
+      }
+      
+      # Build hazard samples from simulation data
+      hazard_samples <- build_hazard_samples(sim_data, tau)
+      if (nrow(hazard_samples) == 0) {
+        hazard_logger("WARN", "No hazard samples generated for participant", participant, "trial", trial)
+        return(data.frame())
+      }
+      
+      # Add participant and trial identifiers
+      hazard_samples$participant <- participant
+      hazard_samples$trial <- trial
+      
+      hazard_logger("DEBUG", "Generated", nrow(hazard_samples), "hazard samples")
+      return(hazard_samples)
+    },
+    datasets_to_verify = c("sim")  # Hazard samples depend on simulation data
   )
   
   # Add more data loaders here as needed
