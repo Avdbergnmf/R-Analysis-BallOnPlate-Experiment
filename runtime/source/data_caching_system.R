@@ -206,6 +206,21 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
     filters(list())
     loading(FALSE)
     clear_notifications()
+
+    # Also clear the global cache and RDS file for this data type
+    clear_cache(cache_name)
+    cache_path <- get_cache_file_path(cache_name)
+    if (file.exists(cache_path)) {
+      tryCatch(
+        {
+          file.remove(cache_path)
+          cache_logger("DEBUG", "Removed RDS cache file:", cache_path)
+        },
+        error = function(e) {
+          cache_logger("WARN", "Could not remove RDS cache file:", e$message)
+        }
+      )
+    }
   }
 
 
@@ -280,10 +295,12 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
           }
         }
 
-        # If context variables changed, reset the cache
+        # If context variables changed, reset the cache and force recalculation
         if (context_changed) {
-          shiny_logger("INFO", "Context variables changed, resetting cache before loading new data")
+          shiny_logger("INFO", "Context variables changed, resetting cache and forcing recalculation")
           cache_manager$reset_data()
+          # Clear the global cache as well to ensure fresh data
+          clear_cache(data_type)
         }
       }
     }
@@ -425,10 +442,54 @@ get_cache_file_path <- function(data_type) {
 # CACHE MANAGEMENT FUNCTIONS
 # =============================================================================
 
-#' Load cached data from RDS file
+#' Validate cache metadata against current context
+#' @param cached_metadata The metadata stored in the cache
+#' @param current_metadata The current context metadata
+#' @param data_type The type of data being validated
+#' @return TRUE if metadata is valid, FALSE otherwise
+validate_cache_metadata <- function(cached_metadata, current_metadata, data_type) {
+  cache_logger <- create_module_logger("CACHE")
+
+  # If either metadata is NULL, consider it valid (backward compatibility)
+  if (is.null(cached_metadata) || is.null(current_metadata)) {
+    cache_logger("DEBUG", "Metadata validation skipped (NULL metadata)")
+    return(TRUE)
+  }
+
+  # Get relevant context variables for this data type
+  relevant_vars <- get_relevant_context_vars(data_type)
+  input_vars <- relevant_vars[startsWith(relevant_vars, "input.")]
+
+  if (length(input_vars) == 0) {
+    cache_logger("DEBUG", "No input variables to validate for", data_type)
+    return(TRUE)
+  }
+
+  # Check each relevant input variable
+  for (var_name in input_vars) {
+    input_name <- substring(var_name, 7) # Remove "input." prefix
+
+    cached_val <- cached_metadata[[input_name]]
+    current_val <- current_metadata[[input_name]]
+
+    if (!identical(cached_val, current_val)) {
+      cache_logger(
+        "DEBUG", "Metadata mismatch for", input_name, ":",
+        "cached =", cached_val, "current =", current_val
+      )
+      return(FALSE)
+    }
+  }
+
+  cache_logger("DEBUG", "All metadata validation checks passed for", data_type)
+  return(TRUE)
+}
+
+#' Load cached data from RDS file with metadata validation
 #' @param data_type The type of data to load
-#' @return The cached data or empty data.frame if not found
-load_cache_from_file <- function(data_type) {
+#' @param current_metadata Optional current metadata to validate against cached metadata
+#' @return List with 'data' and 'metadata' fields, or empty data.frame if not found/invalid
+load_cache_from_file <- function(data_type, current_metadata = NULL) {
   cache_logger <- create_module_logger("CACHE")
   cache_path <- get_cache_file_path(data_type)
 
@@ -442,37 +503,79 @@ load_cache_from_file <- function(data_type) {
 
         # Time the readRDS operation
         start_time <- Sys.time()
-        cached_data <- readRDS(cache_path)
+        cache_object <- readRDS(cache_path)
         end_time <- Sys.time()
         read_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
 
         cache_logger("DEBUG", "readRDS completed in", read_duration, "seconds")
-        cache_logger("DEBUG", "Loaded", data_type, "cache from file:", nrow(cached_data), "rows")
 
-        # Additional diagnostics
-        if (nrow(cached_data) > 0) {
-          cache_logger("DEBUG", "Data frame memory usage:", format(object.size(cached_data), units = "MB"))
-          cache_logger("DEBUG", "Column names:", paste(names(cached_data), collapse = ", "))
-          cache_logger("DEBUG", "Data types:", paste(sapply(cached_data, class), collapse = ", "))
+        # Handle both old format (direct data.frame) and new format (list with data and metadata)
+        if (is.data.frame(cache_object)) {
+          # Old format - no metadata
+          cache_logger("DEBUG", "Loaded legacy cache format for", data_type, ":", nrow(cache_object), "rows")
+          return(list(data = cache_object, metadata = NULL))
+        } else if (is.list(cache_object) && "data" %in% names(cache_object)) {
+          # New format with metadata
+          cached_data <- cache_object$data
+          cached_metadata <- cache_object$metadata
+          cache_timestamp <- cache_object$timestamp
+
+          cache_logger("DEBUG", "Loaded", data_type, "cache from file:", nrow(cached_data), "rows")
+          cache_logger("DEBUG", "Cache timestamp:", as.character(cache_timestamp))
+
+          if (!is.null(cached_metadata)) {
+            cache_logger("DEBUG", "Cached metadata:", paste(names(cached_metadata), collapse = ", "))
+          }
+
+          # Validate metadata if current metadata is provided
+          if (!is.null(current_metadata) && !is.null(cached_metadata)) {
+            metadata_valid <- validate_cache_metadata(cached_metadata, current_metadata, data_type)
+            if (!metadata_valid) {
+              cache_logger("INFO", "Cache metadata validation failed - cache is invalid for current context")
+              return(list(data = data.frame(), metadata = NULL))
+            }
+            cache_logger("DEBUG", "Cache metadata validation passed")
+          }
+
+          # Additional diagnostics
+          if (nrow(cached_data) > 0) {
+            cache_logger("DEBUG", "Data frame memory usage:", format(object.size(cached_data), units = "MB"))
+            cache_logger("DEBUG", "Column names:", paste(names(cached_data), collapse = ", "))
+            cache_logger("DEBUG", "Data types:", paste(sapply(cached_data, class), collapse = ", "))
+          }
+
+          return(list(data = cached_data, metadata = cached_metadata))
+        } else {
+          cache_logger("ERROR", "Invalid cache object format for", data_type)
+          return(list(data = data.frame(), metadata = NULL))
         }
-
-        return(cached_data)
       },
       error = function(e) {
         cache_logger("ERROR", "Error loading cache file", cache_path, ":", e$message)
-        return(data.frame())
+        # If file is corrupted, try to remove it
+        tryCatch(
+          {
+            file.remove(cache_path)
+            cache_logger("INFO", "Removed corrupted cache file:", cache_path)
+          },
+          error = function(remove_error) {
+            cache_logger("WARN", "Could not remove corrupted cache file:", remove_error$message)
+          }
+        )
+        return(list(data = data.frame(), metadata = NULL))
       }
     )
   } else {
     cache_logger("DEBUG", "No cache file found for", data_type, "at", cache_path)
-    return(data.frame())
+    return(list(data = data.frame(), metadata = NULL))
   }
 }
 
-#' Save data to RDS cache file
+#' Save data to RDS cache file with metadata
 #' @param data_type The type of data
 #' @param data The data to save
-save_cache_to_file <- function(data_type, data) {
+#' @param metadata Optional metadata to save alongside the data
+save_cache_to_file <- function(data_type, data, metadata = NULL) {
   cache_logger <- create_module_logger("CACHE")
   cache_path <- get_cache_file_path(data_type)
 
@@ -482,9 +585,17 @@ save_cache_to_file <- function(data_type, data) {
       data_size_mb <- round(object.size(data) / (1024 * 1024), 2)
       cache_logger("DEBUG", "Data frame size:", data_size_mb, "MB, rows:", nrow(data))
 
-      # Time the saveRDS operation with compression
+      # Create cache object with data and metadata
+      cache_object <- list(
+        data = data,
+        metadata = metadata,
+        timestamp = Sys.time(),
+        data_type = data_type
+      )
+
+      # Time the saveRDS operation without compression
       start_time <- Sys.time()
-      saveRDS(data, cache_path, compress = "xz") # Use xz compression for better compression ratio
+      saveRDS(cache_object, cache_path, compress = FALSE) # No compression for maximum reliability
       end_time <- Sys.time()
       save_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
 
@@ -494,6 +605,9 @@ save_cache_to_file <- function(data_type, data) {
 
       cache_logger("DEBUG", "saveRDS completed in", save_duration, "seconds")
       cache_logger("DEBUG", "Saved", data_type, "cache to file:", nrow(data), "rows, file size:", file_size_mb, "MB")
+      if (!is.null(metadata)) {
+        cache_logger("DEBUG", "Saved with metadata:", paste(names(metadata), collapse = ", "))
+      }
     },
     error = function(e) {
       cache_logger("ERROR", "Error saving cache file", cache_path, ":", e$message)
@@ -509,6 +623,17 @@ get_current_cache <- function(data_type) {
     return(global_data_cache[[data_type]]$data)
   } else {
     return(data.frame())
+  }
+}
+
+#' Get current cache filters for a data type
+#' @param data_type The type of data
+#' @return The cached filters or empty list if not found
+get_current_cache_filters <- function(data_type) {
+  if (data_type %in% names(global_data_cache)) {
+    return(global_data_cache[[data_type]]$filters)
+  } else {
+    return(list())
   }
 }
 
@@ -559,15 +684,22 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   cache_logger("DEBUG", "Trials:", paste(trials, collapse = ", "))
   cache_logger("DEBUG", "Condition filter:", if (is.null(condition_filter)) "NULL" else paste(condition_filter, collapse = ", "))
 
-  # Step 1: Check current cache
-  cache_logger("DEBUG", "Step 1: Checking current in-memory cache for", data_type)
+  # Step 1: Capture current context metadata for validation
+  cache_logger("DEBUG", "Step 1: Capturing current context metadata")
+  current_metadata <- capture_context_vars(data_type)
+  cache_logger("DEBUG", "Current metadata:", if (is.null(current_metadata)) "NULL" else paste(names(current_metadata), collapse = ", "))
+
+  # Step 2: Check current cache
+  cache_logger("DEBUG", "Step 2: Checking current in-memory cache for", data_type)
   current_cache <- get_current_cache(data_type)
   cache_logger("DEBUG", "Current cache has", nrow(current_cache), "rows")
 
-  # Step 2: Load from RDS file if cache is empty
+  # Step 3: Load from RDS file if cache is empty, with metadata validation
   if (nrow(current_cache) == 0) {
-    cache_logger("DEBUG", "Step 2: Loading", data_type, "data from RDS file")
-    current_cache <- load_cache_from_file(data_type)
+    cache_logger("DEBUG", "Step 3: Loading", data_type, "data from RDS file with metadata validation")
+    cache_result <- load_cache_from_file(data_type, current_metadata)
+    current_cache <- cache_result$data
+    cached_metadata <- cache_result$metadata
     cache_logger("DEBUG", "Loaded", nrow(current_cache), "rows from RDS file")
 
     # Update in-memory cache
@@ -576,11 +708,18 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
       set_cache(data_type, current_cache)
     }
   } else {
-    cache_logger("DEBUG", "Step 2: Using existing in-memory cache (", nrow(current_cache), "rows)")
+    cache_logger("DEBUG", "Step 3: Using existing in-memory cache (", nrow(current_cache), "rows)")
+    # For in-memory cache, we need to get the cached metadata from the stored filters
+    stored_filters <- get_current_cache_filters(data_type)
+    if (!is.null(stored_filters) && !is.null(stored_filters$context_vars)) {
+      cached_metadata <- stored_filters$context_vars
+    } else {
+      cached_metadata <- NULL
+    }
   }
 
-  # Step 3: Create requested combinations and load data using the loop system
-  cache_logger("DEBUG", "Step 3: Creating requested combinations and loading data")
+  # Step 4: Create requested combinations and load data using the loop system
+  cache_logger("DEBUG", "Step 4: Creating requested combinations and loading data")
   requested_combinations <- expand.grid(
     participant = participants,
     trial = trials,
@@ -588,8 +727,8 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   )
   cache_logger("DEBUG", "Requested", nrow(requested_combinations), "participant-trial combinations")
 
-  # Step 4: Load data using the loop system - missing combinations logic is handled automatically
-  cache_logger("DEBUG", "Step 4: Loading data using loop system with automatic missing combinations handling")
+  # Step 5: Load data using the loop system - missing combinations logic is handled automatically
+  cache_logger("DEBUG", "Step 5: Loading data using loop system with automatic missing combinations handling")
 
   # Get the individual data loader using the helper function
   data_loader <- get_data_loader(data_type)
@@ -647,9 +786,22 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   if (!is.null(context_vars) && length(context_vars) > 0) {
     # Convert context variables to a format that can be exported to workers
     # We'll create a special environment that workers can access
-    extra_global_vars <- c("context_vars")
+    extra_global_vars <- c("context_vars", "context")
     # Store context variables in global environment for workers to access
     assign("context_vars", context_vars, envir = .GlobalEnv)
+
+    # Also ensure the context environment is available for workers
+    # The context is already set up above, but we need to make sure it's exported
+    cache_logger("DEBUG", "Context environment set up with variables:", paste(names(.GlobalEnv$context), collapse = ", "))
+  }
+
+  # Determine if we need to force recalculation based on context changes
+  force_recalc <- FALSE
+  if (nrow(current_cache) > 0 && !is.null(current_metadata) && !is.null(cached_metadata)) {
+    force_recalc <- !validate_cache_metadata(cached_metadata, current_metadata, data_type)
+    if (force_recalc) {
+      cache_logger("INFO", "Context variables changed - forcing complete recalculation")
+    }
   }
 
   # Load data using the simplified load_or_calc_from_loop function
@@ -660,40 +812,37 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     datasets_to_verify = datasets_to_verify,
     combinations_df = requested_combinations,
     use_parallel = use_parallel,
-    force_recalc = FALSE,
+    force_recalc = force_recalc,
     threshold_parallel = NULL,
     extra_global_vars = extra_global_vars
   )
 
   cache_logger("DEBUG", "Loaded", nrow(data), "rows from loop system")
 
-  # Combine with existing data
+  # Update cache with new data
   if (nrow(data) > 0) {
-    cache_logger("DEBUG", "Combined new data:", nrow(data), "rows")
+    cache_logger("DEBUG", "New data loaded:", nrow(data), "rows")
 
-    if (nrow(current_cache) == 0) {
-      current_cache <- data
-      cache_logger("DEBUG", "Using new data as cache (was empty)")
-    } else {
-      current_cache <- rbind(current_cache, data)
-      cache_logger("DEBUG", "Combined with existing cache")
-    }
+    # The loop system now handles context changes and missing combinations properly
+    # So we can simply use the returned data as the new cache
+    current_cache <- data
+    cache_logger("DEBUG", "Updated cache with new data from loop system")
 
     # Update cache
     set_cache(data_type, current_cache)
     cache_logger("DEBUG", "Updated in-memory cache")
 
-    # Save to RDS file
-    save_cache_to_file(data_type, current_cache)
-    cache_logger("DEBUG", "Saved to RDS file")
+    # Save to RDS file with metadata
+    save_cache_to_file(data_type, current_cache, current_metadata)
+    cache_logger("DEBUG", "Saved to RDS file with metadata")
 
     cache_logger("DEBUG", "Updated", data_type, "cache:", nrow(current_cache), "total rows")
   } else {
     cache_logger("DEBUG", "No new data loaded")
   }
 
-  # Step 5: Filter data for requested participants/trials
-  cache_logger("DEBUG", "Step 5: Filtering data for requested participants/trials")
+  # Step 6: Filter data for requested participants/trials
+  cache_logger("DEBUG", "Step 6: Filtering data for requested participants/trials")
   if (nrow(current_cache) > 0) {
     cache_logger("DEBUG", "Filtering", nrow(current_cache), "rows from cache")
     filtered_data <- current_cache[
@@ -750,6 +899,44 @@ clear_all_caches <- function(data_types = NULL) {
   }
 }
 
+#' Clear corrupted cache files
+#' @param data_types Vector of data types to check (NULL for all)
+clear_corrupted_caches <- function(data_types = NULL) {
+  cache_logger <- create_module_logger("CACHE")
+
+  if (is.null(data_types)) {
+    # Get all potential data types from the setup
+    data_types <- names(context_vars_config)
+  }
+
+  for (data_type in data_types) {
+    cache_path <- get_cache_file_path(data_type)
+    if (file.exists(cache_path)) {
+      # Try to read the cache file to check if it's corrupted
+      tryCatch(
+        {
+          cache_object <- readRDS(cache_path)
+          cache_logger("DEBUG", "Cache file", cache_path, "is valid")
+        },
+        error = function(e) {
+          cache_logger("WARN", "Corrupted cache file detected:", cache_path, "-", e$message)
+          tryCatch(
+            {
+              file.remove(cache_path)
+              cache_logger("INFO", "Removed corrupted cache file:", cache_path)
+              # Also clear in-memory cache
+              clear_cache(data_type)
+            },
+            error = function(remove_error) {
+              cache_logger("ERROR", "Could not remove corrupted cache file:", remove_error$message)
+            }
+          )
+        }
+      )
+    }
+  }
+}
+
 #' Get cache statistics
 #' @return List with cache information
 get_cache_stats <- function() {
@@ -769,4 +956,80 @@ get_cache_stats <- function() {
   }
 
   return(stats)
+}
+
+#' Debug cache information for a specific data type
+#' @param data_type The type of data to debug
+#' @return List with detailed cache information
+debug_cache <- function(data_type) {
+  cache_logger <- create_module_logger("CACHE-DEBUG")
+
+  cache_logger("INFO", "=== Cache Debug Information for", data_type, "===")
+
+  # Check in-memory cache
+  in_memory_data <- get_current_cache(data_type)
+  in_memory_filters <- get_current_cache_filters(data_type)
+
+  cache_logger("INFO", "In-memory cache:")
+  cache_logger("INFO", "  Rows:", nrow(in_memory_data))
+  if (nrow(in_memory_data) > 0) {
+    cache_logger("INFO", "  Participants:", length(unique(in_memory_data$participant)))
+    cache_logger("INFO", "  Trials:", length(unique(in_memory_data$trialNum)))
+    cache_logger("INFO", "  Columns:", paste(names(in_memory_data), collapse = ", "))
+  }
+
+  cache_logger("INFO", "In-memory filters:")
+  cache_logger("INFO", "  Context vars:", if (is.null(in_memory_filters$context_vars)) "NULL" else paste(names(in_memory_filters$context_vars), collapse = ", "))
+
+  # Check RDS file
+  cache_path <- get_cache_file_path(data_type)
+  cache_logger("INFO", "RDS file:")
+  cache_logger("INFO", "  Path:", cache_path)
+  cache_logger("INFO", "  Exists:", file.exists(cache_path))
+
+  if (file.exists(cache_path)) {
+    file_info <- file.info(cache_path)
+    cache_logger("INFO", "  Size:", round(file_info$size / (1024 * 1024), 2), "MB")
+    cache_logger("INFO", "  Modified:", as.character(file_info$mtime))
+
+    # Try to read the file to check for corruption
+    tryCatch(
+      {
+        cache_object <- readRDS(cache_path)
+        if (is.data.frame(cache_object)) {
+          cache_logger("INFO", "  Format: Legacy (data.frame only)")
+          cache_logger("INFO", "  RDS Rows:", nrow(cache_object))
+        } else if (is.list(cache_object) && "data" %in% names(cache_object)) {
+          cache_logger("INFO", "  Format: New (with metadata)")
+          cache_logger("INFO", "  RDS Rows:", nrow(cache_object$data))
+          cache_logger("INFO", "  RDS Timestamp:", as.character(cache_object$timestamp))
+          if (!is.null(cache_object$metadata)) {
+            cache_logger("INFO", "  RDS Metadata:", paste(names(cache_object$metadata), collapse = ", "))
+          }
+        }
+      },
+      error = function(e) {
+        cache_logger("ERROR", "  Status: CORRUPTED -", e$message)
+      }
+    )
+  }
+
+  # Check current context
+  current_context <- capture_context_vars(data_type)
+  cache_logger("INFO", "Current context:")
+  cache_logger("INFO", "  Variables:", if (is.null(current_context)) "NULL" else paste(names(current_context), collapse = ", "))
+  if (!is.null(current_context)) {
+    for (var_name in names(current_context)) {
+      cache_logger("INFO", "  ", var_name, ":", current_context[[var_name]])
+    }
+  }
+
+  cache_logger("INFO", "=== End Cache Debug Information ===")
+
+  return(list(
+    in_memory_data = in_memory_data,
+    in_memory_filters = in_memory_filters,
+    cache_path = cache_path,
+    current_context = current_context
+  ))
 }

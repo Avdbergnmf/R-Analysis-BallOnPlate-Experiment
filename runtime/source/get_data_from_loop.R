@@ -538,6 +538,10 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
                                 worker_logger("DEBUG", "Setting up lazy loading functions...")
                                 # Add dynamic lazy loading function for workers
                                 lazy_load_function <- function(function_name) {
+                                    # Ensure function_name is a single string
+                                    if (length(function_name) > 1) {
+                                        function_name <- function_name[1]
+                                    }
                                     if (!exists(function_name, envir = .GlobalEnv)) {
                                         # Dynamic function-to-file mapping
                                         function_files <- list(
@@ -639,6 +643,10 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 
                                 # Enhanced lazy loading with auto-discovery
                                 smart_lazy_load <- function(function_name) {
+                                    # Ensure function_name is a single string
+                                    if (length(function_name) > 1) {
+                                        function_name <- function_name[1]
+                                    }
                                     if (!exists(function_name, envir = .GlobalEnv)) {
                                         # First try the predefined mapping
                                         lazy_load_function(function_name)
@@ -892,6 +900,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 
                 # Smart lazy load the function and data if needed
                 func_name <- deparse(substitute(get_data_function))
+                # Ensure func_name is a single string (take first element if it's a vector)
+                if (length(func_name) > 1) {
+                    func_name <- func_name[1]
+                }
                 if (exists("smart_lazy_load")) {
                     smart_lazy_load(func_name)
                 } else if (exists("lazy_load_function")) {
