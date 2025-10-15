@@ -43,18 +43,17 @@ numericInput("sampling_freq", "Sampling Frequency for Training (Hz)",
 selectizeInput("risk_model_file", "Risk Model File",
   choices = NULL, selected = NULL, multiple = FALSE
 )
+
 actionButton("load_risk_model", "Load Selected Model",
   class = "btn-success", style = "margin-top: 5px;"
 )
+
 actionButton("train_risk_model", "Train New Model",
   class = "btn-primary", style = "margin-top: 5px;"
 )
 
 # Hazard samples management
-selectizeInput("hazard_samples_file", "Hazard Samples File",
-  choices = NULL, selected = NULL, multiple = FALSE
-)
-actionButton("load_hazard_samples", "Load Hazard Samples & Apply Model",
+actionButton("update_hazard_cache", "Update Cache",
   class = "btn-info", style = "margin-top: 5px;"
 )
 
@@ -209,29 +208,6 @@ observe({
   }
 })
 
-# Update hazard samples file choices
-observe({
-  # Get all .rds files in the data_extra directory
-  if (dir.exists(dataExtraFolder)) {
-    model_files <- list.files(dataExtraFolder, pattern = "\\.rds$", full.names = FALSE)
-    # Filter for hazard samples files
-    hazard_files <- model_files[grepl("hazard_samples", model_files, ignore.case = TRUE)]
-
-    if (length(hazard_files) > 0) {
-      # Set default to the main hazard samples file if it exists
-      default_file <- if ("hazard_samples.rds" %in% hazard_files) "hazard_samples.rds" else hazard_files[1]
-      updateSelectizeInput(session, "hazard_samples_file",
-        choices = hazard_files,
-        selected = default_file
-      )
-    } else {
-      updateSelectizeInput(session, "hazard_samples_file",
-        choices = "No hazard samples files found",
-        selected = NULL
-      )
-    }
-  }
-})
 
 # Load selected risk model
 observeEvent(input$load_risk_model, {
@@ -270,7 +246,7 @@ observeEvent(input$load_risk_model, {
 observeEvent(input$train_risk_model, {
   # The caching system will automatically get participants/trials from sidebar filters
   # and validate that simulation data exists (datasets_to_verify = c("sim"))
-  
+
   # Update status
   output$risk_model_status <- renderText("Starting risk model training using sidebar filters...")
 
@@ -310,14 +286,9 @@ observeEvent(input$train_risk_model, {
   )
 })
 
-# Load hazard samples and apply model
-observeEvent(input$load_hazard_samples, {
-  req(input$hazard_samples_file, input$risk_model_file)
-
-  if (input$hazard_samples_file == "No hazard samples files found") {
-    output$risk_model_status <- renderText("No hazard samples files available to load")
-    return()
-  }
+# Update hazard cache using caching system
+observeEvent(input$update_hazard_cache, {
+  req(input$risk_model_file)
 
   if (input$risk_model_file == "No risk model files found") {
     output$risk_model_status <- renderText("No risk model files available to load")
@@ -335,49 +306,41 @@ observeEvent(input$load_hazard_samples, {
         return()
       }
 
-      # Always load original hazard samples and compute predictions fresh
-      output$risk_model_status <- renderText("Loading hazard samples and computing predictions...")
+      # Update status
+      output$risk_model_status <- renderText("Updating hazard cache using caching system...")
 
-      # Load original hazard samples
-      hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
-      hazard_samples <- readRDS(hazard_samples_path)
+      # Update status
+      output$risk_model_status <- renderText("Adding predictions to hazard samples and saving to cache...")
+
+      # Annotate hazard samples with fixed-effects predictions and save to cache
+      # This will automatically load hazard samples from cache if NULL is passed
+      # This is a standalone transformation that loads from cache and saves to cache
+      # (though you can also pass model and hazard_samples to the function)
+      hazard_samples <- annotate_hazard_predictions(
+        model = NULL, # Load from cache
+        hazard_samples = NULL, # Load from cache
+        include_re = FALSE,
+        out_path = "cache" # Save to cache system
+      )
 
       if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
-        output$risk_model_status <- renderText("Failed to load hazard samples or samples are empty")
+        output$risk_model_status <- renderText("Failed to retrieve hazard samples from cache or samples are empty")
         return()
       }
 
-      # Apply pooled standardized risk computation
-      output$risk_model_status <- renderText("Computing pooled standardized risks...")
-
-      # Isolate reactive values to prevent re-execution
-      tau_value <- isolate(input$risk_tau)
-
-      # Always annotate hazard samples with fresh predictions
-      output$risk_model_status <- renderText("Adding predictions to hazard samples...")
-
-      # Annotate hazard samples with fixed-effects predictions
-      hazard_samples <- annotate_hazard_predictions(
-        model = model,
-        hazard_samples = hazard_samples,
-        include_re = FALSE,
-        out_path = risk_hazard_samples_preds_path
-      )
-
-      # Set up global variables with the loaded model and hazard samples
-      setup_global_risk_variables(model_path = model_path, hazard_samples_path = hazard_samples_path, analysis_results_path = FALSE)
+      # Model is now loaded into cache system automatically
 
       # Show success popup
       n_participants <- length(unique(hazard_samples$participant))
       n_samples <- nrow(hazard_samples)
 
       showModal(modalDialog(
-        title = "✓ Hazard Samples Loaded & Model Applied Successfully!",
+        title = "✓ Hazard Cache Updated & Model Applied Successfully!",
         paste0(
-          "Loaded ", n_samples, " hazard samples from ",
-          n_participants, " participants\n\n",
+          "Retrieved ", n_samples, " hazard samples from ",
+          n_participants, " participants using caching system\n\n",
           "Model applied and predictions computed.\n",
-          "Hazard samples with predictions saved to disk.\n\n",
+          "Hazard samples with predictions saved to cache system.\n\n",
           "Click 'Perform Risk Analysis' to compute standardized risks and statistical analysis."
         ),
         easyClose = TRUE,
@@ -389,23 +352,39 @@ observeEvent(input$load_hazard_samples, {
       output$risk_model_status <- renderText("")
     },
     error = function(e) {
-      output$risk_model_status <- renderText(paste("Error applying model to hazard samples:", e$message))
+      output$risk_model_status <- renderText(paste("Error updating hazard cache:", e$message))
     }
   )
 })
 
 # Perform Risk Analysis button handler
 observeEvent(input$perform_risk_analysis, {
-  # Check if we have the required data
-  if (is.null(GLOBAL_RISK_MODEL) || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
-    output$risk_model_status <- renderText("Please load hazard samples and apply model first")
+  # Check if we have the required model
+  if (is.null(GLOBAL_RISK_MODEL)) {
+    output$risk_model_status <- renderText("Please load a risk model first")
     return()
   }
 
   tryCatch(
     {
-      # Get the stored data
-      hazard_samples <- GLOBAL_HAZARD_SAMPLES_PREDS
+      # Get hazard samples with predictions from cache system
+      output$risk_model_status <- renderText("Loading hazard samples with predictions from cache...")
+
+      hazard_samples <- get_cached_data(
+        data_type = "hazard_preds",
+        participants = NULL, # Will be determined by caching system from sidebar
+        trials = NULL, # Will be determined by caching system from sidebar
+        condition_filter = NULL,
+        use_parallel = TRUE,
+        shiny_inputs = input
+      )
+
+      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+        output$risk_model_status <- renderText("No hazard samples with predictions found in cache. Please update cache first.")
+        return()
+      }
+
+      # Get the stored model
       model <- GLOBAL_RISK_MODEL
 
       # Perform the risk analysis
@@ -417,8 +396,7 @@ observeEvent(input$perform_risk_analysis, {
         hazard_samples = hazard_samples
       )
 
-      # Set up global variables (skip model and hazard samples, only load analysis results)
-      setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE)
+      # Analysis results are now handled by the caching system
 
       # Show success popup with plot
       n_combinations <- nrow(results$standardized_risks)

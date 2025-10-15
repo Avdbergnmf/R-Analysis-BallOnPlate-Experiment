@@ -1235,9 +1235,9 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
   # Create complexity logger for this function
   complexity_logger <- create_module_logger("COMPLEXITY")
-  
+
   log_operation_start(complexity_logger, "get_all_complexity_metrics")
-  
+
   # Ensure global parameters and data are initialized
   ensure_global_data_initialized()
 

@@ -1,6 +1,6 @@
 # Load logging utilities
 if (!exists("create_module_logger")) {
-  source("source/logging_utils.R", local = FALSE)
+    source("source/logging_utils.R", local = FALSE)
 }
 
 getTypes <- function(dt) {
@@ -42,9 +42,10 @@ getTypes <- function(dt) {
 #'
 #' # Load specific combinations and allow adding missing ones
 #' specific_combinations <- data.frame(participant = c("101", "102"), trial = c("1", "2"))
-#' data <- load_or_calculate("results/data.rds", calc_function, 
-#'                          combinations_df = specific_combinations, 
-#'                          allow_add_missing = TRUE)
+#' data <- load_or_calculate("results/data.rds", calc_function,
+#'     combinations_df = specific_combinations,
+#'     allow_add_missing = TRUE
+#' )
 #'
 # -----------------------------------------------------------------------------
 # load_or_calculate ------------------------------------------------------------
@@ -62,19 +63,20 @@ load_or_calculate <- function(filePath,
                               extra_global_vars = NULL,
                               combinations_df = NULL,
                               allow_add_missing = FALSE,
-                              threshold_parallel = NULL) {
-    
+                              threshold_parallel = NULL,
+                              data_loader = NULL,
+                              datasets_to_verify = NULL) {
     # Create logger for this function
     logger <- create_module_logger("LOAD-OR-CALC")
-    
+
     logger("DEBUG", "=== load_or_calculate called ===")
     logger("DEBUG", "filePath:", filePath)
     logger("DEBUG", "calculate_function type:", typeof(calculate_function))
     logger("DEBUG", "calculate_function class:", class(calculate_function))
     logger("DEBUG", "parallel:", parallel)
     logger("DEBUG", "force_recalc:", force_recalc)
-    logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
-    
+    logger("DEBUG", "combinations_df:", if (is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
+
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
     if (parallel && stop_cluster) {
         logger("DEBUG", "Setting up cluster cleanup on exit")
@@ -102,13 +104,13 @@ load_or_calculate <- function(filePath,
     logger("DEBUG", "Checking if recalculation is needed...")
     logger("DEBUG", "force_recalc:", force_recalc)
     logger("DEBUG", "file.exists(filePath):", file.exists(filePath))
-    
-    should_recalc <- force_recalc || 
-                     !file.exists(filePath) || 
-                     (file.exists(filePath) && !is.null(combinations_df) && nrow(readRDS(filePath)) == 0)
-    
+
+    should_recalc <- force_recalc ||
+        !file.exists(filePath) ||
+        (file.exists(filePath) && !is.null(combinations_df) && nrow(readRDS(filePath)) == 0)
+
     logger("DEBUG", "should_recalc:", should_recalc)
-    
+
     if (should_recalc) {
         # Recalculate data
         if (force_recalc) {
@@ -118,20 +120,23 @@ load_or_calculate <- function(filePath,
         } else {
             logger("INFO", "Cache file has 0 rows, recalculating")
         }
-        
+
         logger("DEBUG", "About to call calculate_data")
         logger("DEBUG", "calculate_function type:", typeof(calculate_function))
         logger("DEBUG", "calculate_function class:", class(calculate_function))
-        
-        tryCatch({
-            data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
-            logger("DEBUG", "calculate_data returned successfully with", nrow(data), "rows")
-        }, error = function(e) {
-            logger("ERROR", "Error in calculate_data:", e$message)
-            logger("ERROR", "calculate_function type:", typeof(calculate_function))
-            stop(e)
-        })
-        
+
+        tryCatch(
+            {
+                data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
+                logger("DEBUG", "calculate_data returned successfully with", nrow(data), "rows")
+            },
+            error = function(e) {
+                logger("ERROR", "Error in calculate_data:", e$message)
+                logger("ERROR", "calculate_function type:", typeof(calculate_function))
+                stop(e)
+            }
+        )
+
         logger("INFO", "Saving data to cache file:", filePath)
         saveRDS(data, filePath)
         logger("INFO", "Cache file saved successfully")
@@ -140,16 +145,18 @@ load_or_calculate <- function(filePath,
         logger("INFO", "Loading existing cache file:", filePath)
         data <- readRDS(filePath)
         logger("DEBUG", "Loaded", nrow(data), "rows from cache file")
-        
+
         # Check for missing combinations if needed
         if (!is.null(combinations_df) && nrow(data) > 0) {
             logger("DEBUG", "Checking for missing combinations...")
-            data <- handle_missing_combinations(data, combinations_df, calculate_function, 
-                                               threshold_parallel, extra_global_vars, filePath)
+            data <- handle_missing_combinations(
+                data, combinations_df, data_loader, datasets_to_verify,
+                threshold_parallel, extra_global_vars, filePath
+            )
             logger("DEBUG", "After handling missing combinations:", nrow(data), "rows")
         }
     }
-    
+
     logger("INFO", "=== load_or_calculate completed ===")
     logger("INFO", "Final result:", nrow(data), "rows")
     return(data)
@@ -167,17 +174,17 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
     if (is.null(logger)) {
         logger <- create_module_logger("CALC-DATA")
     }
-    
+
     logger("DEBUG", "=== calculate_data called ===")
     logger("DEBUG", "calculate_function type:", typeof(calculate_function))
     logger("DEBUG", "calculate_function class:", class(calculate_function))
     logger("DEBUG", "parallel:", parallel)
-    logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
-    
+    logger("DEBUG", "combinations_df:", if (is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
+
     # Choose the appropriate loop function based on parallel setting
     if (parallel) {
         logger("INFO", "Using parallel processing")
-        
+
         # Obtain or create a reusable cluster
         if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
             is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
@@ -195,7 +202,8 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
         loop_function <- function(calc_func, ...) {
             logger("DEBUG", "=== parallel loop_function called ===")
             result <- get_data_from_loop_parallel(
-                calc_func, ..., cl = cl,
+                calc_func, ...,
+                cl = cl,
                 log_to_file = ENABLE_FILE_LOGGING, log_file = log_file_name,
                 extra_global_vars = extra_global_vars, combinations_df = combinations_df
             )
@@ -218,17 +226,20 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
     logger("DEBUG", "loop_function class:", class(loop_function))
     logger("DEBUG", "calculate_function type:", typeof(calculate_function))
     logger("DEBUG", "calculate_function class:", class(calculate_function))
-    
-    tryCatch({
-        data <- calculate_function(loop_function)
-        logger("INFO", "calculate_function returned", nrow(data), "rows")
-        return(data)
-    }, error = function(e) {
-        logger("ERROR", "Error calling calculate_function:", e$message)
-        logger("ERROR", "loop_function type:", typeof(loop_function))
-        logger("ERROR", "calculate_function type:", typeof(calculate_function))
-        stop(e)
-    })
+
+    tryCatch(
+        {
+            data <- calculate_function(loop_function)
+            logger("INFO", "calculate_function returned", nrow(data), "rows")
+            return(data)
+        },
+        error = function(e) {
+            logger("ERROR", "Error calling calculate_function:", e$message)
+            logger("ERROR", "loop_function type:", typeof(loop_function))
+            logger("ERROR", "calculate_function type:", typeof(calculate_function))
+            stop(e)
+        }
+    )
 }
 
 #' Load or calculate data using loop system with automatic loop function handling
@@ -245,8 +256,8 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
 #' @param allow_add_missing Whether to check for and load missing combinations when loading from cache (default: FALSE, but automatically enabled when combinations_df is provided)
 #' @param threshold_parallel Threshold for using parallel processing when loading missing combinations (default: uses global THRESHOLD_PARALLEL)
 #' @return The loaded or calculated data
-load_or_calc_from_loop <- function(filePath, 
-                                   data_loader, 
+load_or_calc_from_loop <- function(filePath,
+                                   data_loader,
                                    datasets_to_verify = NULL,
                                    combinations_df = NULL,
                                    use_parallel = USE_PARALLEL,
@@ -255,68 +266,72 @@ load_or_calc_from_loop <- function(filePath,
                                    extra_global_vars = NULL,
                                    allow_add_missing = FALSE,
                                    threshold_parallel = NULL) {
-  
-  # Create logger for this function
-  loop_logger <- create_module_logger("LOAD-OR-CALC-FROM-LOOP")
-  
-  loop_logger("DEBUG", "=== load_or_calc_from_loop called ===")
-  loop_logger("DEBUG", "filePath:", filePath)
-  loop_logger("DEBUG", "data_loader type:", typeof(data_loader))
-  loop_logger("DEBUG", "data_loader class:", class(data_loader))
-  loop_logger("DEBUG", "data_loader name:", if(is.function(data_loader)) "function" else "not a function")
-  loop_logger("DEBUG", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
-  loop_logger("DEBUG", "combinations_df rows:", if(is.null(combinations_df)) "NULL" else nrow(combinations_df))
-  loop_logger("DEBUG", "use_parallel:", use_parallel)
-  loop_logger("DEBUG", "force_recalc:", force_recalc)
-  
-  # Create a simple calculate function that uses the provided data_loader
-  calculate_function <- function(loop_function) {
-    loop_logger("DEBUG", "=== calculate_function called ===")
-    loop_logger("DEBUG", "loop_function type:", typeof(loop_function))
-    loop_logger("DEBUG", "loop_function class:", class(loop_function))
-    loop_logger("DEBUG", "About to call loop_function with data_loader and datasets_to_verify")
-    loop_logger("DEBUG", "data_loader in calculate_function:", if(is.function(data_loader)) "function" else "NOT a function")
-    loop_logger("DEBUG", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
-    
-    tryCatch({
-      result <- loop_function(data_loader, datasets_to_verify = datasets_to_verify)
-      loop_logger("DEBUG", "loop_function returned successfully with", nrow(result), "rows")
-      return(result)
-    }, error = function(e) {
-      loop_logger("ERROR", "Error in calculate_function:", e$message)
-      loop_logger("ERROR", "data_loader:", if(is.function(data_loader)) "function" else "NOT a function")
-      loop_logger("ERROR", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
-      stop(e)
-    })
-  }
-  
-  loop_logger("DEBUG", "About to call load_or_calculate")
-  loop_logger("DEBUG", "calculate_function type:", typeof(calculate_function))
-  loop_logger("DEBUG", "calculate_function class:", class(calculate_function))
-  
-  # Use the existing load_or_calculate function with our simple calculate_function
-  tryCatch({
-    result <- load_or_calculate(
-      filePath = filePath,
-      calculate_function = calculate_function,
-      parallel = use_parallel,
-      force_recalc = force_recalc,
-      stop_cluster = stop_cluster,
-      extra_global_vars = extra_global_vars,
-      combinations_df = combinations_df,
-      allow_add_missing = allow_add_missing,
-      threshold_parallel = threshold_parallel
+    # Create logger for this function
+    loop_logger <- create_module_logger("LOAD-OR-CALC-FROM-LOOP")
+
+    loop_logger("DEBUG", "=== load_or_calc_from_loop called ===")
+    loop_logger("DEBUG", "filePath:", filePath)
+    loop_logger("DEBUG", "data_loader type:", typeof(data_loader))
+    loop_logger("DEBUG", "data_loader class:", class(data_loader))
+    loop_logger("DEBUG", "data_loader name:", if (is.function(data_loader)) "function" else "not a function")
+    loop_logger("DEBUG", "datasets_to_verify:", if (!is.null(datasets_to_verify)) paste(datasets_to_verify, collapse = ", ") else "NULL")
+    loop_logger("DEBUG", "combinations_df rows:", if (is.null(combinations_df)) "NULL" else nrow(combinations_df))
+    loop_logger("DEBUG", "use_parallel:", use_parallel)
+    loop_logger("DEBUG", "force_recalc:", force_recalc)
+
+    # Create a simple calculate function that uses the provided data_loader
+    calculate_function <- function(loop_function) {
+        loop_logger("DEBUG", "=== calculate_function called ===")
+        loop_logger("DEBUG", "loop_function type:", typeof(loop_function))
+        loop_logger("DEBUG", "loop_function class:", class(loop_function))
+        loop_logger("DEBUG", "data_loader in calculate_function:", if (is.function(data_loader)) "function" else "NOT a function")
+
+        tryCatch(
+            {
+                result <- loop_function(data_loader)
+                loop_logger("DEBUG", "loop_function returned successfully with", nrow(result), "rows")
+                return(result)
+            },
+            error = function(e) {
+                loop_logger("ERROR", "Error in calculate_function:", e$message)
+                loop_logger("ERROR", "data_loader:", if (is.function(data_loader)) "function" else "NOT a function")
+                loop_logger("ERROR", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
+                stop(e)
+            }
+        )
+    }
+
+    loop_logger("DEBUG", "About to call load_or_calculate")
+    loop_logger("DEBUG", "calculate_function type:", typeof(calculate_function))
+    loop_logger("DEBUG", "calculate_function class:", class(calculate_function))
+
+    # Use the existing load_or_calculate function with our simple calculate_function
+    tryCatch(
+        {
+            result <- load_or_calculate(
+                filePath = filePath,
+                calculate_function = calculate_function,
+                parallel = use_parallel,
+                force_recalc = force_recalc,
+                stop_cluster = stop_cluster,
+                extra_global_vars = extra_global_vars,
+                combinations_df = combinations_df,
+                allow_add_missing = allow_add_missing,
+                threshold_parallel = threshold_parallel,
+                data_loader = data_loader,
+                datasets_to_verify = datasets_to_verify
+            )
+            loop_logger("DEBUG", "load_or_calculate returned successfully with", nrow(result), "rows")
+            return(result)
+        },
+        error = function(e) {
+            loop_logger("ERROR", "Error in load_or_calculate:", e$message)
+            loop_logger("ERROR", "calculate_function type:", typeof(calculate_function))
+            loop_logger("ERROR", "calculate_function class:", class(calculate_function))
+            loop_logger("ERROR", "data_loader:", if (is.function(data_loader)) "function" else "NOT a function")
+            stop(e)
+        }
     )
-    loop_logger("DEBUG", "load_or_calculate returned successfully with", nrow(result), "rows")
-    return(result)
-  }, error = function(e) {
-    loop_logger("ERROR", "Error in load_or_calculate:", e$message)
-    loop_logger("ERROR", "calculate_function type:", typeof(calculate_function))
-    loop_logger("ERROR", "calculate_function class:", class(calculate_function))
-    loop_logger("ERROR", "data_loader:", if(is.function(data_loader)) "function" else "NOT a function")
-    loop_logger("ERROR", "datasets_to_verify:", paste(datasets_to_verify, collapse = ", "))
-    stop(e)
-  })
 }
 
 # Helper function to verify data availability for a trial
@@ -341,7 +356,7 @@ verify_trial_data <- function(participant, trial, datasets_to_verify) {
 # Helper function to print verification results
 print_verification_results <- function(verification_results) {
     verification_logger <- create_module_logger("VERIFICATION")
-    
+
     # Build list of results instead of repeated rbind for efficiency
     results_list <- list()
 
@@ -411,7 +426,7 @@ print_verification_results <- function(verification_results) {
 #' @return A configured cluster object so it can be reused across multiple calls.
 create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     cluster_logger <- create_module_logger("CLUSTER")
-    
+
     # Use standard core detection if not specified
     available_cores <- detectCores()
     if (is.null(numCores)) {
@@ -440,242 +455,262 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 
     # Add a simple test to ensure cluster is working
     cluster_logger("DEBUG", "Testing basic cluster functionality...")
-    tryCatch({
-        test_result <- clusterEvalQ(cl, { "OK" })
-        cluster_logger("DEBUG", "Basic cluster test successful:", paste(test_result, collapse = ", "))
-    }, error = function(e) {
-        cluster_logger("ERROR", "Basic cluster test failed:", e$message)
-        stopCluster(cl)
-        stop("Cluster creation failed: ", e$message)
-    })
+    tryCatch(
+        {
+            test_result <- clusterEvalQ(cl, {
+                "OK"
+            })
+            cluster_logger("DEBUG", "Basic cluster test successful:", paste(test_result, collapse = ", "))
+        },
+        error = function(e) {
+            cluster_logger("ERROR", "Basic cluster test failed:", e$message)
+            stopCluster(cl)
+            stop("Cluster creation failed: ", e$message)
+        }
+    )
 
     cluster_logger("INFO", "Initializing worker processes (lightweight setup - lazy loading enabled)...")
     cluster_logger("DEBUG", "Starting clusterEvalQ with detailed logging and timeout...")
 
     # Load packages and source files once on each worker with timeout
-    tryCatch({
-        # Set a reasonable timeout for cluster initialization (5 minutes)
-        R.utils::withTimeout({
-    clusterEvalQ(cl, {
-        # Set a flag to prevent recursive initialization during sourcing
-        .WORKER_INITIALIZING <<- TRUE
+    tryCatch(
+        {
+            # Set a reasonable timeout for cluster initialization (5 minutes)
+            R.utils::withTimeout(
+                {
+                    clusterEvalQ(cl, {
+                        # Set a flag to prevent recursive initialization during sourcing
+                        .WORKER_INITIALIZING <<- TRUE
 
-        tryCatch(
-            {
-                # First load logging utilities so we can use worker_logger
-                source("source/logging_utils.R", local = FALSE)
-                
-                # Now create the worker logger
-                worker_logger <- create_module_logger("WORKER")
-                worker_logger("INFO", "Starting worker initialization...")
-                worker_logger("DEBUG", "Logging system initialized successfully")
-                
-                worker_logger("DEBUG", "Loading setup.R...")
-                # LIGHTWEIGHT: Only load essential files for workers
-                source("source/setup.R", local = FALSE)
-                worker_logger("DEBUG", "setup.R loaded successfully")
-                
-                worker_logger("DEBUG", "Loading initialization.R...")
-                source("source/initialization.R", local = FALSE)
-                worker_logger("DEBUG", "initialization.R loaded successfully")
-                
-                worker_logger("DEBUG", "Calling initialize_global_parameters()...")
-                # Initialize only parameters, NOT heavy data
-                initialize_global_parameters()
-                worker_logger("DEBUG", "initialize_global_parameters() completed")
-                
-                worker_logger("DEBUG", "Setting up lazy loading functions...")
-                # Add dynamic lazy loading function for workers
-                lazy_load_function <- function(function_name) {
-                    if (!exists(function_name, envir = .GlobalEnv)) {
-                        # Dynamic function-to-file mapping
-                        function_files <- list(
-                            # Simulation functions
-                            "get_simulation_data" = c("source/profile_shapes.R", "source/simulation_core.R", "source/get_simulation_data.R"),
-                            
-                            # Gait analysis functions
-                            "calc_all_gait_params" = c("source/pre_processing.R", "source/data_loading.R", "source/find_foot_events.R", "source/calc_all_gait_params.R"),
-                            
-                            # Complexity functions
-                            "get_all_complexity_metrics" = c("source/complexity.R"),
-                            
-                            # Task metrics functions
-                            "get_all_task_metrics" = c("source/summarize_simulation.R", "source/summarize_gaitparams.R"),
-                            
-                            # Risk model functions (CRITICAL for caching system)
-                            "build_hazard_samples" = c("source/risk_model.R"),
-                            "resample_simulation_per_episode" = c("source/risk_model.R"),
-                            "train_risk_model" = c("source/risk_model.R"),
-                            "annotate_hazard_predictions" = c("source/risk_model.R"),
-                            "score_trial_with_model" = c("source/risk_model.R"),
-                            
-                            # Data caching functions
-                            "get_cached_data" = c("source/data_caching_system.R"),
-                            "get_data_loader" = c("source/data_caching_setup.R"),
-                            "get_datasets_to_verify" = c("source/data_caching_setup.R"),
-                            
-                            # Utility functions
-                            "create_module_logger" = c("source/logging_utils.R"),
-                            "add_identifiers_and_categories" = c("source/get_data_from_loop.R")
+                        tryCatch(
+                            {
+                                # First load logging utilities so we can use worker_logger
+                                source("source/logging_utils.R", local = FALSE)
+
+                                # Now create the worker logger
+                                worker_logger <- create_module_logger("WORKER")
+                                worker_logger("INFO", "Starting worker initialization...")
+                                worker_logger("DEBUG", "Logging system initialized successfully")
+
+                                worker_logger("DEBUG", "Loading setup.R...")
+                                # LIGHTWEIGHT: Only load essential files for workers
+                                source("source/setup.R", local = FALSE)
+                                worker_logger("DEBUG", "setup.R loaded successfully")
+
+                                worker_logger("DEBUG", "Loading initialization.R...")
+                                source("source/initialization.R", local = FALSE)
+                                worker_logger("DEBUG", "initialization.R loaded successfully")
+
+                                worker_logger("DEBUG", "Calling initialize_global_parameters()...")
+                                # Initialize only parameters, NOT heavy data
+                                initialize_global_parameters()
+                                worker_logger("DEBUG", "initialize_global_parameters() completed")
+
+                                worker_logger("DEBUG", "Setting up lazy loading functions...")
+                                # Add dynamic lazy loading function for workers
+                                lazy_load_function <- function(function_name) {
+                                    if (!exists(function_name, envir = .GlobalEnv)) {
+                                        # Dynamic function-to-file mapping
+                                        function_files <- list(
+                                            # Simulation functions
+                                            "get_simulation_data" = c("source/profile_shapes.R", "source/simulation_core.R", "source/get_simulation_data.R"),
+
+                                            # Gait analysis functions
+                                            "calc_all_gait_params" = c("source/pre_processing.R", "source/data_loading.R", "source/find_foot_events.R", "source/calc_all_gait_params.R"),
+
+                                            # Complexity functions
+                                            "get_all_complexity_metrics" = c("source/complexity.R"),
+
+                                            # Task metrics functions
+                                            "get_all_task_metrics" = c("source/summarize_simulation.R", "source/summarize_gaitparams.R"),
+
+                                            # Risk model functions (CRITICAL for caching system)
+                                            "build_hazard_samples" = c("source/risk_model.R"),
+                                            "resample_simulation_per_episode" = c("source/risk_model.R"),
+                                            "train_risk_model" = c("source/risk_model.R"),
+                                            "annotate_hazard_predictions" = c("source/risk_model.R"),
+                                            "score_trial_with_model" = c("source/risk_model.R"),
+
+                                            # Data caching functions
+                                            "get_cached_data" = c("source/data_caching_system.R"),
+                                            "get_data_loader" = c("source/data_caching_setup.R"),
+                                            "get_datasets_to_verify" = c("source/data_caching_setup.R"),
+
+                                            # Utility functions
+                                            "create_module_logger" = c("source/logging_utils.R"),
+                                            "add_identifiers_and_categories" = c("source/get_data_from_loop.R")
+                                        )
+
+                                        # Load files for this function
+                                        if (function_name %in% names(function_files)) {
+                                            files_to_load <- function_files[[function_name]]
+                                            for (file in files_to_load) {
+                                                if (file.exists(file)) {
+                                                    source(file, local = FALSE)
+                                                }
+                                            }
+                                        } else {
+                                            # Fallback: try to load all source files if function not found
+                                            # This ensures future functions will work
+                                            all_source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
+                                            for (file in all_source_files) {
+                                                if (file.exists(file) && !grepl("get_data_from_loop.R", file)) {
+                                                    tryCatch(
+                                                        {
+                                                            source(file, local = FALSE)
+                                                        },
+                                                        error = function(e) {
+                                                            # Ignore errors from files that might not be ready
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                worker_logger("DEBUG", "Setting up lazy data loading...")
+                                # Add lazy data loading function for workers
+                                lazy_load_data <- function() {
+                                    if (!exists("participants", envir = .GlobalEnv)) {
+                                        # Only load essential data, not everything
+                                        participants <<- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
+
+                                        # Load filename dictionary efficiently
+                                        if (file.exists(file.path(dataExtraFolder, filenameDictFile))) {
+                                            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, filenameDictFile),
+                                                stringsAsFactors = FALSE, verbose = FALSE
+                                            )
+                                            filenameDict <<- setNames(as.list(filenameDict_raw[[2]]), filenameDict_raw[[1]])
+                                            trackers <<- names(filenameDict)
+                                            rm(filenameDict_raw)
+                                        }
+
+                                        gc()
+                                    }
+                                }
+
+                                worker_logger("DEBUG", "Setting up function discovery system...")
+                                # Add function discovery system for future-proofing
+                                discover_function_source <- function(function_name) {
+                                    # Try to find which source file contains this function
+                                    source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
+
+                                    for (file in source_files) {
+                                        if (file.exists(file)) {
+                                            # Read file content and check if function is defined
+                                            content <- readLines(file, warn = FALSE)
+                                            if (any(grepl(paste0("^", function_name, "\\s*<-\\s*function"), content))) {
+                                                return(file)
+                                            }
+                                        }
+                                    }
+                                    return(NULL)
+                                }
+
+                                # Enhanced lazy loading with auto-discovery
+                                smart_lazy_load <- function(function_name) {
+                                    if (!exists(function_name, envir = .GlobalEnv)) {
+                                        # First try the predefined mapping
+                                        lazy_load_function(function_name)
+
+                                        # If still not found, try auto-discovery
+                                        if (!exists(function_name, envir = .GlobalEnv)) {
+                                            source_file <- discover_function_source(function_name)
+                                            if (!is.null(source_file)) {
+                                                source(source_file, local = FALSE)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                worker_logger("DEBUG", "Making functions globally available...")
+                                # Make lazy loading functions available globally on workers
+                                assign("lazy_load_function", lazy_load_function, envir = .GlobalEnv)
+                                assign("lazy_load_data", lazy_load_data, envir = .GlobalEnv)
+                                assign("discover_function_source", discover_function_source, envir = .GlobalEnv)
+                                assign("smart_lazy_load", smart_lazy_load, envir = .GlobalEnv)
+                                worker_logger("DEBUG", "All functions assigned to global environment")
+
+                                worker_logger("DEBUG", "Clearing initialization flag...")
+                                # Clear the flag
+                                rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
+
+                                worker_logger("DEBUG", "Running garbage collection...")
+                                # Force garbage collection
+                                gc()
+
+                                worker_logger("INFO", "Worker initialization completed successfully!")
+                            },
+                            error = function(e) {
+                                # Try to use worker_logger if available, otherwise use cat
+                                if (exists("worker_logger")) {
+                                    worker_logger("ERROR", "Initialization FAILED with error:", e$message)
+                                    worker_logger("ERROR", "Error details:", toString(e))
+                                } else {
+                                    cat("Worker: Initialization FAILED with error:", e$message, "\n")
+                                    cat("Worker: Error details:", toString(e), "\n")
+                                }
+                                # Clean up flag on error
+                                if (exists(".WORKER_INITIALIZING", envir = .GlobalEnv)) {
+                                    rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
+                                }
+                                stop("Worker initialization failed: ", e$message)
+                            }
                         )
-                        
-                        # Load files for this function
-                        if (function_name %in% names(function_files)) {
-                            files_to_load <- function_files[[function_name]]
-                            for (file in files_to_load) {
-                                if (file.exists(file)) {
-                                    source(file, local = FALSE)
-                                }
+
+                        # Handle logging system failure
+                        if (!exists("worker_logger")) {
+                            # Create a simple fallback logger
+                            worker_logger <- function(level, ...) {
+                                cat("Worker [", level, "]:", ..., "\n")
                             }
-                        } else {
-                            # Fallback: try to load all source files if function not found
-                            # This ensures future functions will work
-                            all_source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
-                            for (file in all_source_files) {
-                                if (file.exists(file) && !grepl("get_data_from_loop.R", file)) {
-                                    tryCatch({
-                                        source(file, local = FALSE)
-                                    }, error = function(e) {
-                                        # Ignore errors from files that might not be ready
-                                    })
-                                }
-                            }
+                            worker_logger("WARN", "Using fallback logging system")
                         }
-                    }
-                }
-                
-                worker_logger("DEBUG", "Setting up lazy data loading...")
-                # Add lazy data loading function for workers
-                lazy_load_data <- function() {
-                    if (!exists("participants", envir = .GlobalEnv)) {
-                        # Only load essential data, not everything
-                        participants <<- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
-                        
-                        # Load filename dictionary efficiently
-                        if (file.exists(file.path(dataExtraFolder, filenameDictFile))) {
-                            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, filenameDictFile),
-                                stringsAsFactors = FALSE, verbose = FALSE)
-                            filenameDict <<- setNames(as.list(filenameDict_raw[[2]]), filenameDict_raw[[1]])
-                            trackers <<- names(filenameDict)
-                            rm(filenameDict_raw)
-                        }
-                        
-                        gc()
-                    }
-                }
-                
-                worker_logger("DEBUG", "Setting up function discovery system...")
-                # Add function discovery system for future-proofing
-                discover_function_source <- function(function_name) {
-                    # Try to find which source file contains this function
-                    source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
-                    
-                    for (file in source_files) {
-                        if (file.exists(file)) {
-                            # Read file content and check if function is defined
-                            content <- readLines(file, warn = FALSE)
-                            if (any(grepl(paste0("^", function_name, "\\s*<-\\s*function"), content))) {
-                                return(file)
-                            }
-                        }
-                    }
-                    return(NULL)
-                }
-                
-                # Enhanced lazy loading with auto-discovery
-                smart_lazy_load <- function(function_name) {
-                    if (!exists(function_name, envir = .GlobalEnv)) {
-                        # First try the predefined mapping
-                        lazy_load_function(function_name)
-                        
-                        # If still not found, try auto-discovery
-                        if (!exists(function_name, envir = .GlobalEnv)) {
-                            source_file <- discover_function_source(function_name)
-                            if (!is.null(source_file)) {
-                                source(source_file, local = FALSE)
-                            }
-                        }
-                    }
-                }
-                
-                worker_logger("DEBUG", "Making functions globally available...")
-                # Make lazy loading functions available globally on workers
-                assign("lazy_load_function", lazy_load_function, envir = .GlobalEnv)
-                assign("lazy_load_data", lazy_load_data, envir = .GlobalEnv)
-                assign("discover_function_source", discover_function_source, envir = .GlobalEnv)
-                assign("smart_lazy_load", smart_lazy_load, envir = .GlobalEnv)
-                worker_logger("DEBUG", "All functions assigned to global environment")
-                
-                worker_logger("DEBUG", "Clearing initialization flag...")
-                # Clear the flag
-                rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
-                
-                worker_logger("DEBUG", "Running garbage collection...")
-                # Force garbage collection
-                gc()
-                
-                worker_logger("INFO", "Worker initialization completed successfully!")
-            },
-            error = function(e) {
-                # Try to use worker_logger if available, otherwise use cat
-                if (exists("worker_logger")) {
-                    worker_logger("ERROR", "Initialization FAILED with error:", e$message)
-                    worker_logger("ERROR", "Error details:", toString(e))
-                } else {
-                    cat("Worker: Initialization FAILED with error:", e$message, "\n")
-                    cat("Worker: Error details:", toString(e), "\n")
-                }
-                # Clean up flag on error
-                if (exists(".WORKER_INITIALIZING", envir = .GlobalEnv)) {
-                    rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
-                }
-                stop("Worker initialization failed: ", e$message)
+                    })
+                },
+                timeout = 300
+            ) # 5 minute timeout (configurable)
+        },
+        error = function(e) {
+            if (grepl("timeout", e$message, ignore.case = TRUE)) {
+                cluster_logger("ERROR", "Cluster initialization timed out after 5 minutes")
+            } else {
+                cluster_logger("ERROR", "Cluster initialization failed:", e$message)
             }
-        )
-        
-        # Handle logging system failure
-        if (!exists("worker_logger")) {
-            # Create a simple fallback logger
-            worker_logger <- function(level, ...) {
-                cat("Worker [", level, "]:", ..., "\n")
-            }
-            worker_logger("WARN", "Using fallback logging system")
+            stop(e)
         }
-    })
-        }, timeout = 300)  # 5 minute timeout (configurable)
-    }, error = function(e) {
-        if (grepl("timeout", e$message, ignore.case = TRUE)) {
-            cluster_logger("ERROR", "Cluster initialization timed out after 5 minutes")
-        } else {
-            cluster_logger("ERROR", "Cluster initialization failed:", e$message)
-        }
-        stop(e)
-    })
+    )
 
     cluster_logger("DEBUG", "clusterEvalQ completed - checking worker status...")
-    
+
     # Test if workers are responsive and get their status
-    tryCatch({
-        worker_status <- clusterEvalQ(cl, {
-            list(
-                pid = Sys.getpid(),
-                has_logger = exists("create_module_logger"),
-                has_lazy_load = exists("smart_lazy_load"),
-                has_data_loader = exists("lazy_load_data"),
-                working_dir = getwd(),
-                timestamp = Sys.time()
-            )
-        })
-        
-        cluster_logger("INFO", "Worker status check successful:")
-        for (i in seq_along(worker_status)) {
-            status <- worker_status[[i]]
-            cluster_logger("DEBUG", sprintf("Worker %d: PID=%d, Logger=%s, LazyLoad=%s, DataLoader=%s, Dir=%s", 
-                i, status$pid, status$has_logger, status$has_lazy_load, status$has_data_loader, status$working_dir))
+    tryCatch(
+        {
+            worker_status <- clusterEvalQ(cl, {
+                list(
+                    pid = Sys.getpid(),
+                    has_logger = exists("create_module_logger"),
+                    has_lazy_load = exists("smart_lazy_load"),
+                    has_data_loader = exists("lazy_load_data"),
+                    working_dir = getwd(),
+                    timestamp = Sys.time()
+                )
+            })
+
+            cluster_logger("INFO", "Worker status check successful:")
+            for (i in seq_along(worker_status)) {
+                status <- worker_status[[i]]
+                cluster_logger("DEBUG", sprintf(
+                    "Worker %d: PID=%d, Logger=%s, LazyLoad=%s, DataLoader=%s, Dir=%s",
+                    i, status$pid, status$has_logger, status$has_lazy_load, status$has_data_loader, status$working_dir
+                ))
+            }
+        },
+        error = function(e) {
+            cluster_logger("ERROR", "Worker status check failed:", e$message)
         }
-    }, error = function(e) {
-        cluster_logger("ERROR", "Worker status check failed:", e$message)
-    })
+    )
 
     cluster_logger("INFO", "Worker initialization completed.")
 
@@ -712,13 +747,17 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 #' cl <- create_parallel_cluster()
 #' data <- get_data_from_loop_parallel(calc_all_gait_params, cl = cl)
 #'
-get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"),
+get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = NULL,
                                         cl = NULL, log_to_file = TRUE, log_file = NULL, extra_global_vars = NULL, combinations_df = NULL, ...) {
     parallel_logger <- create_module_logger("PARALLEL")
     start_time <- Sys.time()
-    
+
     # Get valid combinations using the helper function
-    valid_combinations <- get_valid_combinations_for_processing(combinations_df, datasets_to_verify, parallel_logger)
+    valid_combinations <- if (!is.null(datasets_to_verify)) {
+        get_valid_combinations_for_processing(combinations_df, datasets_to_verify, parallel_logger)
+    } else {
+        combinations_df
+    }
 
     # Set up logging if requested
     log_messages <- character(0) # Collect log messages in memory
@@ -742,7 +781,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
             log_messages,
             sprintf("=== Parallel Processing Log Started: %s ===", Sys.time()),
             sprintf("Function: %s", deparse(substitute(get_data_function))),
-            sprintf("Datasets to verify: %s", paste(datasets_to_verify, collapse = ", ")),
+            sprintf("Datasets to verify: %s", if (!is.null(datasets_to_verify)) paste(datasets_to_verify, collapse = ", ") else "None"),
             sprintf("Total jobs: %d", nrow(valid_combinations)),
             ""
         )
@@ -781,7 +820,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     essential_vars <- c("get_data_function")
 
     # Add global variables that might be needed by get_simulation_data and risk_model functions
-    global_vars <- c("risk_model_path", "dataExtraFolder", "risk_model_file")
+    global_vars <- c("dataExtraFolder", "risk_model_file")
 
     # Add any extra global variables passed in
     if (!is.null(extra_global_vars)) {
@@ -1038,11 +1077,15 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     return(data)
 }
 
-get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"), combinations_df = NULL, ...) {
+get_data_from_loop <- function(get_data_function, datasets_to_verify = NULL, combinations_df = NULL, ...) {
     loop_logger <- create_module_logger("LOOP")
-    
+
     # Get valid combinations using the helper function
-    valid_combinations <- get_valid_combinations_for_processing(combinations_df, datasets_to_verify, loop_logger)
+    valid_combinations <- if (!is.null(datasets_to_verify)) {
+        get_valid_combinations_for_processing(combinations_df, datasets_to_verify, loop_logger)
+    } else {
+        combinations_df
+    }
 
     # Initialize list to store data frames instead of growing data frame
     data_list <- list()
@@ -1069,7 +1112,7 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
         # Calculate gait data and parameters
         newData <- get_data_function(participant, trial, ...)
         loop_logger("DEBUG", "get_data_function returned", nrow(newData), "rows")
-        
+
         newData <- add_identifiers_and_categories(as.data.frame(newData), participant, trial)
         loop_logger("DEBUG", "add_identifiers_and_categories completed, final data has", nrow(newData), "rows")
 
@@ -1091,7 +1134,7 @@ get_data_from_loop <- function(get_data_function, datasets_to_verify = c("leftfo
 
 get_valid_combinations <- function(datasets_to_verify) {
     combinations_logger <- create_module_logger("COMBINATIONS")
-    
+
     # Verify data availability for all combinations
     verification_results <- list()
     valid_combinations_list <- list() # Use list instead of growing data frame
@@ -1166,76 +1209,73 @@ get_valid_combinations_for_processing <- function(combinations_df = NULL, datase
 #'
 #' @param data Existing loaded data
 #' @param combinations_df Requested combinations data frame
-#' @param calculate_function Function to extract data loader from
+#' @param data_loader Function to load data for a participant-trial combination
+#' @param datasets_to_verify Vector of dataset names to verify
 #' @param threshold_parallel Threshold for using parallel processing (uses global THRESHOLD_PARALLEL if NULL)
 #' @param extra_global_vars Additional global variables for parallel processing
 #' @param filePath Path to save updated data
 #' @return Updated data with missing combinations loaded
-handle_missing_combinations <- function(data, combinations_df, calculate_function, 
-                                       threshold_parallel, extra_global_vars, filePath) {
+handle_missing_combinations <- function(data, combinations_df, data_loader, datasets_to_verify,
+                                        threshold_parallel, extra_global_vars, filePath) {
     # Use global threshold if not provided
     if (is.null(threshold_parallel)) {
         ensure_global_data_initialized()
         threshold_parallel <- THRESHOLD_PARALLEL
     }
-    
+
     missing_logger <- create_module_logger("MISSING-CHECK")
     missing_logger("DEBUG", "Checking for missing combinations in loaded data")
-    
+
     # Get requested combinations
     requested_combinations <- combinations_df
     missing_logger("DEBUG", "Requested", nrow(requested_combinations), "combinations")
-    
+
     # Check which combinations we have
     existing_combinations <- unique(paste(data$participant, data$trialNum, sep = "_"))
     missing_logger("DEBUG", "Found", length(existing_combinations), "existing combinations in loaded data")
-    
+
     # Find missing combinations
     requested_combinations$combo_id <- paste(requested_combinations$participant, requested_combinations$trial, sep = "_")
     missing_combinations <- requested_combinations[!requested_combinations$combo_id %in% existing_combinations, ]
     missing_combinations$combo_id <- NULL
-    
+
     if (nrow(missing_combinations) > 0) {
         missing_logger("INFO", "Found", nrow(missing_combinations), "missing combinations, loading them...")
-        
+
         # Determine if we should use parallel for missing combinations
         use_parallel_missing <- nrow(missing_combinations) >= threshold_parallel
-        missing_logger("DEBUG", "Using parallel for missing combinations:", use_parallel_missing, 
-                      "(threshold:", threshold_parallel, ", missing:", nrow(missing_combinations), ")")
-        
-        # Extract the data loader function from calculate_function
-        loader_info <- extract_data_loader_from_calculate_function(calculate_function)
-        
-        if (!is.null(loader_info)) {
-            # Load missing combinations using the extracted data loader
-            missing_data <- load_missing_combinations(
-                data_loader = loader_info$data_loader,
-                datasets_to_verify = loader_info$datasets_to_verify,
-                missing_combinations = missing_combinations,
-                use_parallel = use_parallel_missing,
-                extra_global_vars = extra_global_vars
-            )
-            
-            if (nrow(missing_data) > 0) {
-                missing_logger("INFO", "Successfully loaded", nrow(missing_data), "rows for missing combinations")
-                
-                # Combine with existing data
-                data <- rbind(data, missing_data)
-                missing_logger("INFO", "Combined data now has", nrow(data), "total rows")
-                
-                # Save the updated data
-                saveRDS(data, filePath)
-                missing_logger("DEBUG", "Saved updated data to", filePath)
-            } else {
-                missing_logger("WARN", "No data was loaded for missing combinations")
-            }
+        missing_logger(
+            "DEBUG", "Using parallel for missing combinations:", use_parallel_missing,
+            "(threshold:", threshold_parallel, ", missing:", nrow(missing_combinations), ")"
+        )
+
+        # Use the provided data_loader directly
+        missing_logger("DEBUG", "Using provided data_loader for missing combinations")
+        missing_data <- load_missing_combinations(
+            data_loader = data_loader,
+            datasets_to_verify = datasets_to_verify,
+            missing_combinations = missing_combinations,
+            use_parallel = use_parallel_missing,
+            extra_global_vars = extra_global_vars
+        )
+
+        if (nrow(missing_data) > 0) {
+            missing_logger("INFO", "Successfully loaded", nrow(missing_data), "rows for missing combinations")
+
+            # Combine with existing data
+            data <- rbind(data, missing_data)
+            missing_logger("INFO", "Combined data now has", nrow(data), "total rows")
+
+            # Save the updated data
+            saveRDS(data, filePath)
+            missing_logger("DEBUG", "Saved updated data to", filePath)
         } else {
-            missing_logger("ERROR", "Could not extract data loader function from calculate_function")
+            missing_logger("WARN", "No data was loaded for missing combinations")
         }
     } else {
         missing_logger("DEBUG", "All requested combinations already present in loaded data")
     }
-    
+
     return(data)
 }
 
@@ -1249,38 +1289,38 @@ handle_missing_combinations <- function(data, combinations_df, calculate_functio
 #' @param use_parallel Whether to use parallel processing
 #' @param extra_global_vars Additional global variables to export to parallel workers
 #' @return Data frame with loaded missing combinations data
-load_missing_combinations <- function(data_loader, datasets_to_verify, missing_combinations, 
-                                     use_parallel, extra_global_vars = NULL) {
-  missing_logger <- create_module_logger("LOAD-MISSING")
-  
-  missing_logger("DEBUG", "Loading", nrow(missing_combinations), "missing combinations")
-  missing_logger("DEBUG", "Using parallel:", use_parallel)
-  
-  if (use_parallel) {
-    # Use parallel processing for missing combinations
-    if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
-        is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
-      assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+load_missing_combinations <- function(data_loader, datasets_to_verify, missing_combinations,
+                                      use_parallel, extra_global_vars = NULL) {
+    missing_logger <- create_module_logger("LOAD-MISSING")
+
+    missing_logger("DEBUG", "Loading", nrow(missing_combinations), "missing combinations")
+    missing_logger("DEBUG", "Using parallel:", use_parallel)
+
+    if (use_parallel) {
+        # Use parallel processing for missing combinations
+        if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
+            is.null(get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv))) {
+            assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+        }
+        cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
+
+        missing_data <- get_data_from_loop_parallel(
+            get_data_function = data_loader,
+            datasets_to_verify = datasets_to_verify,
+            cl = cl,
+            log_to_file = FALSE, # Don't create separate log files for missing data
+            combinations_df = missing_combinations,
+            extra_global_vars = extra_global_vars
+        )
+    } else {
+        # Use sequential processing for missing combinations
+        missing_data <- get_data_from_loop(
+            get_data_function = data_loader,
+            datasets_to_verify = datasets_to_verify,
+            combinations_df = missing_combinations
+        )
     }
-    cl <- get(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv)
-    
-    missing_data <- get_data_from_loop_parallel(
-      get_data_function = data_loader,
-      datasets_to_verify = datasets_to_verify,
-      cl = cl,
-      log_to_file = FALSE, # Don't create separate log files for missing data
-      combinations_df = missing_combinations,
-      extra_global_vars = extra_global_vars
-    )
-  } else {
-    # Use sequential processing for missing combinations
-    missing_data <- get_data_from_loop(
-      get_data_function = data_loader,
-      datasets_to_verify = datasets_to_verify,
-      combinations_df = missing_combinations
-    )
-  }
-  
-  missing_logger("DEBUG", "Loaded", nrow(missing_data), "rows for missing combinations")
-  return(missing_data)
+
+    missing_logger("DEBUG", "Loaded", nrow(missing_data), "rows for missing combinations")
+    return(missing_data)
 }

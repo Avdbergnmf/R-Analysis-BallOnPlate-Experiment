@@ -36,18 +36,20 @@ get_hazard_data_type_info <- function() {
         datasets_to_verify = NULL,
         relevant_inputs = NULL
     )
-    
+
     if (info$is_initialized) {
         loader_info <- data_loaders[["hazard"]]
         if (!is.null(loader_info)) {
             info$loader_function_exists <- is.function(loader_info$loader)
             info$datasets_to_verify <- loader_info$datasets_to_verify
         }
-        
-        # Get relevant inputs from shiny_inputs_config
-        info$relevant_inputs <- shiny_inputs_config[["hazard"]]
+
+        # Get relevant context variables from context_vars_config
+        relevant_vars <- get_relevant_context_vars("hazard")
+        input_vars <- relevant_vars[startsWith(relevant_vars, "input.")]
+        info$relevant_inputs <- substring(input_vars, 7) # Remove "input." prefix for backward compatibility
     }
-    
+
     return(info)
 }
 
@@ -56,7 +58,7 @@ get_hazard_data_type_info <- function() {
 clear_hazard_cache <- function() {
     risk_logger("INFO", "Clearing hazard cache")
     clear_cache("hazard")
-    
+
     # Also clear the RDS file
     ensure_global_data_initialized()
     cache_path <- get_cache_file_path("hazard")
@@ -170,14 +172,18 @@ build_hazard_samples <- function(sim_data, tau = 0.2) {
     positives <- sum(haz$drop_within_tau, na.rm = TRUE)
     dt_med <- if (n_on > 1) stats::median(diff(sim_data$time), na.rm = TRUE) else NA_real_
     hazard_logger <- create_module_logger("HAZARD")
-    hazard_logger("DEBUG", sprintf("tau=%.3fs | rows_in=%d | rows_out=%d | dt~%.3fs | positives=%d (%.4f%%)",
-        tau, n_on, n_haz, dt_med, positives, ifelse(n_haz > 0, 100 * positives / n_haz, 0)))
+    hazard_logger("DEBUG", sprintf(
+        "tau=%.3fs | rows_in=%d | rows_out=%d | dt~%.3fs | positives=%d (%.4f%%)",
+        tau, n_on, n_haz, dt_med, positives, ifelse(n_haz > 0, 100 * positives / n_haz, 0)
+    ))
 
     return(haz)
 }
 
 
 resample_simulation_per_episode <- function(sim_data, target_freq = 20, debug = FALSE) {
+    resample_logger <- create_module_logger("RESAMPLE")
+
     if (is.null(sim_data) || nrow(sim_data) == 0) {
         return(sim_data)
     }
@@ -185,7 +191,7 @@ resample_simulation_per_episode <- function(sim_data, target_freq = 20, debug = 
     req <- c("time", "respawn_segment", "is_last_sample_of_segment")
     miss <- setdiff(req, names(sim_data))
     if (length(miss) > 0) {
-        warning("Missing columns for resampling: ", paste(miss, collapse = ", "))
+        resample_logger("ERROR", "Missing columns for resampling:", paste(miss, collapse = ", "))
         return(sim_data)
     }
 
@@ -297,7 +303,7 @@ resample_simulation_per_episode <- function(sim_data, target_freq = 20, debug = 
     # --- Post-checks ---
     new_true <- sum(out$is_last_sample_of_segment, na.rm = TRUE)
     if (!identical(orig_true, new_true)) {
-        warning(sprintf("[RESAMPLE] TRUE-flag count changed: original=%d, resampled=%d", orig_true, new_true))
+        resample_logger("WARN", "TRUE-flag count changed: original=", orig_true, "resampled=", new_true)
     }
 
     if (debug) {
@@ -511,7 +517,7 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
             # Pick preferred prediction column
             pred_col <- prefer[prefer %in% names(haz_trial)][1]
             if (is.na(pred_col)) {
-                warning("No predicted columns found in saved file; computing on the fly.")
+                score_logger("WARN", "No predicted columns found in saved file; computing on the fly.")
             } else {
                 score_logger("DEBUG", "Using saved predictions (", pred_col, ") for participant", pid, "trial", trial)
                 return(list(
@@ -537,6 +543,8 @@ score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, stand
 #' @return List with individual_predictions and hazard_samples
 #' @export
 score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = TRUE) {
+    score_logger <- create_module_logger("SCORE")
+
     if (is.null(model)) {
         return(list(
             individual_predictions = numeric(0),
@@ -624,7 +632,7 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
         p_t <- predict(model, newdata = hazard_samples, type = "response", exclude = "s(participant)")
     } else {
         # Warn for unexpected model types
-        warning(sprintf("Unexpected model type: %s. Only mgcv::bam models are supported.", class(model)[1]))
+        score_logger("WARN", "Unexpected model type:", class(model)[1], "Only mgcv::bam models are supported.")
         p_t <- predict(model, newdata = hazard_samples, type = "response")
     }
 
@@ -637,13 +645,12 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
     return(result)
 }
 
-#' Save risk model to RDS file
+#' Save risk model to cache
 #'
 #' @param model Fitted model from train_risk_model()
-#' @param file_path Path to save the RDS file
 #' @param tau Time horizon used for training (optional, for metadata)
 #' @export
-save_risk_model <- function(model, file_path, tau = NULL) {
+save_risk_model <- function(model, tau = NULL) {
     # Add tau as an attribute if provided
     save_logger <- create_module_logger("SAVE")
     if (!is.null(tau)) {
@@ -652,124 +659,47 @@ save_risk_model <- function(model, file_path, tau = NULL) {
     } else {
         save_logger("WARN", "No tau provided, model will be saved without tau attribute")
     }
-    
+
     # Verify the attribute was added
     if (!is.null(tau)) {
         saved_tau <- attr(model, "tau")
         save_logger("DEBUG", "Verified tau attribute:", saved_tau, "seconds")
     }
-    
-    saveRDS(model, file_path)
-    save_logger("INFO", "Model saved to:", file_path)
-}
 
-#' Load risk model from RDS file
-#'
-#' @param file_path Path to the RDS file
-#' @return Fitted model object
-#' @export
-load_risk_model <- function(file_path) {
-    if (file.exists(file_path)) {
-        model <- readRDS(file_path)
-        
-        # Check if tau attribute exists
-        load_logger <- create_module_logger("LOAD")
-        tau <- attr(model, "tau")
-        if (!is.null(tau)) {
-            load_logger("DEBUG", "Model loaded with tau attribute:", tau, "seconds")
-        } else {
-            load_logger("WARN", "Model loaded without tau attribute")
-        }
-        
-        return(model)
-    } else {
-        load_logger("ERROR", "Model file not found:", file_path)
-        return(NULL)
-    }
-}
-
-#' Set up global risk model variables
-#'
-#' This function loads the risk model, hazard samples with predictions, and analysis results into global variables.
-#' It should be called whenever a new model is trained or when initializing the system.
-#'
-#' @param model_path Path to the risk model RDS file (optional, uses global path if not provided). 
-#'   Pass FALSE to skip loading the risk model.
-#' @param hazard_samples_path Path to the hazard samples with predictions RDS file (optional, uses global path if not provided).
-#'   Pass FALSE to skip loading the hazard samples.
-#' @param analysis_results_path Path to the analysis results RDS file (optional, uses global path if not provided).
-#'   Pass FALSE to skip loading the analysis results.
-#' @export
-setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path = NULL, analysis_results_path = NULL) {
-    # Ensure global data is initialized to access paths
-    ensure_global_data_initialized()
-    
-    # Load risk model and extract tau for parallel processing (only if not explicitly skipped)
-    if (!identical(model_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(model_path)) {
-            model_path <- risk_model_path
-        }
-        
-        global_logger <- create_module_logger("GLOBAL")
-        if (file.exists(model_path)) {
-            GLOBAL_RISK_MODEL <<- load_risk_model(model_path)
-            GLOBAL_RISK_TAU <<- attr(GLOBAL_RISK_MODEL, "tau")
-            global_logger("INFO", "Risk model loaded from:", model_path)
-            if (!is.null(GLOBAL_RISK_TAU)) {
-                global_logger("DEBUG", "Risk model tau:", GLOBAL_RISK_TAU, "seconds")
-            } else {
-                global_logger("WARN", "No tau found in risk model")
+    # Save to cache for efficient parallel access
+    cache_path <- get_model_cache_path("risk")
+    tryCatch(
+        {
+            # Ensure cache directory exists
+            cache_dir <- dirname(cache_path)
+            if (!dir.exists(cache_dir)) {
+                dir.create(cache_dir, recursive = TRUE)
             }
-        } else {
-            global_logger("WARN", "No risk model found at:", model_path, "- use dashboard to load one")
+            saveRDS(model, cache_path)
+            save_logger("INFO", "Model saved to cache:", cache_path)
+        },
+        error = function(e) {
+            save_logger("ERROR", "Failed to save model to cache:", e$message)
+            stop("Failed to save model to cache: ", e$message)
         }
-    } else {
-        global_logger("DEBUG", "Skipping risk model loading (model_path = FALSE)")
-    }
-    
-    # Load hazard samples with predictions into global workspace (only if not explicitly skipped)
-    if (!identical(hazard_samples_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(hazard_samples_path)) {
-            hazard_samples_path <- risk_hazard_samples_preds_path
-        }
-        
-        if (file.exists(hazard_samples_path)) {
-            GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(hazard_samples_path)
-            global_logger("INFO", "Hazard samples with predictions loaded from:", hazard_samples_path)
-            global_logger("DEBUG", "Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows")
-        } else {
-            global_logger("WARN", "No hazard samples with predictions found at:", hazard_samples_path)
-        }
-    } else {
-        global_logger("DEBUG", "Skipping hazard samples loading (hazard_samples_path = FALSE)")
-    }
-    
-    # Load analysis results into global workspace (only if not explicitly skipped)
-    if (!identical(analysis_results_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(analysis_results_path)) {
-            analysis_results_path <- risk_analysis_results_path
-        }
-        
-        if (file.exists(analysis_results_path)) {
-            GLOBAL_HAZARD_ANALYSIS_RESULTS <<- readRDS(analysis_results_path)
-            global_logger("INFO", "Analysis results loaded from:", analysis_results_path)
-            if (!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS)) {
-                global_logger("DEBUG", "Loaded analysis results with", 
-                    ifelse(!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 
-                           nrow(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 0), 
-                    "standardized risk combinations")
-            }
-        } else {
-            global_logger("WARN", "No analysis results found at:", analysis_results_path)
-        }
-    } else {
-        global_logger("DEBUG", "Skipping analysis results loading (analysis_results_path = FALSE)")
-    }
+    )
 }
 
+#' Get the cache path for a specific model
+#' @param model_name The name of the model (e.g., "risk")
+#' @return The path to the cached model file
+get_model_cache_path <- function(model_name = "risk") {
+    # Use the same cache folder as other cached data
+    cache_folder <- if (exists("cacheFolder", envir = .GlobalEnv)) {
+        get("cacheFolder", envir = .GlobalEnv)
+    } else {
+        "cache"
+    }
+
+    # Generate model filename based on model name
+    model_filename <- paste0(model_name, "_model.rds")
+    return(file.path(cache_folder, model_filename))
+}
 
 #' Train and save risk model using all available trials
 #'
@@ -777,26 +707,21 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
 #' @param trials Vector of trial numbers
 #' @param tau Time horizon for drop prediction (default 0.2 seconds)
 #' @param sampling_freq Sampling frequency for resampling (default 90 Hz)
-#' @param file_path Path to save the RDS file (default uses global risk_model_path)
 #' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
 #' @return Fitted model object
 #' @export
-train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE) {
+train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, use_by_interaction = FALSE) {
     tryCatch({
-        # Use global risk model path if not specified
-        if (is.null(file_path)) {
-            ensure_global_data_initialized()
-            file_path <- risk_model_path
-        }
-        # Ensure data_extra directory exists
-        ensure_global_data_initialized()
-        if (!dir.exists(dataExtraFolder)) {
-            dir.create(dataExtraFolder, recursive = TRUE)
+        # Ensure cache directory exists
+        cache_path <- get_model_cache_path("risk")
+        cache_dir <- dirname(cache_path)
+        if (!dir.exists(cache_dir)) {
+            dir.create(cache_dir, recursive = TRUE)
         }
 
         risk_logger("INFO", "Using cached data system to load hazard samples...")
         risk_logger("DEBUG", "Parameters - tau:", tau, "sampling_freq:", sampling_freq)
-        
+
         # Use the caching system for hazard samples
         risk_logger("INFO", "Using caching system for hazard samples...")
 
@@ -805,27 +730,27 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
             risk_tau = tau,
             sampling_freq = sampling_freq
         )
-        
+
         # Store original input if it exists
         original_input <- NULL
         if (exists("input", envir = .GlobalEnv)) {
             original_input <- get("input", envir = .GlobalEnv)
         }
-        
+
         # Set temporary input
         assign("input", temp_input, envir = .GlobalEnv)
-        
+
         tryCatch({
             # Get hazard samples using the caching system
             all_hazard_samples <- get_cached_data(
                 data_type = "hazard",
-                participants = NULL,  # Will be determined by caching system from sidebar
-                trials = NULL,        # Will be determined by caching system from sidebar
+                participants = NULL, # Will be determined by caching system from sidebar
+                trials = NULL, # Will be determined by caching system from sidebar
                 condition_filter = NULL,
                 use_parallel = TRUE,
-                shiny_inputs = temp_input
+                context_vars = temp_input
             )
-            
+
             risk_logger("INFO", "Retrieved", nrow(all_hazard_samples), "hazard samples from caching system")
         }, finally = {
             # Restore original input
@@ -859,9 +784,9 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
             return(NULL)
         }
 
-        # Save risk model
-        train_logger("INFO", "Step 3/3: Saving model and hazard samples to disk...")
-        save_risk_model(model, file_path, tau = tau)
+        # Save risk model to cache
+        train_logger("INFO", "Step 3/3: Saving model to cache...")
+        save_risk_model(model, tau = tau)
 
         # Save hazard samples alongside the model
         ensure_global_data_initialized()
@@ -895,9 +820,8 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
         )
 
 
-        # Set up global variables with the newly trained model
-        train_logger("INFO", "Step 5/6: Setting up global risk variables...")
-        setup_global_risk_variables(analysis_results_path = FALSE)
+        # Model is now saved to cache and will be loaded automatically when needed
+        train_logger("INFO", "Step 5/6: Model saved to cache system")
 
         # Abandoned this as things were getting too complicated
         # ── NEW: pooled standardized predictions by Condition × Phase ──
@@ -920,18 +844,60 @@ train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path =
 
 #' Annotate hazard samples with model predictions
 #'
-#' @param model Fitted model from train_risk_model()
-#' @param hazard_samples Data frame from build_hazard_samples()
+#' This function takes cached hazard samples and applies model predictions to create
+#' hazard samples with predictions, which are then cached. It's a standalone transformation
+#' function that doesn't need to be called through the loop system.
+#'
+#' @param model Fitted model from train_risk_model() or NULL to load from cache
+#' @param hazard_samples Data frame from build_hazard_samples() or NULL to load from cache
 #' @param include_re Whether to include random effects (subject-specific predictions)
-#' @param out_path Path to save the annotated hazard samples (NULL = use global path, FALSE = don't save)
+#' @param out_path Path to save the annotated hazard samples (NULL = use global path, FALSE = don't save, "cache" = save to cache system)
 #' @param chunk_by Column names to chunk by for processing large datasets
 #' @return Annotated hazard samples data frame
 #' @export
-annotate_hazard_predictions <- function(model,
-                                        hazard_samples,
+annotate_hazard_predictions <- function(model = NULL,
+                                        hazard_samples = NULL,
                                         include_re = FALSE,
-                                        out_path = NULL,
+                                        out_path = "cache",
                                         chunk_by = c("participant")) {
+    # Handle NULL model by loading from cache
+    if (is.null(model)) {
+        predict_logger <- create_module_logger("PREDICT")
+        predict_logger("INFO", "Loading risk model from cache...")
+
+        cache_path <- get_model_cache_path("risk")
+        if (file.exists(cache_path)) {
+            model <- readRDS(cache_path)
+            predict_logger("INFO", "Loaded risk model from cache")
+        } else {
+            predict_logger("ERROR", "No risk model found in cache at:", cache_path)
+            return(data.frame())
+        }
+    }
+
+    # Handle NULL hazard_samples by loading from cache
+    if (is.null(hazard_samples)) {
+        predict_logger <- create_module_logger("PREDICT")
+        predict_logger("INFO", "Loading hazard samples from cache...")
+
+        # Load hazard samples from cache using the caching system
+        hazard_samples <- get_cached_data(
+            data_type = "hazard",
+            participants = NULL, # Will be determined by caching system from sidebar
+            trials = NULL, # Will be determined by caching system from sidebar
+            condition_filter = NULL,
+            use_parallel = TRUE,
+            context_vars = if (exists("input")) input else NULL
+        )
+
+        if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+            predict_logger("ERROR", "Failed to load hazard samples from cache")
+            return(data.frame())
+        }
+
+        predict_logger("INFO", "Loaded", nrow(hazard_samples), "hazard samples from cache")
+    }
+
     # Use global path if not specified, skip saving if FALSE
     if (is.null(out_path)) {
         ensure_global_data_initialized()
@@ -1035,9 +1001,17 @@ annotate_hazard_predictions <- function(model,
 
     # Save and return (only if out_path is not NULL)
     if (!is.null(out_path)) {
-        saveRDS(hazard_samples, out_path)
-        setup_global_risk_variables(hazard_samples_path = out_path, model_path = FALSE, analysis_results_path = FALSE)
-        predict_logger("INFO", "Saved hazard samples with predictions to:", out_path)
+        if (identical(out_path, "cache")) {
+            # Save to cache system
+            predict_logger("INFO", "Saving hazard samples with predictions to cache system...")
+            set_cache("hazard_preds", hazard_samples)
+            save_cache_to_file("hazard_preds", hazard_samples)
+            predict_logger("INFO", "Saved hazard samples with predictions to cache system")
+        } else {
+            # Save to file
+            saveRDS(hazard_samples, out_path)
+            predict_logger("INFO", "Saved hazard samples with predictions to:", out_path)
+        }
     } else {
         predict_logger("DEBUG", "Skipped saving hazard samples (out_path = FALSE)")
     }
@@ -1362,7 +1336,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         analysis_logger("DEBUG", "Using LRT (ML) for interaction test...")
         anova(m_noint_ml, m_full_ml, test = "Chisq")
     } else {
-        warning("[ANALYSIS] Could not refit models with ML for LRT. Will use Wald test.")
+        analysis_logger("WARN", "Could not refit models with ML for LRT. Will use Wald test.")
         NULL
     }
 
@@ -1402,10 +1376,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 
     needed_phases <- c("baseline_task", "retention", "transfer")
     if (!all(needed_phases %in% unique(mm$phase))) {
-        warning(
-            "[ANALYSIS] Expected phases missing in standardized means: ",
-            paste(setdiff(needed_phases, unique(mm$phase)), collapse = ", ")
-        )
+        analysis_logger("WARN", "Expected phases missing in standardized means:", paste(setdiff(needed_phases, unique(mm$phase)), collapse = ", "))
     }
 
     delta <- std_means |>
@@ -1450,7 +1421,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     within_ci <- NULL
 
     if (!all(c("e", "v", "participant") %in% names(hazard_samples))) {
-        warning("[ANALYSIS] Missing e/v/participant in hazard_samples; skipping bootstrap.")
+        analysis_logger("WARN", "Missing e/v/participant in hazard_samples; skipping bootstrap.")
     } else {
         ref_df <- hazard_samples[, c("e", "v", "participant")]
         ref_df$participant <- factor(ref_df$participant)
@@ -1462,7 +1433,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         V <- model$Vp
 
         if (is.null(V) || any(!is.finite(V))) {
-            warning("[ANALYSIS] No valid covariance matrix; skipping bootstrap.")
+            analysis_logger("WARN", "No valid covariance matrix; skipping bootstrap.")
         } else {
             B <- 100L # increase to 1000 for final runs
             analysis_logger("INFO", "Starting optimized parametric bootstrap with", B, "iterations...")
@@ -1666,7 +1637,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             boot_arr <- dplyr::bind_rows(boot_list, .id = "boot_id")
 
             if (!nrow(boot_arr)) {
-                warning("[ANALYSIS] Bootstrap produced no rows; skipping CIs.")
+                analysis_logger("WARN", "Bootstrap produced no rows; skipping CIs.")
             } else {
                 # Means + CIs
                 means_CI <- boot_arr |>
@@ -1832,13 +1803,13 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         # FALSE -> set to NULL (skip saving)
         final_path <- NULL
     }
-    
+
     # Save files only if we have a valid path
     if (!is.null(final_path)) {
         # Save analysis to text file using the same path but with .txt extension
         txt_path <- gsub("\\.rds$", ".txt", final_path)
         save_analysis_to_txt(results, std_means, txt_path)
-        
+
         # Save analysis results to RDS file
         analysis_results_to_save <- list(
             standardized_risks = std_means,
@@ -1846,13 +1817,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         )
         saveRDS(analysis_results_to_save, final_path)
         analysis_logger("INFO", "Analysis results saved to:", final_path)
-        
-        # Set up global variables with the analysis results
-        setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE, analysis_results_path = final_path)
     } else {
         analysis_logger("DEBUG", "Skipped saving analysis results (analysis_results_path = FALSE)")
     }
-    
+
     print_analysis_summary(results)
 
     analysis_logger("INFO", "Analysis complete!")

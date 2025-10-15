@@ -53,10 +53,12 @@ calculate_total_score <- function(sim_data) {
 debug_check_columns <- function(data, cols_to_check, context, check_valid_values = TRUE) {
     existing_cols <- intersect(cols_to_check, colnames(data))
     if (length(existing_cols) > 0) {
-        cat(sprintf("[TASK_METRICS] Found %s columns in %s: %s\n", 
-                   ifelse(check_valid_values, "risk", "risk metric"), 
-                   context, 
-                   paste(existing_cols, collapse = ", ")))
+        cat(sprintf(
+            "[TASK_METRICS] Found %s columns in %s: %s\n",
+            ifelse(check_valid_values, "risk", "risk metric"),
+            context,
+            paste(existing_cols, collapse = ", ")
+        ))
         for (col in existing_cols) {
             if (check_valid_values) {
                 valid_count <- sum(!is.na(data[[col]]))
@@ -67,9 +69,11 @@ debug_check_columns <- function(data, cols_to_check, context, check_valid_values
             }
         }
     } else {
-        cat(sprintf("[TASK_METRICS] No %s columns found in %s\n", 
-                   ifelse(check_valid_values, "risk", "risk metric"), 
-                   context))
+        cat(sprintf(
+            "[TASK_METRICS] No %s columns found in %s\n",
+            ifelse(check_valid_values, "risk", "risk metric"),
+            context
+        ))
     }
 }
 

@@ -494,7 +494,6 @@ add_velocity_towards_edge_metrics <- function(data) {
         # Add absqd column: absolute value of qd (velocity magnitude)
         data$absqd <- NA_real_
         data$absqd[data$simulating] <- abs(data$qd[data$simulating])
-        
     } else {
         data$velocity_towards_edge <- NA_real_
         data$approach_pressure <- NA_real_
@@ -530,10 +529,14 @@ add_edge_pressure_metric <- function(data) {
         data$edge_pressure_clamped <- NA_real_
         data$edge_pressure_clamped[data$simulating] <- edge_pressure_clamped[data$simulating]
 
-        sim_logger("DEBUG", "Added edge_pressure for", sum(data$simulating), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)), ")")
-        sim_logger("DEBUG", "Added edge_pressure_clamped for", sum(data$simulating), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(edge_pressure_clamped[data$simulating], na.rm = TRUE), max(edge_pressure_clamped[data$simulating], na.rm = TRUE)), ")")
+        sim_logger(
+            "DEBUG", "Added edge_pressure for", sum(data$simulating), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)), ")"
+        )
+        sim_logger(
+            "DEBUG", "Added edge_pressure_clamped for", sum(data$simulating), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(edge_pressure_clamped[data$simulating], na.rm = TRUE), max(edge_pressure_clamped[data$simulating], na.rm = TRUE)), ")"
+        )
     } else {
         data$edge_pressure <- NA_real_
         data$edge_pressure_clamped <- NA_real_
@@ -587,8 +590,10 @@ add_escape_distance_velocity <- function(data) {
             }
         }
 
-        sim_logger("DEBUG", "Added v_e (escape distance velocity) for", sum(!is.na(data$v_e)), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(data$v_e, na.rm = TRUE), max(data$v_e, na.rm = TRUE)), ")")
+        sim_logger(
+            "DEBUG", "Added v_e (escape distance velocity) for", sum(!is.na(data$v_e)), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(data$v_e, na.rm = TRUE), max(data$v_e, na.rm = TRUE)), ")"
+        )
     } else {
         data$v_e <- NA_real_
         if (sum(data$simulating) == 0) {
@@ -718,8 +723,10 @@ assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "un
     data$drop_risk_1s[on_platform_indices] <- p_1s
 
     # Debug: Check assignment immediately after
-    sim_logger("DEBUG", "After assignment (", method_name, ") - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "After assignment (", method_name, ") - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     return(data)
 }
@@ -767,8 +774,8 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
                 sim_logger("DEBUG", "No global tau found, using parameter:", sprintf("%.3f seconds", tau))
             }
 
-            # Try to use global hazard samples
-            risk_scores <- score_trial_with_global_predictions(data, tau)
+            # Try to use cached hazard predictions
+            risk_scores <- score_trial_with_cached_predictions(data, tau)
 
             # Check if we got valid predictions
             if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
@@ -905,8 +912,10 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
     )
 
     # Debug: Check final state before returning
-    sim_logger("DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     sim_logger("INFO", "add_risk_predictions completed")
     return(data)
@@ -919,63 +928,114 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
 #' @return List with individual_predictions and hazard_samples
 #' @export
 
-score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
-    # Check if global hazard samples exist
-    if (!exists("GLOBAL_HAZARD_SAMPLES_PREDS") || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
-        sim_logger("WARN", "No global hazard samples with predictions found")
+score_trial_with_cached_predictions <- function(sim_data, tau = 0.2) {
+    sim_logger <- create_module_logger("SIM")
+
+    # Get risk model from context variables
+    risk_model <- NULL
+    if (exists("model.risk", envir = environment())) {
+        model_ref <- get("model.risk", envir = environment())
+        if (is.list(model_ref) && model_ref$type == "model_reference") {
+            tryCatch(
+                {
+                    if (file.exists(model_ref$model_path)) {
+                        risk_model <- readRDS(model_ref$model_path)
+                        sim_logger("DEBUG", "Loaded risk model from cache for scoring")
+                    }
+                },
+                error = function(e) {
+                    sim_logger("ERROR", "Failed to load risk model from cache:", e$message)
+                }
+            )
+        }
+    }
+
+    # Get hazard predictions from context variables
+    hazard_preds <- NULL
+    if (exists("cache.hazard_preds", envir = environment())) {
+        hazard_preds <- get("cache.hazard_preds", envir = environment())
+        sim_logger("DEBUG", "Using cached hazard predictions with", nrow(hazard_preds), "rows")
+    }
+
+    if (is.null(risk_model) || is.null(hazard_preds) || nrow(hazard_preds) == 0) {
+        sim_logger("WARN", "No risk model or hazard predictions available in context")
         return(list(
             individual_predictions = numeric(0),
             hazard_samples = data.frame()
         ))
     }
+
+    # Get tau from the model if available
+    model_tau <- attr(risk_model, "tau")
+    if (!is.null(model_tau)) {
+        tau <- model_tau
+        sim_logger("DEBUG", "Using tau from model:", sprintf("%.3f seconds", tau))
+    }
+
+    # Use the cached hazard predictions directly
+    return(score_trial_with_hazard_predictions(sim_data, hazard_preds, tau))
+}
+
+score_trial_with_hazard_predictions <- function(sim_data, hazard_preds, tau = 0.2) {
+    sim_logger <- create_module_logger("SIM")
 
     # Identify this participant/trial
     pid <- unique(sim_data$participant)
     if (length(pid) != 1) pid <- pid[1]
 
-    trial <- unique(sim_data$trial)
+    trial <- unique(sim_data$trialNum)
     if (length(trial) != 1) trial <- trial[1]
 
-    # Filter global hazard samples by participant and trial
-    haz_all <- GLOBAL_HAZARD_SAMPLES_PREDS
-    sel <- rep(TRUE, nrow(haz_all))
-    if ("participant" %in% names(haz_all)) sel <- sel & (as.character(haz_all$participant) == as.character(pid))
-    if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
+    sim_logger("DEBUG", "Scoring trial for participant", pid, "trial", trial)
 
-    haz_trial <- haz_all[sel, , drop = FALSE]
-    sim_logger("DEBUG", "Filtered to", nrow(haz_trial), "rows for participant", pid, "trial", trial)
+    # Filter hazard predictions for this participant/trial
+    trial_hazard_preds <- hazard_preds[hazard_preds$participant == pid & hazard_preds$trial == trial, , drop = FALSE]
 
-    if (nrow(haz_trial) == 0) {
-        sim_logger("WARN", "No hazard samples found for this participant/trial")
+    if (nrow(trial_hazard_preds) == 0) {
+        sim_logger("WARN", "No hazard predictions found for participant", pid, "trial", trial)
         return(list(
             individual_predictions = numeric(0),
             hazard_samples = data.frame()
         ))
     }
 
-    # Pick preferred prediction column (p_hat_fe for fixed effects)
-    pred_col <- "p_hat_fe"
-    if (!pred_col %in% names(haz_trial)) {
-        # Fallback to other prediction columns
-        available_cols <- intersect(c("p_hat_fe", "p_hat_re", "p_hat"), names(haz_trial))
-        if (length(available_cols) > 0) {
-            pred_col <- available_cols[1]
-            sim_logger("DEBUG", "Using fallback prediction column:", pred_col)
-        } else {
-            sim_logger("ERROR", "No prediction columns found in global hazard samples")
+    sim_logger("DEBUG", "Found", nrow(trial_hazard_preds), "hazard predictions for this trial")
+
+    # Use the existing scoring logic from score_trial_with_model
+    tryCatch(
+        {
+            # Get the risk model from context
+            risk_model <- NULL
+            if (exists("model.risk", envir = environment())) {
+                model_ref <- get("model.risk", envir = environment())
+                if (is.list(model_ref) && model_ref$type == "model_reference") {
+                    if (file.exists(model_ref$model_path)) {
+                        risk_model <- readRDS(model_ref$model_path)
+                    }
+                }
+            }
+
+            if (is.null(risk_model)) {
+                sim_logger("ERROR", "No risk model available for scoring")
+                return(list(
+                    individual_predictions = numeric(0),
+                    hazard_samples = data.frame()
+                ))
+            }
+
+            # Use the existing scoring function
+            result <- score_trial_with_model(sim_data, risk_model, trial_hazard_preds, tau)
+            sim_logger("DEBUG", "Scoring completed, got", length(result$individual_predictions), "predictions")
+            return(result)
+        },
+        error = function(e) {
+            sim_logger("ERROR", "Error in scoring:", e$message)
             return(list(
                 individual_predictions = numeric(0),
                 hazard_samples = data.frame()
             ))
         }
-    }
-
-    sim_logger("DEBUG", "Using global predictions (", pred_col, ") for participant", pid, "trial", trial)
-
-    return(list(
-        individual_predictions = haz_trial[[pred_col]],
-        hazard_samples = haz_trial
-    ))
+    )
 }
 
 # ARCHIVED: Direct model prediction approach (kept for reference)
@@ -1047,8 +1107,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             features <- extract_risk_features(data)
 
             # Debug: Check feature ranges
-            sim_logger("DEBUG", "Feature ranges - e:", sprintf("%.4f to %.4f", min(features$e, na.rm = TRUE), max(features$e, na.rm = TRUE)), 
-                      "v:", sprintf("%.4f to %.4f", min(features$v, na.rm = TRUE), max(features$v, na.rm = TRUE)))
+            sim_logger(
+                "DEBUG", "Feature ranges - e:", sprintf("%.4f to %.4f", min(features$e, na.rm = TRUE), max(features$e, na.rm = TRUE)),
+                "v:", sprintf("%.4f to %.4f", min(features$v, na.rm = TRUE), max(features$v, na.rm = TRUE))
+            )
 
             # Create prediction data frame with required columns
             pred_data <- data.frame(
@@ -1060,9 +1122,11 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             )
 
             # Debug: Check input data
-            sim_logger("DEBUG", "Input data - participants:", paste(unique(pred_data$participant), collapse = ", "), 
-                      "conditions:", paste(unique(pred_data$condition), collapse = ", "), 
-                      "phases:", paste(unique(pred_data$phase), collapse = ", "))
+            sim_logger(
+                "DEBUG", "Input data - participants:", paste(unique(pred_data$participant), collapse = ", "),
+                "conditions:", paste(unique(pred_data$condition), collapse = ", "),
+                "phases:", paste(unique(pred_data$phase), collapse = ", ")
+            )
 
             # Ensure factors match model levels
             if ("condition" %in% names(model$model)) {
@@ -1083,8 +1147,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                     pred_phases <- as.character(pred_data$phase)
                     unknown_phases <- !pred_phases %in% model_phase_levels
                     if (any(unknown_phases)) {
-                        sim_logger("WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':", 
-                                  paste(unique(pred_phases[unknown_phases]), collapse = ", "))
+                        sim_logger(
+                            "WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':",
+                            paste(unique(pred_phases[unknown_phases]), collapse = ", ")
+                        )
                         pred_phases[unknown_phases] <- "baseline_task"
                     }
                     pred_data$phase <- factor(pred_phases, levels = model_phase_levels)
@@ -1121,11 +1187,13 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                         pred_phases_fixed <- as.character(pred_data$phase)
                         unknown_phases <- !pred_phases_fixed %in% train_phases
                         if (any(unknown_phases)) {
-                            sim_logger("WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':", 
-                                      paste(unique(pred_phases_fixed[unknown_phases]), collapse = ", "))
+                            sim_logger(
+                                "WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':",
+                                paste(unique(pred_phases_fixed[unknown_phases]), collapse = ", ")
+                            )
                             pred_phases_fixed[unknown_phases] <- "baseline_task"
                         }
-                        
+
                         # Create new prediction data with reconstructed levels
                         pred_data_fixed <- data.frame(
                             e = pred_data$e,
@@ -1153,30 +1221,38 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             )
 
             # Debug: Check eta range
-            sim_logger("DEBUG", "Eta range:", sprintf("%.4f to %.4f", min(eta, na.rm = TRUE), max(eta, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(eta)), "/", length(eta), ")")
+            sim_logger(
+                "DEBUG", "Eta range:", sprintf("%.4f to %.4f", min(eta, na.rm = TRUE), max(eta, na.rm = TRUE)),
+                "(valid:", sum(!is.na(eta)), "/", length(eta), ")"
+            )
 
             # Calculate risk metrics using tau (not dt_sample)
             # p_bin: probability of drop within tau
             p_bin <- 1 - exp(-exp(eta))
 
             # Debug: Check p_bin range
-            sim_logger("DEBUG", "P_bin range:", sprintf("%.6f to %.6f", min(p_bin, na.rm = TRUE), max(p_bin, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(p_bin)), "/", length(p_bin), ")")
+            sim_logger(
+                "DEBUG", "P_bin range:", sprintf("%.6f to %.6f", min(p_bin, na.rm = TRUE), max(p_bin, na.rm = TRUE)),
+                "(valid:", sum(!is.na(p_bin)), "/", length(p_bin), ")"
+            )
 
             # lambda: instantaneous hazard rate per second
             lambda <- exp(eta) / tau
 
             # Debug: Check lambda range
-            sim_logger("DEBUG", "Lambda range:", sprintf("%.6f to %.6f", min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(lambda)), "/", length(lambda), ")")
+            sim_logger(
+                "DEBUG", "Lambda range:", sprintf("%.6f to %.6f", min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)),
+                "(valid:", sum(!is.na(lambda)), "/", length(lambda), ")"
+            )
 
             # p_1s: 1-second risk (comparable across sampling rates)
             p_1s <- 1 - exp(-lambda * 1)
 
             # Debug: Check p_1s range
-            sim_logger("DEBUG", "P_1s range:", sprintf("%.6f to %.6f", min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(p_1s)), "/", length(p_1s), ")")
+            sim_logger(
+                "DEBUG", "P_1s range:", sprintf("%.6f to %.6f", min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)),
+                "(valid:", sum(!is.na(p_1s)), "/", length(p_1s), ")"
+            )
 
             # Assign results using helper function
             data <- assign_risk_predictions(data, p_bin, lambda, p_1s, "direct_model")
@@ -1204,8 +1280,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
     )
 
     # Debug: Check final state before returning
-    sim_logger("DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     sim_logger("INFO", "add_risk_predictions_direct_model completed")
     return(data)
