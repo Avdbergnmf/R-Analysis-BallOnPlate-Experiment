@@ -50,10 +50,10 @@ checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
-  selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
-    choices = general_correction_choices,
-    selected = "holm", multiple = FALSE
-  )
+selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
+  choices = general_correction_choices,
+  selected = "holm", multiple = FALSE
+)
 ```
 
 ```{r}
@@ -174,11 +174,11 @@ conditionalPanel(
 
 ```{r}
 conditionalPanel(
-    condition = "input.paired_ttest == false",
-    selectizeInput("posthoc_correction", "Post-hoc correction method",
-      choices = c("tukey", "scheffe", "sidak", general_correction_choices),
-      selected = "tukey", multiple = FALSE
-    ),
+  condition = "input.paired_ttest == false",
+  selectizeInput("posthoc_correction", "Post-hoc correction method",
+    choices = c("tukey", "scheffe", "sidak", general_correction_choices),
+    selected = "tukey", multiple = FALSE
+  ),
   helpText("Tukey's HSD is recommended for pairwise comparisons. Other methods may be more or less conservative.")
 )
 ```
@@ -266,10 +266,10 @@ create_dynamic_variable_observer(
 # Dynamic observers for reference level selection
 observe({
   data <- get_stats_data()
-  
+
   if ("condition" %in% names(data)) {
     available_conditions <- unique(data$condition)
-    
+
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "condition" %in% names(reference_levels)) {
       ref <- reference_levels$condition
@@ -277,7 +277,7 @@ observe({
     } else {
       available_conditions[1]
     }
-    
+
     updateSelectizeInput(session, "refLevelCondition",
       choices = available_conditions,
       selected = default_ref
@@ -287,10 +287,10 @@ observe({
 
 observe({
   data <- get_stats_data()
-  
+
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)
-    
+
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "phase" %in% names(reference_levels)) {
       ref <- reference_levels$phase
@@ -298,7 +298,7 @@ observe({
     } else {
       available_phases[1]
     }
-    
+
     updateSelectizeInput(session, "refLevelPhase",
       choices = available_phases,
       selected = default_ref
@@ -475,10 +475,10 @@ output$post_hoc_table <- renderTable(
   {
     req(dep_var_valid())
     lmm <- get_lmer()
-    
+
     # Get the same processed data that was used for the model
     data <- get_stats_data()
-    
+
     # Apply same reference levels as in get_lmer()
     if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
       data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
@@ -486,7 +486,7 @@ output$post_hoc_table <- renderTable(
     if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
       data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
     }
-    
+
     # Apply same transformation as in get_lmer()
     data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
     if (is.null(data)) {
@@ -564,30 +564,30 @@ output$lmm_assumption_button_ui <- renderUI({
 # DiD analysis observer
 observeEvent(input$show_did_analysis, {
   req(dep_var_valid())
-  
+
   lmm <- get_lmer()
   data <- get_stats_data()
-  
+
   if (is.null(lmm)) {
     showNotification("Model could not be fitted. Please check your model settings.", type = "error")
     return()
   }
-  
-  # Compute DiD analysis (uses Kenward-Roger df and Holm correction)
-  did_results <- compute_did_analysis(lmm, data)
-  
+
+  # Compute DiD analysis (uses Kenward-Roger df and selected correction method)
+  did_results <- compute_did_analysis(lmm, data, input$correctionMethod)
+
   # Check if we have valid results
   if (!is.null(did_results$message)) {
     showNotification(did_results$message, type = "warning", duration = 10)
     return()
   }
-  
+
   # Format the results for display
   within_cond_display <- did_results$within_condition
   within_phase_display <- did_results$within_phase
   did_display <- did_results$did
   baseline_used <- did_results$baseline_used
-  
+
   if (!is.null(within_cond_display)) {
     within_cond_display <- set_digits_with_bold_pvalues(within_cond_display, "p_adjusted", digits = 4)
   }
@@ -597,7 +597,7 @@ observeEvent(input$show_did_analysis, {
   if (!is.null(did_display)) {
     did_display <- set_digits_with_bold_pvalues(did_display, "p_adjusted", digits = 4)
   }
-  
+
   # Show modal with results
   showModal(
     modalDialog(
@@ -611,64 +611,66 @@ observeEvent(input$show_did_analysis, {
         tags$p("This analysis compares how changes from baseline phase differ between conditions."),
         tags$p(tags$strong("Baseline phase used:"), baseline_used),
         tags$hr(),
-        
         tags$h5("Statistical Methods:"),
         tags$ul(
           tags$li(tags$strong("Degrees of Freedom:"), " Kenward-Roger approximation (more accurate for small samples and complex random effects structures)"),
-          tags$li(tags$strong("Multiple Comparison Correction:"), " Holm step-down procedure (controls family-wise error rate while being more powerful than Bonferroni)"),
+          tags$li(tags$strong("Multiple Comparison Correction:"), paste("Selected method:", input$correctionMethod)),
           tags$li(tags$strong("Confidence Intervals:"), " 95% CIs based on the t-distribution with Kenward-Roger df")
         ),
-        
         tags$h5("Interpreting Estimates:"),
         tags$ul(
           tags$li(tags$strong("Within-Condition:"), " Positive = increase from baseline; Negative = decrease from baseline"),
           tags$li(tags$strong("Within-Phase:"), " Positive = condition_cmp > condition_ref; Negative = condition_cmp < condition_ref"),
           tags$li(tags$strong("DiD:"), " Positive = condition_cmp changed more (or decreased less) than condition_ref from baseline; Negative = condition_cmp changed less (or decreased more) than condition_ref")
         ),
-        
         tags$p(tags$em("Note: Bold p-values indicate significance at α = 0.05 after correction.")),
         tags$hr()
       ),
-      
+
       # Within-condition comparisons table
       if (!is.null(within_cond_display)) {
         tags$div(
           tags$h4("Within-Condition Phase Comparisons", style = "margin-top: 20px;"),
           tags$p("Each condition's change from baseline phase (used as inputs for DiD calculation)."),
-          renderTable({
-            within_cond_display
-          }, 
-          sanitize.text.function = function(x) x,
-          escape = FALSE),
+          renderTable(
+            {
+              within_cond_display
+            },
+            sanitize.text.function = function(x) x,
+            escape = FALSE
+          ),
           tags$hr()
         )
       },
-      
+
       # DiD results table
       tags$div(
         tags$h4("Difference-in-Differences Results", style = "margin-top: 20px;"),
         tags$p("Tests whether conditions differ in how they changed from baseline to each phase."),
-        renderTable({
-          did_display
-        }, 
-        sanitize.text.function = function(x) x,
-        escape = FALSE),
+        renderTable(
+          {
+            did_display
+          },
+          sanitize.text.function = function(x) x,
+          escape = FALSE
+        ),
         tags$hr()
       ),
-      
+
       # Within-phase comparisons table
       if (!is.null(within_phase_display)) {
         tags$div(
           tags$h4("Within-Phase Condition Comparisons", style = "margin-top: 20px;"),
           tags$p("Pairwise comparisons between all conditions within each phase."),
-          renderTable({
-            within_phase_display
-          }, 
-          sanitize.text.function = function(x) x,
-          escape = FALSE)
+          renderTable(
+            {
+              within_phase_display
+            },
+            sanitize.text.function = function(x) x,
+            escape = FALSE
+          )
         )
       },
-      
       easyClose = TRUE,
       footer = modalButton("Close")
     )

@@ -13,7 +13,7 @@ add_identifiers <- function(data, participant, trial) {
   if (nrow(data) == 0) {
     return(data)
   }
-  
+
   data$participant <- as.factor(participant)
   data$trialNum <- as.ordered(trial)
   return(data)
@@ -24,14 +24,14 @@ add_category_columns <- function(data) {
   if (nrow(data) == 0) {
     return(data)
   }
-  
+
   ensure_global_data_initialized()
-  
+
   # Get unique participant and trial combinations to avoid redundant calculations
   unique_combinations <- data %>%
     dplyr::select(participant, trialNum) %>%
     dplyr::distinct()
-  
+
   # Pre-calculate all values for unique combinations
   combination_data <- unique_combinations %>%
     dplyr::mutate(
@@ -44,6 +44,7 @@ add_category_columns <- function(data) {
       trialNumWithinPhase = ifelse(as.numeric(as.character(trialNum)) == 8, 2, 1),
       phaseNum = match(phase, allPhases),
       taskNum = task_num_lookup(as.numeric(as.character(trialNum))),
+      is_training_trial = as.numeric(as.character(trialNum)) %in% c(7, 8),
 
       # Demographic / questionnaire details
       gender = get_p_detail(as.character(participant), "gender"),
@@ -54,7 +55,7 @@ add_category_columns <- function(data) {
       vr_experience = get_p_detail(as.character(participant), "vr_experience"),
       height_meters = as.numeric(get_p_detail(as.character(participant), "height_scale")) * avatar_height_m
     )
-  
+
   # Join the pre-calculated data back to the original data
   data <- data %>%
     dplyr::left_join(combination_data, by = c("participant", "trialNum")) %>%

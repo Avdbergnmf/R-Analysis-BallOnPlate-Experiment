@@ -438,193 +438,39 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
-    # Add a simple test to ensure cluster is working
-    cluster_logger("DEBUG", "Testing basic cluster functionality...")
-    tryCatch({
-        test_result <- clusterEvalQ(cl, { "OK" })
-        cluster_logger("DEBUG", "Basic cluster test successful:", paste(test_result, collapse = ", "))
-    }, error = function(e) {
-        cluster_logger("ERROR", "Basic cluster test failed:", e$message)
-        stopCluster(cl)
-        stop("Cluster creation failed: ", e$message)
-    })
+    cluster_logger("INFO", "Initializing worker processes (loading packages and data)...")
 
-    cluster_logger("INFO", "Initializing worker processes (lightweight setup - lazy loading enabled)...")
-    cluster_logger("DEBUG", "Starting clusterEvalQ with detailed logging and timeout...")
-
-    # Load packages and source files once on each worker with timeout
-    tryCatch({
-        # Set a reasonable timeout for cluster initialization (5 minutes)
-        R.utils::withTimeout({
+    # Load packages and source files once on each worker
     clusterEvalQ(cl, {
         # Set a flag to prevent recursive initialization during sourcing
         .WORKER_INITIALIZING <<- TRUE
 
         tryCatch(
             {
-                # First load logging utilities so we can use worker_logger
-                source("source/logging_utils.R", local = FALSE)
-                
-                # Now create the worker logger
-                worker_logger <- create_module_logger("WORKER")
-                worker_logger("INFO", "Starting worker initialization...")
-                worker_logger("DEBUG", "Logging system initialized successfully")
-                
-                worker_logger("DEBUG", "Loading setup.R...")
-                # LIGHTWEIGHT: Only load essential files for workers
+                # Source files in dependency order
                 source("source/setup.R", local = FALSE)
-                worker_logger("DEBUG", "setup.R loaded successfully")
-                
-                worker_logger("DEBUG", "Loading initialization.R...")
-                source("source/initialization.R", local = FALSE)
-                worker_logger("DEBUG", "initialization.R loaded successfully")
-                
-                worker_logger("DEBUG", "Calling initialize_global_parameters()...")
-                # Initialize only parameters, NOT heavy data
-                initialize_global_parameters()
-                worker_logger("DEBUG", "initialize_global_parameters() completed")
-                
-                worker_logger("DEBUG", "Setting up lazy loading functions...")
-                # Add dynamic lazy loading function for workers
-                lazy_load_function <- function(function_name) {
-                    if (!exists(function_name, envir = .GlobalEnv)) {
-                        # Dynamic function-to-file mapping
-                        function_files <- list(
-                            # Simulation functions
-                            "get_simulation_data" = c("source/profile_shapes.R", "source/simulation_core.R", "source/get_simulation_data.R"),
-                            
-                            # Gait analysis functions
-                            "calc_all_gait_params" = c("source/pre_processing.R", "source/data_loading.R", "source/find_foot_events.R", "source/calc_all_gait_params.R"),
-                            
-                            # Complexity functions
-                            "get_all_complexity_metrics" = c("source/complexity.R"),
-                            
-                            # Task metrics functions
-                            "get_all_task_metrics" = c("source/summarize_simulation.R", "source/summarize_gaitparams.R"),
-                            
-                            # Risk model functions (CRITICAL for caching system)
-                            "build_hazard_samples" = c("source/risk_model.R"),
-                            "resample_simulation_per_episode" = c("source/risk_model.R"),
-                            "train_risk_model" = c("source/risk_model.R"),
-                            "annotate_hazard_predictions" = c("source/risk_model.R"),
-                            "score_trial_with_model" = c("source/risk_model.R"),
-                            
-                            # Data caching functions
-                            "get_cached_data" = c("source/data_caching_system.R"),
-                            "get_data_loader" = c("source/data_caching_setup.R"),
-                            "get_datasets_to_verify" = c("source/data_caching_setup.R"),
-                            
-                            # Utility functions
-                            "create_module_logger" = c("source/logging_utils.R"),
-                            "add_identifiers_and_categories" = c("source/get_data_from_loop.R")
-                        )
-                        
-                        # Load files for this function
-                        if (function_name %in% names(function_files)) {
-                            files_to_load <- function_files[[function_name]]
-                            for (file in files_to_load) {
-                                if (file.exists(file)) {
-                                    source(file, local = FALSE)
-                                }
-                            }
-                        } else {
-                            # Fallback: try to load all source files if function not found
-                            # This ensures future functions will work
-                            all_source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
-                            for (file in all_source_files) {
-                                if (file.exists(file) && !grepl("get_data_from_loop.R", file)) {
-                                    tryCatch({
-                                        source(file, local = FALSE)
-                                    }, error = function(e) {
-                                        # Ignore errors from files that might not be ready
-                                    })
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                worker_logger("DEBUG", "Setting up lazy data loading...")
-                # Add lazy data loading function for workers
-                lazy_load_data <- function() {
-                    if (!exists("participants", envir = .GlobalEnv)) {
-                        # Only load essential data, not everything
-                        participants <<- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
-                        
-                        # Load filename dictionary efficiently
-                        if (file.exists(file.path(dataExtraFolder, filenameDictFile))) {
-                            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, filenameDictFile),
-                                stringsAsFactors = FALSE, verbose = FALSE)
-                            filenameDict <<- setNames(as.list(filenameDict_raw[[2]]), filenameDict_raw[[1]])
-                            trackers <<- names(filenameDict)
-                            rm(filenameDict_raw)
-                        }
-                        
-                        gc()
-                    }
-                }
-                
-                worker_logger("DEBUG", "Setting up function discovery system...")
-                # Add function discovery system for future-proofing
-                discover_function_source <- function(function_name) {
-                    # Try to find which source file contains this function
-                    source_files <- list.files("source", pattern = "\\.R$", full.names = TRUE)
-                    
-                    for (file in source_files) {
-                        if (file.exists(file)) {
-                            # Read file content and check if function is defined
-                            content <- readLines(file, warn = FALSE)
-                            if (any(grepl(paste0("^", function_name, "\\s*<-\\s*function"), content))) {
-                                return(file)
-                            }
-                        }
-                    }
-                    return(NULL)
-                }
-                
-                # Enhanced lazy loading with auto-discovery
-                smart_lazy_load <- function(function_name) {
-                    if (!exists(function_name, envir = .GlobalEnv)) {
-                        # First try the predefined mapping
-                        lazy_load_function(function_name)
-                        
-                        # If still not found, try auto-discovery
-                        if (!exists(function_name, envir = .GlobalEnv)) {
-                            source_file <- discover_function_source(function_name)
-                            if (!is.null(source_file)) {
-                                source(source_file, local = FALSE)
-                            }
-                        }
-                    }
-                }
-                
-                worker_logger("DEBUG", "Making functions globally available...")
-                # Make lazy loading functions available globally on workers
-                assign("lazy_load_function", lazy_load_function, envir = .GlobalEnv)
-                assign("lazy_load_data", lazy_load_data, envir = .GlobalEnv)
-                assign("discover_function_source", discover_function_source, envir = .GlobalEnv)
-                assign("smart_lazy_load", smart_lazy_load, envir = .GlobalEnv)
-                worker_logger("DEBUG", "All functions assigned to global environment")
-                
-                worker_logger("DEBUG", "Clearing initialization flag...")
-                # Clear the flag
+                source("source/initialization.R", local = FALSE) # Load initialization first
+                source("source/pre_processing.R", local = FALSE) # Load pre_processing before data_loading
+                source("source/data_loading.R", local = FALSE)
+                source("source/complexity.R", local = FALSE)
+                source("source/find_foot_events.R", local = FALSE)
+                source("source/calc_all_gait_params.R", local = FALSE)
+                source("source/profile_shapes.R", local = FALSE)
+                source("source/simulation_core.R", local = FALSE)
+                source("source/get_simulation_data.R", local = FALSE)
+                source("source/summarize_simulation.R", local = FALSE)
+                source("source/summarize_gaitparams.R", local = FALSE)
+
+                # Clear the flag before initialization
                 rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
-                
-                worker_logger("DEBUG", "Running garbage collection...")
-                # Force garbage collection
+
+                # Initialize heavy data once per worker (after all functions are available)
+                ensure_global_data_initialized()
+
+                # Force garbage collection after initialization
                 gc()
-                
-                worker_logger("INFO", "Worker initialization completed successfully!")
             },
             error = function(e) {
-                # Try to use worker_logger if available, otherwise use cat
-                if (exists("worker_logger")) {
-                    worker_logger("ERROR", "Initialization FAILED with error:", e$message)
-                    worker_logger("ERROR", "Error details:", toString(e))
-                } else {
-                    cat("Worker: Initialization FAILED with error:", e$message, "\n")
-                    cat("Worker: Error details:", toString(e), "\n")
-                }
                 # Clean up flag on error
                 if (exists(".WORKER_INITIALIZING", envir = .GlobalEnv)) {
                     rm(.WORKER_INITIALIZING, envir = .GlobalEnv)
@@ -632,49 +478,6 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
                 stop("Worker initialization failed: ", e$message)
             }
         )
-        
-        # Handle logging system failure
-        if (!exists("worker_logger")) {
-            # Create a simple fallback logger
-            worker_logger <- function(level, ...) {
-                cat("Worker [", level, "]:", ..., "\n")
-            }
-            worker_logger("WARN", "Using fallback logging system")
-        }
-    })
-        }, timeout = 300)  # 5 minute timeout (configurable)
-    }, error = function(e) {
-        if (grepl("timeout", e$message, ignore.case = TRUE)) {
-            cluster_logger("ERROR", "Cluster initialization timed out after 5 minutes")
-        } else {
-            cluster_logger("ERROR", "Cluster initialization failed:", e$message)
-        }
-        stop(e)
-    })
-
-    cluster_logger("DEBUG", "clusterEvalQ completed - checking worker status...")
-    
-    # Test if workers are responsive and get their status
-    tryCatch({
-        worker_status <- clusterEvalQ(cl, {
-            list(
-                pid = Sys.getpid(),
-                has_logger = exists("create_module_logger"),
-                has_lazy_load = exists("smart_lazy_load"),
-                has_data_loader = exists("lazy_load_data"),
-                working_dir = getwd(),
-                timestamp = Sys.time()
-            )
-        })
-        
-        cluster_logger("INFO", "Worker status check successful:")
-        for (i in seq_along(worker_status)) {
-            status <- worker_status[[i]]
-            cluster_logger("DEBUG", sprintf("Worker %d: PID=%d, Logger=%s, LazyLoad=%s, DataLoader=%s, Dir=%s", 
-                i, status$pid, status$has_logger, status$has_lazy_load, status$has_data_loader, status$working_dir))
-        }
-    }, error = function(e) {
-        cluster_logger("ERROR", "Worker status check failed:", e$message)
     })
 
     cluster_logger("INFO", "Worker initialization completed.")
@@ -821,17 +624,6 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
 
                 # Track timing for this job
                 job_start <- Sys.time()
-
-                # Smart lazy load the function and data if needed
-                func_name <- deparse(substitute(get_data_function))
-                if (exists("smart_lazy_load")) {
-                    smart_lazy_load(func_name)
-                } else if (exists("lazy_load_function")) {
-                    lazy_load_function(func_name)
-                }
-                if (exists("lazy_load_data")) {
-                    lazy_load_data()
-                }
 
                 # Capture output from the calculation function
                 captured_output <- capture.output({

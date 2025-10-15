@@ -45,7 +45,6 @@ library(zoo) # Rolling statistics and time series
 library(readxl) # Excel file reading
 library(jsonlite) # JSON file parsing
 library(svglite) # SVG graphics device
-library(R.utils) # Utility functions including timeout mechanisms
 
 # Parallel processing (optimization: efficient multi-core computation)
 library(foreach) # Parallel for loops

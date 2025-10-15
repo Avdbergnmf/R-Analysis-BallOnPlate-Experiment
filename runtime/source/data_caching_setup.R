@@ -12,8 +12,7 @@
 shiny_inputs_config <<- list(
   "raw_tracker" = c("rawTracker"),
   "power_spectrum" = c("psTracker", "psVar", "psMaxFreq"),
-  "simulation" = character(0),  # No Shiny inputs needed
-  "hazard" = c("risk_tau", "sampling_freq")  # Risk model parameters
+  "simulation" = character(0) # No Shiny inputs needed
 )
 
 # =============================================================================
@@ -33,7 +32,6 @@ data_loaders <<- list(
     },
     datasets_to_verify = c("sim")
   ),
-  
   "power_spectrum" = list(
     loader = function(participant, trial) {
       # Load power spectrum data for a specific participant and trial
@@ -41,66 +39,70 @@ data_loaders <<- list(
       if (!exists("input") || is.null(input$psTracker) || is.null(input$psVar)) {
         return(data.frame())
       }
-      
+
       # Load raw tracker data first
       data <- get_t_data(participant, input$psTracker, trial)
       if (is.null(data) || nrow(data) == 0) {
         return(data.frame())
       }
-      
+
       # Check if we have the required variable
       if (!input$psVar %in% names(data)) {
         return(data.frame())
       }
-      
+
       # Compute power spectrum for this participant-trial combination
-      tryCatch({
-        # Clean data
-        valid_mask <- is.finite(data[[input$psVar]]) & is.finite(data$time)
-        values <- data[[input$psVar]][valid_mask]
-        times <- data$time[valid_mask]
-        
-        if (length(values) < 50) {
+      tryCatch(
+        {
+          # Clean data
+          valid_mask <- is.finite(data[[input$psVar]]) & is.finite(data$time)
+          values <- data[[input$psVar]][valid_mask]
+          times <- data$time[valid_mask]
+
+          if (length(values) < 50) {
+            return(data.frame())
+          }
+
+          # Calculate sampling frequency
+          if (length(times) > 1) {
+            dt <- median(diff(times), na.rm = TRUE)
+            fs <- if (is.finite(dt) && dt > 0) 1 / dt else 120
+          } else {
+            fs <- 120 # Default
+          }
+
+          # Compute PSD
+          psd_df <- compute_single_psd(
+            values,
+            fs = fs,
+            max_freq = input$psMaxFreq,
+            normalize = TRUE
+          )
+
+          if (is.null(psd_df)) {
+            return(data.frame())
+          }
+
+
+          return(psd_df)
+        },
+        error = function(e) {
+          warning(sprintf(
+            "Error computing power spectrum for participant %s, trial %s: %s",
+            participant, trial, e$message
+          ))
           return(data.frame())
         }
-        
-        # Calculate sampling frequency
-        if (length(times) > 1) {
-          dt <- median(diff(times), na.rm = TRUE)
-          fs <- if (is.finite(dt) && dt > 0) 1 / dt else 120
-        } else {
-          fs <- 120  # Default
-        }
-        
-        # Compute PSD
-        psd_df <- compute_single_psd(
-          values,
-          fs = fs,
-          max_freq = input$psMaxFreq,
-          normalize = TRUE
-        )
-        
-        if (is.null(psd_df)) {
-          return(data.frame())
-        }
-        
-        
-        return(psd_df)
-      }, error = function(e) {
-        warning(sprintf("Error computing power spectrum for participant %s, trial %s: %s", 
-                       participant, trial, e$message))
-        return(data.frame())
-      })
+      )
     },
     datasets_to_verify = function() {
       # Dynamic datasets_to_verify based on selected tracker
       if (!exists("input") || is.null(input$psTracker)) {
-        return(c("leftfoot", "rightfoot", "hip"))  # Default fallback
+        return(c("leftfoot", "rightfoot", "hip")) # Default fallback
       }
       return(input$psTracker)
     }
   ),
-  
   "raw_tracker" = list(
     loader = function(participant, trial) {
       debug_logger <- create_module_logger("RAW-TRACKER-LOADER")
@@ -113,24 +115,24 @@ data_loaders <<- list(
           debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
         }
       }
-      
+
       # Load raw tracker data for a specific participant and trial
       # This will be called from Shiny context where input$rawTracker is available
       if (!exists("input") || is.null(input$rawTracker)) {
         debug_logger("WARN", "input$rawTracker not available, returning empty data frame")
         return(data.frame())
       }
-      
+
       debug_logger("DEBUG", "About to call get_t_data with tracker:", input$rawTracker)
       # Load raw tracker data using get_t_data
       tracker_data <- get_t_data(participant, input$rawTracker, trial)
-      debug_logger("DEBUG", "get_t_data returned:", if(is.null(tracker_data)) "NULL" else paste(nrow(tracker_data), "rows"))
-      
+      debug_logger("DEBUG", "get_t_data returned:", if (is.null(tracker_data)) "NULL" else paste(nrow(tracker_data), "rows"))
+
       if (is.null(tracker_data) || nrow(tracker_data) == 0) {
         debug_logger("WARN", "No tracker data found, returning empty data frame")
         return(data.frame())
       }
-      
+
       debug_logger("DEBUG", "Returning tracker data with", nrow(tracker_data), "rows")
       # Metadata (participant, trialNum, condition) is added by the load_or_calc loop system
       return(tracker_data)
@@ -145,68 +147,17 @@ data_loaders <<- list(
           debug_logger("DEBUG", "input$rawTracker value:", input$rawTracker)
         }
       }
-      
+
       # Dynamic datasets_to_verify based on selected tracker
       if (!exists("input") || is.null(input$rawTracker)) {
         debug_logger("WARN", "input$rawTracker not available, using default fallback")
-        return(c("leftfoot", "rightfoot", "hip"))  # Default fallback
+        return(c("leftfoot", "rightfoot", "hip")) # Default fallback
       }
       debug_logger("DEBUG", "Returning datasets_to_verify:", input$rawTracker)
       return(input$rawTracker)
     }
-  ),
-  
-  "hazard" = list(
-    loader = function(participant, trial) {
-      hazard_logger <- create_module_logger("HAZARD-LOADER")
-      hazard_logger("DEBUG", "=== hazard loader called ===")
-      hazard_logger("DEBUG", "participant:", participant, "trial:", trial)
-      
-      # Get risk model parameters from Shiny inputs
-      tau <- 0.2  # Default value
-      sampling_freq <- 90  # Default value
-      
-      if (exists("input")) {
-        if (!is.null(input$risk_tau)) {
-          tau <- input$risk_tau
-        }
-        if (!is.null(input$sampling_freq)) {
-          sampling_freq <- input$sampling_freq
-        }
-      }
-      
-      hazard_logger("DEBUG", "Using parameters - tau:", tau, "sampling_freq:", sampling_freq)
-      
-      # Load simulation data first
-      sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
-      if (is.null(sim_data) || nrow(sim_data) == 0) {
-        hazard_logger("WARN", "No simulation data found for participant", participant, "trial", trial)
-        return(data.frame())
-      }
-      
-      # Apply episode-based resampling to simulation data if requested
-      if (sampling_freq < 90) {
-        hazard_logger("DEBUG", "Applying resampling with frequency:", sampling_freq)
-        sim_data <- resample_simulation_per_episode(sim_data, sampling_freq)
-      }
-      
-      # Build hazard samples from simulation data
-      hazard_samples <- build_hazard_samples(sim_data, tau)
-      if (nrow(hazard_samples) == 0) {
-        hazard_logger("WARN", "No hazard samples generated for participant", participant, "trial", trial)
-        return(data.frame())
-      }
-      
-      # Add participant and trial identifiers
-      hazard_samples$participant <- participant
-      hazard_samples$trial <- trial
-      
-      hazard_logger("DEBUG", "Generated", nrow(hazard_samples), "hazard samples")
-      return(hazard_samples)
-    },
-    datasets_to_verify = c("sim")  # Hazard samples depend on simulation data
   )
-  
+
   # Add more data loaders here as needed
   # "gait" = function(participant, trial) {
   #   # Load gait data for a specific participant and trial
@@ -218,7 +169,7 @@ data_loaders <<- list(
   #   }
   #   return(gait_data)
   # },
-  # 
+  #
   # "questionnaire" = function(participant, trial) {
   #   # Load questionnaire data for a specific participant and trial
   #   q_data <- get_questionnaire_data(participant, trial)
@@ -257,14 +208,14 @@ get_data_loader <- function(data_type) {
   if (is.null(loader_info)) {
     return(NULL)
   }
-  
+
   # Handle both old format (direct function) and new format (list with loader)
   if (is.function(loader_info)) {
     return(loader_info)
   } else if (is.list(loader_info) && !is.null(loader_info$loader)) {
     return(loader_info$loader)
   }
-  
+
   return(NULL)
 }
 
@@ -276,10 +227,10 @@ get_datasets_to_verify <- function(data_type) {
   if (is.null(loader_info)) {
     return(NULL)
   }
-  
+
   # Handle both old format (no datasets_to_verify) and new format (list with datasets_to_verify)
   if (is.function(loader_info)) {
-    return(c("sim"))  # Default fallback for old format
+    return(c("sim")) # Default fallback for old format
   } else if (is.list(loader_info) && !is.null(loader_info$datasets_to_verify)) {
     datasets_to_verify <- loader_info$datasets_to_verify
     # Handle both static vector and dynamic function
@@ -289,8 +240,8 @@ get_datasets_to_verify <- function(data_type) {
       return(datasets_to_verify)
     }
   }
-  
-  return(c("sim"))  # Default fallback
+
+  return(c("sim")) # Default fallback
 }
 
 #' Get relevant Shiny inputs for a specific data type
@@ -299,12 +250,12 @@ get_datasets_to_verify <- function(data_type) {
 get_relevant_shiny_inputs <- function(data_type) {
   # Get relevant inputs from centralized configuration
   relevant_inputs <- shiny_inputs_config[[data_type]]
-  
+
   # Return empty vector if not found
   if (is.null(relevant_inputs)) {
     return(character(0))
   }
-  
+
   return(relevant_inputs)
 }
 
@@ -314,7 +265,7 @@ get_relevant_shiny_inputs <- function(data_type) {
 capture_shiny_inputs <- function(data_type) {
   relevant_inputs <- get_relevant_shiny_inputs(data_type)
   shiny_inputs <- list()
-  
+
   if (exists("input") && length(relevant_inputs) > 0) {
     for (input_name in relevant_inputs) {
       if (!is.null(input[[input_name]])) {
@@ -322,7 +273,7 @@ capture_shiny_inputs <- function(data_type) {
       }
     }
   }
-  
+
   return(shiny_inputs)
 }
 
@@ -336,16 +287,16 @@ add_data_type <- function(data_type, loader_function, datasets_to_verify = c("si
   if (!is.function(loader_function)) {
     stop("loader_function must be a function")
   }
-  
+
   # Create the new data type entry
   data_loaders[[data_type]] <<- list(
     loader = loader_function,
     datasets_to_verify = datasets_to_verify
   )
-  
+
   # Update the shiny inputs configuration
   shiny_inputs_config[[data_type]] <<- relevant_inputs
-  
+
   cat(sprintf("Added data type '%s' to caching system\n", data_type))
   if (length(relevant_inputs) > 0) {
     cat(sprintf("  Relevant Shiny inputs: %s\n", paste(relevant_inputs, collapse = ", ")))
@@ -358,11 +309,11 @@ remove_data_type <- function(data_type) {
   if (data_type %in% names(data_loaders)) {
     data_loaders[[data_type]] <<- NULL
   }
-  
+
   # Also remove from shiny inputs configuration
   if (data_type %in% names(shiny_inputs_config)) {
     shiny_inputs_config[[data_type]] <<- NULL
   }
-  
+
   cat(sprintf("Removed data type '%s' from caching system\n", data_type))
 }

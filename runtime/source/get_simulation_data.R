@@ -82,6 +82,7 @@ get_simulation_parameters <- function() {
 
         # Status parameters
         simulating = "Ball on Plate Status",
+        is_training_trial = "Is Training Trial",
 
         # Risk prediction parameters
         drop_risk_bin = "Drop Risk (Per-Bin/Tau)",
@@ -164,6 +165,7 @@ get_simulation_variable_names <- function() {
         `respawn_segment` = "Respawn Segment",
         `is_last_sample_of_segment` = "Is Last Sample of Segment",
         `simulating` = "Ball on Plate Status",
+        `is_training_trial` = "Is Training Trial",
         `drop_risk_bin` = "Drop Risk (Per-Bin/Tau)",
         `drop_lambda` = "Drop Rate (Per-Second/Lambda)",
         `drop_risk_1s` = "Drop Risk (1-Second)",
@@ -245,7 +247,8 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
             trialNum = as.ordered(trial),
             condition = condition_number(participant_value),
             phase = get_trial_phase(participant_value, trial),
-            taskNum = task_num_lookup(trial)
+            taskNum = task_num_lookup(trial),
+            is_training_trial = trial %in% c(7, 8)
         )
 
     # Process the simulation data (now with task columns and identifiers available)
@@ -494,7 +497,6 @@ add_velocity_towards_edge_metrics <- function(data) {
         # Add absqd column: absolute value of qd (velocity magnitude)
         data$absqd <- NA_real_
         data$absqd[data$simulating] <- abs(data$qd[data$simulating])
-        
     } else {
         data$velocity_towards_edge <- NA_real_
         data$approach_pressure <- NA_real_
@@ -530,10 +532,14 @@ add_edge_pressure_metric <- function(data) {
         data$edge_pressure_clamped <- NA_real_
         data$edge_pressure_clamped[data$simulating] <- edge_pressure_clamped[data$simulating]
 
-        sim_logger("DEBUG", "Added edge_pressure for", sum(data$simulating), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)), ")")
-        sim_logger("DEBUG", "Added edge_pressure_clamped for", sum(data$simulating), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(edge_pressure_clamped[data$simulating], na.rm = TRUE), max(edge_pressure_clamped[data$simulating], na.rm = TRUE)), ")")
+        sim_logger(
+            "DEBUG", "Added edge_pressure for", sum(data$simulating), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(edge_pressure[data$simulating], na.rm = TRUE), max(edge_pressure[data$simulating], na.rm = TRUE)), ")"
+        )
+        sim_logger(
+            "DEBUG", "Added edge_pressure_clamped for", sum(data$simulating), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(edge_pressure_clamped[data$simulating], na.rm = TRUE), max(edge_pressure_clamped[data$simulating], na.rm = TRUE)), ")"
+        )
     } else {
         data$edge_pressure <- NA_real_
         data$edge_pressure_clamped <- NA_real_
@@ -587,8 +593,10 @@ add_escape_distance_velocity <- function(data) {
             }
         }
 
-        sim_logger("DEBUG", "Added v_e (escape distance velocity) for", sum(!is.na(data$v_e)), "on-platform samples (range:", 
-                  sprintf("%.4f to %.4f", min(data$v_e, na.rm = TRUE), max(data$v_e, na.rm = TRUE)), ")")
+        sim_logger(
+            "DEBUG", "Added v_e (escape distance velocity) for", sum(!is.na(data$v_e)), "on-platform samples (range:",
+            sprintf("%.4f to %.4f", min(data$v_e, na.rm = TRUE), max(data$v_e, na.rm = TRUE)), ")"
+        )
     } else {
         data$v_e <- NA_real_
         if (sum(data$simulating) == 0) {
@@ -718,8 +726,10 @@ assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "un
     data$drop_risk_1s[on_platform_indices] <- p_1s
 
     # Debug: Check assignment immediately after
-    sim_logger("DEBUG", "After assignment (", method_name, ") - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "After assignment (", method_name, ") - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     return(data)
 }
@@ -905,8 +915,10 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
     )
 
     # Debug: Check final state before returning
-    sim_logger("DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     sim_logger("INFO", "add_risk_predictions completed")
     return(data)
@@ -1047,8 +1059,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             features <- extract_risk_features(data)
 
             # Debug: Check feature ranges
-            sim_logger("DEBUG", "Feature ranges - e:", sprintf("%.4f to %.4f", min(features$e, na.rm = TRUE), max(features$e, na.rm = TRUE)), 
-                      "v:", sprintf("%.4f to %.4f", min(features$v, na.rm = TRUE), max(features$v, na.rm = TRUE)))
+            sim_logger(
+                "DEBUG", "Feature ranges - e:", sprintf("%.4f to %.4f", min(features$e, na.rm = TRUE), max(features$e, na.rm = TRUE)),
+                "v:", sprintf("%.4f to %.4f", min(features$v, na.rm = TRUE), max(features$v, na.rm = TRUE))
+            )
 
             # Create prediction data frame with required columns
             pred_data <- data.frame(
@@ -1060,9 +1074,11 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             )
 
             # Debug: Check input data
-            sim_logger("DEBUG", "Input data - participants:", paste(unique(pred_data$participant), collapse = ", "), 
-                      "conditions:", paste(unique(pred_data$condition), collapse = ", "), 
-                      "phases:", paste(unique(pred_data$phase), collapse = ", "))
+            sim_logger(
+                "DEBUG", "Input data - participants:", paste(unique(pred_data$participant), collapse = ", "),
+                "conditions:", paste(unique(pred_data$condition), collapse = ", "),
+                "phases:", paste(unique(pred_data$phase), collapse = ", ")
+            )
 
             # Ensure factors match model levels
             if ("condition" %in% names(model$model)) {
@@ -1083,8 +1099,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                     pred_phases <- as.character(pred_data$phase)
                     unknown_phases <- !pred_phases %in% model_phase_levels
                     if (any(unknown_phases)) {
-                        sim_logger("WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':", 
-                                  paste(unique(pred_phases[unknown_phases]), collapse = ", "))
+                        sim_logger(
+                            "WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':",
+                            paste(unique(pred_phases[unknown_phases]), collapse = ", ")
+                        )
                         pred_phases[unknown_phases] <- "baseline_task"
                     }
                     pred_data$phase <- factor(pred_phases, levels = model_phase_levels)
@@ -1121,11 +1139,13 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
                         pred_phases_fixed <- as.character(pred_data$phase)
                         unknown_phases <- !pred_phases_fixed %in% train_phases
                         if (any(unknown_phases)) {
-                            sim_logger("WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':", 
-                                      paste(unique(pred_phases_fixed[unknown_phases]), collapse = ", "))
+                            sim_logger(
+                                "WARN", "Found", sum(unknown_phases), "samples with unknown phases, setting to 'baseline_task':",
+                                paste(unique(pred_phases_fixed[unknown_phases]), collapse = ", ")
+                            )
                             pred_phases_fixed[unknown_phases] <- "baseline_task"
                         }
-                        
+
                         # Create new prediction data with reconstructed levels
                         pred_data_fixed <- data.frame(
                             e = pred_data$e,
@@ -1153,30 +1173,38 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
             )
 
             # Debug: Check eta range
-            sim_logger("DEBUG", "Eta range:", sprintf("%.4f to %.4f", min(eta, na.rm = TRUE), max(eta, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(eta)), "/", length(eta), ")")
+            sim_logger(
+                "DEBUG", "Eta range:", sprintf("%.4f to %.4f", min(eta, na.rm = TRUE), max(eta, na.rm = TRUE)),
+                "(valid:", sum(!is.na(eta)), "/", length(eta), ")"
+            )
 
             # Calculate risk metrics using tau (not dt_sample)
             # p_bin: probability of drop within tau
             p_bin <- 1 - exp(-exp(eta))
 
             # Debug: Check p_bin range
-            sim_logger("DEBUG", "P_bin range:", sprintf("%.6f to %.6f", min(p_bin, na.rm = TRUE), max(p_bin, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(p_bin)), "/", length(p_bin), ")")
+            sim_logger(
+                "DEBUG", "P_bin range:", sprintf("%.6f to %.6f", min(p_bin, na.rm = TRUE), max(p_bin, na.rm = TRUE)),
+                "(valid:", sum(!is.na(p_bin)), "/", length(p_bin), ")"
+            )
 
             # lambda: instantaneous hazard rate per second
             lambda <- exp(eta) / tau
 
             # Debug: Check lambda range
-            sim_logger("DEBUG", "Lambda range:", sprintf("%.6f to %.6f", min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(lambda)), "/", length(lambda), ")")
+            sim_logger(
+                "DEBUG", "Lambda range:", sprintf("%.6f to %.6f", min(lambda, na.rm = TRUE), max(lambda, na.rm = TRUE)),
+                "(valid:", sum(!is.na(lambda)), "/", length(lambda), ")"
+            )
 
             # p_1s: 1-second risk (comparable across sampling rates)
             p_1s <- 1 - exp(-lambda * 1)
 
             # Debug: Check p_1s range
-            sim_logger("DEBUG", "P_1s range:", sprintf("%.6f to %.6f", min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)), 
-                      "(valid:", sum(!is.na(p_1s)), "/", length(p_1s), ")")
+            sim_logger(
+                "DEBUG", "P_1s range:", sprintf("%.6f to %.6f", min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)),
+                "(valid:", sum(!is.na(p_1s)), "/", length(p_1s), ")"
+            )
 
             # Assign results using helper function
             data <- assign_risk_predictions(data, p_bin, lambda, p_1s, "direct_model")
@@ -1204,8 +1232,10 @@ add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0
     )
 
     # Debug: Check final state before returning
-    sim_logger("DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:", 
-              sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid")
+    sim_logger(
+        "DEBUG", "Final check - drop_risk_bin:", sum(!is.na(data$drop_risk_bin)), "/", nrow(data), "valid, drop_lambda:",
+        sum(!is.na(data$drop_lambda)), "/", nrow(data), "valid, drop_risk_1s:", sum(!is.na(data$drop_risk_1s)), "/", nrow(data), "valid"
+    )
 
     sim_logger("INFO", "add_risk_predictions_direct_model completed")
     return(data)

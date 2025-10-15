@@ -45,7 +45,7 @@ get_proper_legend <- function(show_legend, position = "inside") {
 plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time", y_axis = "pos_z", doFilter = FALSE, show_legend = TRUE, extraTitle = "", baseSize = 5, xlim = NULL, ylim = NULL, preprocessedData = NULL) { # start=first step to plot, end=last step to plot
   plot_logger("DEBUG", "Starting plot_steps function")
   plot_logger("DEBUG", "Input parameters - participant:", participant, "trialNum:", trialNum, "x_axis:", x_axis, "y_axis:", y_axis, "doFilter:", doFilter)
-  
+
   filteredGaitParams <- filteredGaitParams[filteredGaitParams$participant == participant & filteredGaitParams$trialNum == trialNum, ]
 
   if (is.null(preprocessedData)) {
@@ -222,38 +222,38 @@ create_plotly_hover_text <- function(data, datatype, x_value = NULL, x_label = "
 apply_factor_ordering <- function(data_long, columns_to_check = NULL) {
   plot_logger("DEBUG", "Starting apply_factor_ordering function")
   plot_logger("DEBUG", "Columns to check:", paste(columns_to_check, collapse = ", "))
-  
+
   # Ensure global data is initialized
   ensure_global_data_initialized()
-  
+
   # Define the mapping of column names to their ordered levels
   factor_mappings <- list(
     "trialNum" = list(levels = allTrials, convert_to_numeric = TRUE),
     "phase" = list(levels = allPhases, convert_to_numeric = FALSE),
     "taskNum" = list(levels = allTaskNums, convert_to_numeric = TRUE)
   )
-  
+
   plot_logger("DEBUG", "Available factor mappings:", paste(names(factor_mappings), collapse = ", "))
-  
+
   # If no specific columns to check, use all available factor mappings
   if (is.null(columns_to_check)) {
     columns_to_check <- names(factor_mappings)
     plot_logger("DEBUG", "No specific columns provided, using all factor mappings:", paste(columns_to_check, collapse = ", "))
   }
-  
+
   # Find overlapping columns between factor mappings, data column names, and columns to check
   overlapping_cols <- intersect(intersect(names(factor_mappings), names(data_long)), columns_to_check)
-  
+
   plot_logger("DEBUG", "Overlapping columns to process:", paste(overlapping_cols, collapse = ", "))
-  
+
   # Only loop through columns that actually exist in the data and are requested
   for (col_name in overlapping_cols) {
     plot_logger("DEBUG", "Processing column:", col_name)
     mapping <- factor_mappings[[col_name]]
-    
+
     plot_logger("DEBUG", "Mapping for", col_name, "- convert_to_numeric:", mapping$convert_to_numeric)
     plot_logger("DEBUG", "Available levels for", col_name, ":", paste(mapping$levels, collapse = ", "))
-    
+
     if (mapping$convert_to_numeric) {
       # Convert to numeric first for trials
       plot_logger("DEBUG", "Converting", col_name, "to numeric")
@@ -267,18 +267,18 @@ apply_factor_ordering <- function(data_long, columns_to_check = NULL) {
       present_levels <- unique(x_processed)
       plot_logger("DEBUG", "Present character levels in data:", paste(present_levels, collapse = ", "))
     }
-    
+
     # Filter to only include levels that are actually present in the data
     ordered_present_levels <- mapping$levels[mapping$levels %in% present_levels]
-    
+
     plot_logger("DEBUG", "Ordered levels to apply for", col_name, ":", paste(ordered_present_levels, collapse = ", "))
-    
+
     # Apply factor ordering
     data_long[[col_name]] <- factor(x_processed, levels = ordered_present_levels)
-    
+
     plot_logger("DEBUG", "Factor applied to", col_name, "- final levels:", paste(levels(data_long[[col_name]]), collapse = ", "))
   }
-  
+
   plot_logger("DEBUG", "Factor ordering completed for", length(overlapping_cols), "columns")
   return(data_long)
 }
@@ -310,7 +310,7 @@ validate_data_and_columns <- function(xData, yData, xtracker, ytracker, x_axis, 
 plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", y_axis = "pos_z", plotlines = TRUE, plotpoints = FALSE, extraTitle = "", baseSize = 10) {
   plot_logger("DEBUG", "Starting plot_2d function")
   plot_logger("DEBUG", "Input parameters - xtracker:", xtracker, "ytracker:", ytracker, "participant:", participant, "trialNum:", trialNum, "x_axis:", x_axis, "y_axis:", y_axis)
-  
+
   # Load data for both trackers
   xData <- preprocess_data(participant, trialNum, xtracker)
   yData <- preprocess_data(participant, trialNum, ytracker)
@@ -354,7 +354,7 @@ plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", 
 plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize = 10) {
   plot_logger("DEBUG", "Starting plot_questionnaire_data function")
   plot_logger("DEBUG", "Input parameters - qType:", qType, "cols_to_include:", paste(cols_to_include, collapse = ", "))
-  
+
   data <- filter_questionnaire_results(data, qType)
 
   # Only keep the columns to include in the plot
@@ -394,10 +394,10 @@ plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize
 
 
 
-make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize) {
+make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwidth, position, baseSize, disable_size_check = FALSE) {
   plot_logger("DEBUG", "Starting make_histogram function")
   plot_logger("DEBUG", "Input parameters - xinput:", xinput, "group:", group, "split:", split, "binwidth:", binwidth, "position:", position)
-  
+
   # Check if the variable is categorical or numeric
   is_categorical <- !is.numeric(data[[xinput]])
   plot_logger("DEBUG", "Variable is categorical:", is_categorical)
@@ -441,11 +441,11 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
     plot_logger("DEBUG", "Calculating data range for bin estimation")
     rng <- range(data[[xinput]], na.rm = TRUE)
     plot_logger("DEBUG", "Data range:", rng[1], "to", rng[2])
-    
+
     if (is.finite(rng[1]) && is.finite(rng[2])) {
       n_bins_est <- ceiling((rng[2] - rng[1]) / binwidth)
       plot_logger("DEBUG", "Estimated number of bins:", n_bins_est)
-      
+
       if (n_bins_est > MAX_BINS) {
         plot_logger("WARN", "Too many bins requested:", n_bins_est, ">", MAX_BINS, "- skipping histogram")
         warning(sprintf("Requested ~%d bins (> %d). Histogram skipped.", n_bins_est, MAX_BINS))
@@ -481,10 +481,10 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
   plot_logger("DEBUG", "About to create ggplot with geom_histogram")
   plot_logger("DEBUG", "Data size before histogram:", nrow(data), "rows")
   plot_logger("DEBUG", "Memory usage before histogram:", format(object.size(data), units = "MB"))
-  
+
   # Additional safety check for very large datasets
-  MAX_ROWS_FOR_HISTOGRAM <- 1000000  # 1 million rows
-  if (nrow(data) > MAX_ROWS_FOR_HISTOGRAM) {
+  MAX_ROWS_FOR_HISTOGRAM <- 1000000 # 1 million rows
+  if (!disable_size_check && nrow(data) > MAX_ROWS_FOR_HISTOGRAM) {
     plot_logger("WARN", "Dataset too large for histogram:", nrow(data), "rows >", MAX_ROWS_FOR_HISTOGRAM)
     return(ggplot() +
       annotate("text",
@@ -497,58 +497,61 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
       theme_void() +
       ggtitle("Dataset Too Large"))
   }
-  
-  tryCatch({
-    p <- ggplot(data, aes) +
-      geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
-      theme_minimal(base_size = baseSize)
-    
-    plot_logger("DEBUG", "ggplot created successfully")
-    
-    if (split != "None") {
-      plot_logger("DEBUG", "Adding facet_grid for split:", split)
-      p <- p + facet_grid(sym(split))
+
+  tryCatch(
+    {
+      p <- ggplot(data, aes) +
+        geom_histogram(binwidth = binwidth, fill = fill, alpha = a, position = position) +
+        theme_minimal(base_size = baseSize)
+
+      plot_logger("DEBUG", "ggplot created successfully")
+
+      if (split != "None") {
+        plot_logger("DEBUG", "Adding facet_grid for split:", split)
+        p <- p + facet_grid(sym(split))
+      }
+
+      plot_logger("DEBUG", "Histogram creation completed successfully")
+      return(p)
+    },
+    error = function(e) {
+      plot_logger("ERROR", "Error creating histogram:", e$message)
+      plot_logger("ERROR", "Data size:", nrow(data), "rows")
+      plot_logger("ERROR", "Variable:", xinput)
+      plot_logger("ERROR", "Bin width:", binwidth)
+
+      # Return error plot
+      return(ggplot() +
+        annotate("text",
+          x = 0.5, y = 0.5,
+          label = paste("Error creating histogram:", e$message),
+          hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+        ) +
+        xlim(0, 1) +
+        ylim(0, 1) +
+        theme_void() +
+        ggtitle("Histogram Creation Error"))
     }
-    
-    plot_logger("DEBUG", "Histogram creation completed successfully")
-    return(p)
-  }, error = function(e) {
-    plot_logger("ERROR", "Error creating histogram:", e$message)
-    plot_logger("ERROR", "Data size:", nrow(data), "rows")
-    plot_logger("ERROR", "Variable:", xinput)
-    plot_logger("ERROR", "Bin width:", binwidth)
-    
-    # Return error plot
-    return(ggplot() +
-      annotate("text",
-        x = 0.5, y = 0.5,
-        label = paste("Error creating histogram:", e$message),
-        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
-      ) +
-      xlim(0, 1) +
-      ylim(0, 1) +
-      theme_void() +
-      ggtitle("Histogram Creation Error"))
-  })
+  )
 }
 
 plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL, shape_var = NULL, baseSize = 10) {
   plot_logger("DEBUG", "Starting plot_boxplots function")
   plot_logger("DEBUG", "Input parameters - datatype:", datatype, "xaxis:", paste(xaxis, collapse = ", "), "color_var:", color_var, "shape_var:", shape_var)
-  
+
   # Validate inputs
   if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
     plot_logger("ERROR", "Invalid input data: mu is null, not a dataframe, or empty")
     return(create_error_plot("No data available for plotting", baseSize))
   }
-  
+
   if (is.null(datatype) || !datatype %in% colnames(mu)) {
     plot_logger("ERROR", "Invalid datatype:", datatype, "- not found in data columns:", paste(colnames(mu), collapse = ", "))
     return(create_error_plot(paste("Variable", datatype, "not found in data"), baseSize))
   }
-  
+
   plot_logger("DEBUG", "Data validation passed - data has", nrow(mu), "rows and", ncol(mu), "columns")
-  
+
   # Reshape data to long format for ggplot
   plot_logger("DEBUG", "Reshaping data to long format")
   data_long <- mu %>%
@@ -557,7 +560,7 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
       names_to = "variable",
       values_to = "value"
     )
-  
+
   plot_logger("DEBUG", "Data reshaped - long format has", nrow(data_long), "rows")
 
   # Apply pretty condition labels
@@ -566,11 +569,11 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
     data_long$condition <- get_pretty_condition_labels(data_long$condition)
     plot_logger("DEBUG", "Condition labels applied. Unique conditions:", paste(unique(data_long$condition), collapse = ", "))
   }
-  
+
   # Apply proper factor ordering to x-axis variables that have defined orderings
   plot_logger("DEBUG", "Applying factor ordering to x-axis variables:", paste(xaxis, collapse = ", "))
   data_long <- apply_factor_ordering(data_long, columns_to_check = xaxis)
-  
+
   # Log the factor levels after ordering
   for (col in xaxis) {
     if (col %in% colnames(data_long)) {
@@ -584,19 +587,19 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
 
   # Create a combined x-axis variable with proper ordering
   plot_logger("DEBUG", "Creating combined x-axis variable")
-  
+
   # First, create the combined variable as character
   data_long$xaxis_combined <- apply(data_long[, xaxis, drop = FALSE], 1, function(row) {
     paste(row, collapse = "_")
   })
-  
+
   plot_logger("DEBUG", "Combined x-axis variable created. Unique combinations:", length(unique(data_long$xaxis_combined)))
   plot_logger("DEBUG", "Combined x-axis combinations:", paste(unique(data_long$xaxis_combined), collapse = ", "))
-  
+
   # Now create proper ordering for the combined variable
   # Get all unique combinations
   unique_combinations <- unique(data_long$xaxis_combined)
-  
+
   # Sort combinations based on the original factor ordering of individual variables
   if (length(xaxis) == 1) {
     # Single variable - use its factor levels directly
@@ -611,7 +614,7 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
   } else {
     # Multiple variables - create cross-product ordering
     plot_logger("DEBUG", "Multiple variables - creating cross-product ordering")
-    
+
     # Get ordered levels for each variable
     ordered_levels <- list()
     for (col in xaxis) {
@@ -623,22 +626,22 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
         plot_logger("DEBUG", "Variable", col, "alphabetical levels:", paste(ordered_levels[[col]], collapse = ", "))
       }
     }
-    
+
     # Create cross-product of all ordered levels
     ordered_combinations <- do.call(expand.grid, ordered_levels)
     ordered_combinations <- apply(ordered_combinations, 1, function(row) {
       paste(row, collapse = "_")
     })
-    
+
     # Filter to only include combinations that actually exist in the data
     ordered_combinations <- ordered_combinations[ordered_combinations %in% unique_combinations]
-    
+
     plot_logger("DEBUG", "Cross-product ordering created:", paste(ordered_combinations, collapse = ", "))
   }
-  
+
   # Convert to factor with proper ordering
   data_long$xaxis_combined <- factor(data_long$xaxis_combined, levels = ordered_combinations)
-  
+
   plot_logger("DEBUG", "Combined x-axis variable converted to factor with", length(levels(data_long$xaxis_combined)), "levels")
   plot_logger("DEBUG", "Final factor levels:", paste(levels(data_long$xaxis_combined), collapse = ", "))
 
@@ -672,7 +675,7 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
     theme(plot.title = element_text(hjust = 0.5)) +
     scale_color_viridis_d(option = "turbo") +
     get_sized_theme(baseSize)
-  
+
   plot_logger("DEBUG", "Base plot created successfully")
 
   # Special case for trialNum color and shape
@@ -685,7 +688,7 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
       scale_color_manual(name = "Trial Number", values = colors) +
       scale_shape_manual(name = "Trial Number", values = shapes)
   }
-  
+
   plot_logger("DEBUG", "Boxplot creation completed successfully")
   return(p)
 }
@@ -693,25 +696,25 @@ plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL
 plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, shape_var = NULL, baseSize = 10) {
   plot_logger("DEBUG", "Starting plot_paired function")
   plot_logger("DEBUG", "Input parameters - datatype:", datatype, "xPaired:", xPaired, "xaxis:", paste(xaxis, collapse = ", "), "color_var:", color_var, "shape_var:", shape_var)
-  
+
   # Validate inputs
   if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
     plot_logger("ERROR", "Invalid input data: mu is null, not a dataframe, or empty")
     return(create_error_plot("No data available for plotting", baseSize))
   }
-  
+
   if (is.null(datatype) || !datatype %in% colnames(mu)) {
     plot_logger("ERROR", "Invalid datatype:", datatype, "- not found in data columns:", paste(colnames(mu), collapse = ", "))
     return(create_error_plot(paste("Variable", datatype, "not found in data"), baseSize))
   }
-  
+
   if (is.null(xPaired) || !xPaired %in% colnames(mu)) {
     plot_logger("ERROR", "Invalid xPaired variable:", xPaired, "- not found in data columns:", paste(colnames(mu), collapse = ", "))
     return(create_error_plot(paste("Paired variable", xPaired, "not found in data"), baseSize))
   }
-  
+
   plot_logger("DEBUG", "Data validation passed - data has", nrow(mu), "rows and", ncol(mu), "columns")
-  
+
   # Reshape data to long format for ggplot
   plot_logger("DEBUG", "Reshaping data to long format")
   data_long <- mu %>%
@@ -720,7 +723,7 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
       names_to = "variable",
       values_to = "value"
     )
-  
+
   plot_logger("DEBUG", "Data reshaped - long format has", nrow(data_long), "rows")
 
   # Apply pretty condition labels
@@ -729,12 +732,12 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
     data_long$condition <- get_pretty_condition_labels(data_long$condition)
     plot_logger("DEBUG", "Condition labels applied. Unique conditions:", paste(unique(data_long$condition), collapse = ", "))
   }
-  
+
   # Apply proper factor ordering to x-axis variables that have defined orderings
   columns_to_check <- c(xPaired, xaxis)
   plot_logger("DEBUG", "Applying factor ordering to variables:", paste(columns_to_check, collapse = ", "))
   data_long <- apply_factor_ordering(data_long, columns_to_check = columns_to_check)
-  
+
   # Log the factor levels after ordering
   for (col in columns_to_check) {
     if (!is.null(col) && col %in% colnames(data_long)) {
@@ -775,7 +778,7 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
     theme(plot.title = element_text(hjust = 0.5)) +
     scale_color_viridis_d(option = "turbo") +
     get_sized_theme(baseSize)
-  
+
   plot_logger("DEBUG", "Base paired plot created successfully")
 
   # Add facets if split_vars are provided
@@ -786,7 +789,7 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
     plot_logger("DEBUG", "Facet formula:", facet_formula)
     p <- p + facet_wrap(as.formula(facet_formula))
   }
-  
+
   plot_logger("DEBUG", "Paired plot creation completed successfully")
   return(p)
 }
