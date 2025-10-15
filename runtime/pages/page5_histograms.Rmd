@@ -157,38 +157,16 @@ for (data_type in names(cacheable_data_types)) {
   )
 }
 
-# Helper function to get cached data for a data type with fast cache lookup
+# Helper function to get cached data for a data type (only if already loaded)
 get_cached_data_local <- function(data_type) {
   if (data_type %in% names(cache_managers)) {
-    # Try fast cache first
-    page_logger("DEBUG", "Trying fast cache lookup for", data_type)
-
-    # Get current filters for fast cache lookup
-    current_filters <- get_universal_filters()
-    if (!is.null(current_filters)) {
-      # Get downsampling factor from user input
-      downsample_factor <- if (!is.null(input$downsampleFactor)) input$downsampleFactor else 1
-
-      # Try fast cache lookup
-      fast_data <- cache_managers[[data_type]]$get_fast_cache(
-        participants = current_filters$participants,
-        trials = current_filters$trials,
-        condition_filter = current_filters$condition,
-        downsample_factor = downsample_factor
-      )
-
-      if (!is.null(fast_data)) {
-        page_logger("DEBUG", "Fast cache hit! Returning", nrow(fast_data), "rows")
-        return(fast_data)
-      } else {
-        page_logger("DEBUG", "Fast cache miss - falling back to reactive")
-      }
-    }
-
-    # Fallback to reactive if fast cache miss
-    if (data_type %in% names(cached_data_reactive)) {
-      page_logger("DEBUG", "Using reactive data for", data_type)
+    # Only return data if it's already been loaded (trigger > 0)
+    trigger_value <- cache_managers[[data_type]]$trigger()
+    if (trigger_value > 0 && data_type %in% names(cached_data_reactive)) {
+      page_logger("DEBUG", "Getting already loaded data for", data_type)
       return(cached_data_reactive[[data_type]]())
+    } else {
+      page_logger("DEBUG", "No data loaded yet for", data_type, "(trigger =", trigger_value, ")")
     }
   }
 
@@ -257,17 +235,29 @@ currentData <- reactive({
       }
     )
   } else if (input$dataType %in% names(cacheable_data_types)) {
-    # Use cached data for cacheable data types
-    page_logger("DEBUG", "Using cached data for type:", input$dataType)
-    data <- get_cached_data_local(input$dataType)
-    page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
+    # For cacheable data types, only return data if it's already been loaded
+    # Don't trigger automatic loading - only show what's already cached
+    page_logger("DEBUG", "Checking for existing cached data for type:", input$dataType)
 
-    if (nrow(data) > 0) {
-      # Apply data-specific filters
-      page_logger("DEBUG", "Applying data-specific filters")
-      data <- apply_data_filters(data, input$dataType)
-      page_logger("DEBUG", "After filtering:", nrow(data), "rows")
-      return(data)
+    # Check if we have any cached data without triggering new loads
+    if (input$dataType %in% names(cached_data_reactive)) {
+      # Only get data if it's already been loaded (trigger > 0)
+      trigger_value <- cache_managers[[input$dataType]]$trigger()
+      if (trigger_value > 0) {
+        page_logger("DEBUG", "Data has been requested (trigger > 0), getting cached data")
+        data <- cached_data_reactive[[input$dataType]]()
+        page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
+
+        if (nrow(data) > 0) {
+          # Apply data-specific filters
+          page_logger("DEBUG", "Applying data-specific filters")
+          data <- apply_data_filters(data, input$dataType)
+          page_logger("DEBUG", "After filtering:", nrow(data), "rows")
+          return(data)
+        }
+      } else {
+        page_logger("DEBUG", "No data request made yet (trigger = 0), returning empty structure")
+      }
     }
 
     # Return empty data frame with expected structure if no data available
@@ -342,7 +332,7 @@ observeEvent(input$enableParallelLoading,
     # Update parallel setting in existing cache managers
     use_parallel <- if (!is.null(input$enableParallelLoading)) input$enableParallelLoading else TRUE
     for (data_type in names(cacheable_data_types)) {
-      cache_managers[[data_type]]$parallel_enabled <- use_parallel
+      cache_managers[[data_type]]$parallel_enabled(use_parallel)
     }
 
     page_logger("DEBUG", "Updated parallel loading setting to:", use_parallel, "for all cache managers")

@@ -176,9 +176,26 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   # Create cache-specific logger
   cache_logger <- create_module_logger(paste0("CACHE-", toupper(cache_name)))
 
-  # Store parallel setting
-  parallel_enabled <- use_parallel
-  cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled)
+  # Store parallel setting as a mutable variable that can be updated
+  parallel_var <- paste0(".", cache_name, "ParallelEnabled")
+  # Initialize the parallel setting
+  assign(parallel_var, use_parallel, envir = .GlobalEnv)
+
+  parallel_enabled <- function(value = NULL) {
+    if (is.null(value)) {
+      # Get current value
+      if (exists(parallel_var, envir = .GlobalEnv)) {
+        get(parallel_var, envir = .GlobalEnv)
+      } else {
+        use_parallel # fallback to initial value
+      }
+    } else {
+      # Set new value
+      assign(parallel_var, value, envir = .GlobalEnv)
+      cache_logger("DEBUG", "Updated parallel setting to:", value, "for", cache_name)
+    }
+  }
+  cache_logger("DEBUG", "Cache manager created with parallel =", parallel_enabled())
 
   # Control functions
   request_data <- function() {
@@ -264,46 +281,9 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
       return(data.frame())
     }
 
-    # Check for changes in context variables that affect this data type
-    context_changed <- FALSE
-    if (exists("input")) {
-      # Get relevant context variables for this data type from centralized definition
-      relevant_vars <- get_relevant_context_vars(data_type)
-      input_vars <- relevant_vars[startsWith(relevant_vars, "input.")]
-
-      # Check if any relevant context variables have changed
-      if (length(relevant_vars) > 0) {
-        # Get current context variables using centralized function
-        current_context_vars <- capture_context_vars(data_type)
-
-        # Get stored context variables from cache manager
-        stored_filters <- cache_manager$filters()
-        stored_context_vars <- list()
-        if (!is.null(stored_filters) && !is.null(stored_filters$context_vars)) {
-          stored_context_vars <- stored_filters$context_vars
-        }
-
-        # Compare current vs stored context variables
-        for (var_name in names(current_context_vars)) {
-          current_val <- current_context_vars[[var_name]]
-          stored_val <- stored_context_vars[[var_name]]
-
-          if (!identical(current_val, stored_val)) {
-            shiny_logger("DEBUG", "Context variable changed:", var_name, "from", stored_val, "to", current_val)
-            context_changed <- TRUE
-            break
-          }
-        }
-
-        # If context variables changed, reset the cache and force recalculation
-        if (context_changed) {
-          shiny_logger("INFO", "Context variables changed, resetting cache and forcing recalculation")
-          cache_manager$reset_data()
-          # Clear the global cache as well to ensure fresh data
-          clear_cache(data_type)
-        }
-      }
-    }
+    # Don't automatically check for context changes - only load data when explicitly requested
+    # Context changes will be handled when the user clicks the update button
+    shiny_logger("DEBUG", "Skipping automatic context change detection - only loading on explicit request")
 
     # Use isolate() to prevent reactive dependencies on filter inputs
     # Use the universal filter function from sidebar
@@ -356,7 +336,7 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
           participants = current_filters$participants,
           trials = current_filters$trials,
           condition_filter = current_filters$condition,
-          use_parallel = cache_manager$parallel_enabled,
+          use_parallel = cache_manager$parallel_enabled(),
           context_vars = context_vars
         )
 

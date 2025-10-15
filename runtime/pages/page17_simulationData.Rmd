@@ -61,6 +61,11 @@ actionButton("perform_risk_analysis", "Perform Risk Analysis",
   class = "btn-success", style = "margin-top: 5px;"
 )
 
+# Simulation data caching
+actionButton("simUpdateData", "Update Simulation Data",
+  class = "btn-primary", style = "margin-top: 10px;"
+)
+
 textOutput("risk_model_status")
 ```
 
@@ -79,25 +84,85 @@ plotlyOutput("sim_tsPlot")
 ```
 
 ```{r, context="server"}
-# Reactive simulation data
+# Set up caching system for simulation data
+page_logger <- create_module_logger("PAGE17-SIMULATION")
+
+# Use the same cache manager as Page 5 (histograms) to share data
+# Check if the cache manager already exists from Page 5
+if (exists("cache_managers") && "simulation" %in% names(cache_managers)) {
+  # Use existing cache manager from Page 5
+  sim_cache_manager <- cache_managers[["simulation"]]
+  page_logger("DEBUG", "Using existing simulation cache manager from Page 5")
+} else {
+  # Create new cache manager if Page 5 hasn't been loaded yet
+  sim_cache_manager <- create_shiny_cache_manager("simulation", use_parallel = TRUE)
+  page_logger("DEBUG", "Created new simulation cache manager for Page 17")
+}
+
+# Always create our own reactive data system for Page 17 to ensure proper connection
+sim_cached_data <- create_shiny_cached_data_reactive(
+  cache_manager = sim_cache_manager,
+  data_type = "simulation"
+)
+page_logger("DEBUG", "Created Page 17 reactive data system for simulation")
+
+# Observer for simulation data update button
+observeEvent(input$simUpdateData,
+  {
+    page_logger("DEBUG", "Simulation data update button clicked")
+    sim_cache_manager$request_data()
+  },
+  ignoreNULL = TRUE
+)
+
+# Reactive simulation data using the caching system (like raw tracker data)
 sim_data <- reactive({
   req(input$sim_participant, input$sim_trialNum)
   participant <- input$sim_participant
   trial <- as.numeric(input$sim_trialNum)
 
-  # Check if simulation data exists
-  if (!has_simulation_data(participant, trial)) {
-    return(NULL)
+  page_logger("DEBUG", "Getting simulation data for participant:", participant, "trial:", trial)
+
+  # Only get data if it's already been loaded (trigger > 0)
+  # Don't trigger automatic loading - only show what's already cached
+  trigger_value <- sim_cache_manager$trigger()
+  if (trigger_value > 0) {
+    page_logger("DEBUG", "Data has been requested (trigger > 0), getting cached data")
+    # Get cached data from reactive
+    cached_data <- sim_cached_data()
+    page_logger("DEBUG", "Cached data loaded:", nrow(cached_data), "rows")
+  } else {
+    page_logger("DEBUG", "No data request made yet (trigger = 0), returning empty data")
+    return(data.frame())
   }
 
-  # Get the simulation data with UI parameters
-  get_simulation_data(
-    participant,
-    trial,
-    enable_risk = input$enable_risk_predictions,
-    tau = input$risk_tau,
-    allow_direct_model = input$allow_direct_model
-  )
+  if (nrow(cached_data) == 0) {
+    page_logger("DEBUG", "No cached data available, returning empty structure")
+    return(data.frame())
+  }
+
+  # Filter for the specific participant and trial
+  filtered_data <- cached_data[
+    cached_data$participant == participant &
+      cached_data$trialNum == trial,
+  ]
+
+  page_logger("DEBUG", "Filtered data has", nrow(filtered_data), "rows for participant", participant, "trial", trial)
+
+  if (nrow(filtered_data) == 0) {
+    page_logger("WARN", "No simulation data found for participant", participant, "trial", trial)
+    return(data.frame())
+  }
+
+  # Apply downsampling if specified
+  if (!is.null(input$sim_downsampling) && input$sim_downsampling > 1) {
+    page_logger("DEBUG", "Applying downsampling with factor:", input$sim_downsampling)
+    indices <- seq(1, nrow(filtered_data), by = input$sim_downsampling)
+    filtered_data <- filtered_data[indices, , drop = FALSE]
+    page_logger("DEBUG", "After downsampling:", nrow(filtered_data), "rows")
+  }
+
+  return(filtered_data)
 })
 
 # Update data availability status
@@ -108,21 +173,30 @@ output$sim_data_status <- renderText({
 
   tryCatch(
     {
-      if (has_simulation_data(participant, trial)) {
-        # Use the reactive sim_data instead of calling get_simulation_data again
-        data <- sim_data()
-        if (!is.null(data) && nrow(data) > 0) {
-          n_real <- sum(data$simulating, na.rm = TRUE)
-          n_respawns <- length(unique(data$respawn_segment)) - 1
+      # Get current data using the same logic as sim_data()
+      current_data <- sim_data()
+
+      if (!is.null(current_data) && nrow(current_data) > 0) {
+        n_real <- sum(current_data$simulating, na.rm = TRUE)
+        n_respawns <- length(unique(current_data$respawn_segment)) - 1
+        paste0(
+          "✓ Simulation data available: ", nrow(current_data), " samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
+          paste(unique(current_data$arcDeg), collapse = ", ")
+        )
+      } else {
+        # Check if any simulation data is cached at all
+        all_cached_data <- sim_cached_data()
+        if (nrow(all_cached_data) > 0) {
+          total_participants <- length(unique(all_cached_data$participant))
+          total_trials <- length(unique(all_cached_data$trialNum))
+          total_samples <- nrow(all_cached_data)
           paste0(
-            "✓ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
-            paste(unique(data$arcDeg), collapse = ", ")
+            "✓ Simulation data cached: ", total_samples, " total samples (", total_participants, " participants, ", total_trials, " trials)\n",
+            "✗ No data for current selection (participant ", participant, ", trial ", trial, ")"
           )
         } else {
-          "✗ Error loading simulation data"
+          "No simulation data loaded. Click 'Update Simulation Data' to load and cache simulation data."
         }
-      } else {
-        "✗ No simulation data available for this participant/trial"
       }
     },
     error = function(e) {
