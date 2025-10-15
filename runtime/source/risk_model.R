@@ -10,6 +10,132 @@ library(tibble)
 library(mvtnorm)
 library(ggplot2)
 
+# Create logger for risk model module
+risk_logger <- create_module_logger("RISK")
+
+# =============================================================================
+# CACHED DATA INTEGRATION
+# =============================================================================
+
+# Initialize hazard data type in the caching system
+# This must be done after risk_model.R is loaded so all functions are available
+initialize_hazard_data_type <- function() {
+    risk_logger("DEBUG", "Initializing hazard data type in caching system")
+    
+    # Add hazard data type to the caching system
+    add_data_type(
+        data_type = "hazard",
+        loader_function = function(participant, trial) {
+            risk_logger("DEBUG", "=== hazard loader called ===")
+            risk_logger("DEBUG", "participant:", participant, "trial:", trial)
+            
+            # Get risk model parameters from Shiny inputs
+            tau <- 0.2  # Default value
+            sampling_freq <- 90  # Default value
+            
+            if (exists("input")) {
+                if (!is.null(input$risk_tau)) {
+                    tau <- input$risk_tau
+                }
+                if (!is.null(input$sampling_freq)) {
+                    sampling_freq <- input$sampling_freq
+                }
+            }
+            
+            risk_logger("DEBUG", "Using parameters - tau:", tau, "sampling_freq:", sampling_freq)
+            
+            # Load simulation data first
+            sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
+            if (is.null(sim_data) || nrow(sim_data) == 0) {
+                risk_logger("WARN", "No simulation data found for participant", participant, "trial", trial)
+                return(data.frame())
+            }
+            
+            # Apply episode-based resampling to simulation data if requested
+            if (sampling_freq < 90) {
+                risk_logger("DEBUG", "Applying resampling with frequency:", sampling_freq)
+                sim_data <- resample_simulation_per_episode(sim_data, sampling_freq)
+            }
+            
+            # Build hazard samples from simulation data
+            hazard_samples <- build_hazard_samples(sim_data, tau)
+            if (nrow(hazard_samples) == 0) {
+                risk_logger("WARN", "No hazard samples generated for participant", participant, "trial", trial)
+                return(data.frame())
+            }
+            
+            # Add participant and trial identifiers
+            hazard_samples$participant <- participant
+            hazard_samples$trial <- trial
+            
+            risk_logger("DEBUG", "Generated", nrow(hazard_samples), "hazard samples")
+            return(hazard_samples)
+        },
+        datasets_to_verify = c("sim"),  # Hazard samples depend on simulation data
+        relevant_inputs = c("risk_tau", "sampling_freq")  # Risk model parameters
+    )
+    
+    risk_logger("INFO", "Hazard data type initialized successfully")
+}
+
+# Auto-initialize when this file is loaded
+initialize_hazard_data_type()
+
+#' Check if hazard data type is properly initialized
+#' @return TRUE if initialized, FALSE otherwise
+#' @export
+is_hazard_data_type_initialized <- function() {
+    return(is_data_type_supported("hazard"))
+}
+
+#' Get information about the hazard data type initialization
+#' @return List with initialization status and details
+#' @export
+get_hazard_data_type_info <- function() {
+    info <- list(
+        is_initialized = is_hazard_data_type_initialized(),
+        loader_function_exists = FALSE,
+        datasets_to_verify = NULL,
+        relevant_inputs = NULL
+    )
+    
+    if (info$is_initialized) {
+        loader_info <- data_loaders[["hazard"]]
+        if (!is.null(loader_info)) {
+            info$loader_function_exists <- is.function(loader_info$loader)
+            info$datasets_to_verify <- loader_info$datasets_to_verify
+        }
+        
+        # Get relevant inputs from shiny_inputs_config
+        info$relevant_inputs <- shiny_inputs_config[["hazard"]]
+    }
+    
+    return(info)
+}
+
+#' Clear hazard cache
+#' @export
+clear_hazard_cache <- function() {
+    risk_logger("INFO", "Clearing hazard cache")
+    clear_cache("hazard")
+    
+    # Also clear the RDS file
+    ensure_global_data_initialized()
+    cache_path <- get_cache_file_path("hazard")
+    if (file.exists(cache_path)) {
+        file.remove(cache_path)
+        risk_logger("INFO", "Removed hazard cache file:", cache_path)
+    }
+}
+
+#' Get hazard cache statistics
+#' @return Data frame with cache statistics for hazard data
+#' @export
+get_hazard_cache_stats <- function() {
+    stats <- get_data_cache_stats("hazard")
+    return(stats)
+}
+
 # Extract just the e and v features from sim_data (without tau processing)
 extract_risk_features <- function(sim_data) {
     if (is.null(sim_data) || nrow(sim_data) == 0) {
@@ -717,8 +843,7 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
 #' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
 #' @return Fitted model object
 #' @export
-train_and_save_risk_model <- function(participants, trials, tau = 0.2,
-                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE) {
+train_and_save_risk_model <- function(tau = 0.2, sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE) {
     tryCatch({
         # Use global risk model path if not specified
         if (is.null(file_path)) {
@@ -731,56 +856,45 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             dir.create(dataExtraFolder, recursive = TRUE)
         }
 
-        # Collect hazard samples from all trials using list for efficiency
-        hazard_samples_list <- list()
+        risk_logger("INFO", "Using cached data system to load hazard samples...")
+        risk_logger("DEBUG", "Parameters - tau:", tau, "sampling_freq:", sampling_freq)
 
-        # Create all combinations efficiently
-        combinations_df <- expand.grid(participant = participants, trial = trials, stringsAsFactors = FALSE)
-        combinations_df <- unique(combinations_df) # Remove any duplicates
-        total_combinations <- nrow(combinations_df)
-
-        train_logger <- create_module_logger("TRAIN")
-        train_logger("INFO", "Processing", total_combinations, "unique participant-trial combinations...")
-
-        # Process each combination
-        for (i in 1:nrow(combinations_df)) {
-            participant <- combinations_df$participant[i]
-            trial <- combinations_df$trial[i]
-            train_logger("DEBUG", "Processing participant", participant, "trial", trial, "(combination", i, "/", total_combinations, ")")
-            if (i %% 10 == 0 || i == total_combinations) {
-                train_logger("DEBUG", "Progress:", i, "/", total_combinations, "combinations processed")
-            }
-
-            tryCatch(
-                {
-                    sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
-                    if (!is.null(sim_data) && nrow(sim_data) > 0) {
-                        # Apply episode-based resampling to simulation data if requested
-                        if (sampling_freq < 90) {
-                            sim_data <- resample_simulation_per_episode(sim_data, sampling_freq)
-                        }
-
-                        hazard_samples <- build_hazard_samples(sim_data, tau)
-                        if (nrow(hazard_samples) > 0) {
-                            hazard_samples$participant <- participant
-                            hazard_samples$trial <- trial
-                            hazard_samples_list[[length(hazard_samples_list) + 1]] <- hazard_samples
-                        }
-                    }
-                },
-                error = function(e) {
-                    train_logger("ERROR", "Error processing participant", participant, "trial", trial, ":", e$message)
-                }
+        # Use the caching system to get hazard samples
+        # Create a temporary input environment with the required parameters
+        temp_input <- list(
+            risk_tau = tau,
+            sampling_freq = sampling_freq
+        )
+        
+        # Store original input if it exists
+        original_input <- NULL
+        if (exists("input", envir = .GlobalEnv)) {
+            original_input <- get("input", envir = .GlobalEnv)
+        }
+        
+        # Set temporary input
+        assign("input", temp_input, envir = .GlobalEnv)
+        
+        tryCatch({
+            # Get hazard samples using the caching system
+            all_hazard_samples <- get_cached_data(
+                data_type = "hazard",
+                participants = NULL,  # Will be determined by caching system from sidebar
+                trials = NULL,        # Will be determined by caching system from sidebar
+                condition_filter = NULL,
+                use_parallel = FALSE,
+                shiny_inputs = temp_input
             )
-        }
-
-        # Combine all hazard samples efficiently
-        if (length(hazard_samples_list) > 0) {
-            all_hazard_samples <- data.table::rbindlist(hazard_samples_list, fill = TRUE)
-            all_hazard_samples <- as.data.frame(all_hazard_samples)
-        } else {
-            all_hazard_samples <- data.frame()
-        }
+            
+            risk_logger("INFO", "Retrieved", nrow(all_hazard_samples), "hazard samples from caching system")
+        }, finally = {
+            # Restore original input
+            if (!is.null(original_input)) {
+                assign("input", original_input, envir = .GlobalEnv)
+            } else {
+                rm("input", envir = .GlobalEnv)
+            }
+        })
 
         if (nrow(all_hazard_samples) == 0) {
             train_logger("ERROR", "No hazard samples found. Cannot train risk model.")
@@ -858,61 +972,7 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
     })
 }
 
-#' Score all trials with saved risk model
-#'
-#' @param participants Vector of participant IDs
-#' @param trials Vector of trial numbers
-#' @param file_path Path to the saved RDS file (default uses global risk_model_path)
-#' @param tau Time horizon for drop prediction (default 0.2 seconds)
-#' @return Data frame with risk scores for all trials
-#' @export
-score_all_trials_with_saved_model <- function(participants, trials,
-                                              file_path = NULL,
-                                              tau = 0.2) {
-    # Use global risk model path if not specified
-    if (is.null(file_path)) {
-        ensure_global_data_initialized()
-        file_path <- risk_model_path
-    }
-    model <- load_risk_model(file_path)
 
-    if (is.null(model)) {
-        score_logger <- create_module_logger("SCORE")
-        score_logger("ERROR", "No risk model found at", file_path)
-        return(data.frame())
-    }
-
-    results_list <- list()
-
-    for (participant in participants) {
-        for (trial in trials) {
-            tryCatch(
-                {
-                    sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
-                    if (!is.null(sim_data) && nrow(sim_data) > 0) {
-                        risk_scores <- score_trial_with_model(sim_data, model, tau, use_factors = FALSE)
-                        risk_scores$participant <- participant
-                        risk_scores$trial <- trial
-                        results_list[[length(results_list) + 1]] <- risk_scores
-                    }
-                },
-                error = function(e) {
-                    score_logger("ERROR", "Error scoring participant", participant, "trial", trial, ":", e$message)
-                }
-            )
-        }
-    }
-
-    # Combine all results efficiently
-    if (length(results_list) > 0) {
-        results <- data.table::rbindlist(results_list, fill = TRUE)
-        results <- as.data.frame(results)
-    } else {
-        results <- data.frame()
-    }
-
-    return(results)
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-sample prediction annotation for saved hazard samples
