@@ -39,6 +39,11 @@ numericInput("sampling_freq", "Sampling Frequency for Training (Hz)",
   value = 20, min = 1, max = 200, step = 1, width = "100%"
 )
 
+# Standardized training toggle
+checkboxInput("enable_standardized_training", "Enable Standardized Training",
+  value = FALSE, width = "100%"
+)
+
 # Risk model management
 selectizeInput("risk_model_file", "Risk Model File",
   choices = NULL, selected = NULL, multiple = FALSE
@@ -313,26 +318,51 @@ observeEvent(input$train_risk_model, {
         participants = valid_combinations$participant,
         trials = valid_combinations$trial,
         tau = input$risk_tau,
-        sampling_freq = input$sampling_freq
+        sampling_freq = input$sampling_freq,
+        standardized = input$enable_standardized_training
       )
 
       if (!is.null(model)) {
-        # Load the new model into global workspace
-        GLOBAL_RISK_MODEL <<- model
-
-        # Get model summary for status
-        model_summary <- summary(model)
-        n_obs <- nrow(model@frame)
-
-        output$risk_model_status <- renderText(
-          sprintf(
-            "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
-            length(unique(valid_combinations$participant)),
-            nrow(valid_combinations),
-            n_obs,
-            risk_model_path
+        # Handle both return types: model object or list with model and standardized_means
+        if (is.list(model) && "model" %in% names(model)) {
+          # Standardized training was enabled, model is a list
+          actual_model <- model$model
+          standardized_means <- model$standardized_means
+          
+          # Load the actual model into global workspace
+          GLOBAL_RISK_MODEL <<- actual_model
+          
+          # Get model summary for status
+          model_summary <- summary(actual_model)
+          n_obs <- nrow(actual_model@frame)
+          
+          output$risk_model_status <- renderText(
+            sprintf(
+              "✓ Risk model trained with standardized analysis and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
+              length(unique(valid_combinations$participant)),
+              nrow(valid_combinations),
+              n_obs,
+              risk_model_path
+            )
           )
-        )
+        } else {
+          # Standard training, model is the actual model object
+          GLOBAL_RISK_MODEL <<- model
+          
+          # Get model summary for status
+          model_summary <- summary(model)
+          n_obs <- nrow(model@frame)
+          
+          output$risk_model_status <- renderText(
+            sprintf(
+              "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
+              length(unique(valid_combinations$participant)),
+              nrow(valid_combinations),
+              n_obs,
+              risk_model_path
+            )
+          )
+        }
       } else {
         output$risk_model_status <- renderText("Failed to train risk model - no valid data found")
       }

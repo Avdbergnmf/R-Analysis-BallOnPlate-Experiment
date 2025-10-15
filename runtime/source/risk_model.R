@@ -720,10 +720,11 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
 #' @param sampling_freq Sampling frequency for resampling (default 90 Hz)
 #' @param file_path Path to save the RDS file (default uses global risk_model_path)
 #' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
+#' @param standardized Whether to enable standardized training (default FALSE)
 #' @return Fitted model object
 #' @export
 train_and_save_risk_model <- function(participants, trials, tau = 0.2,
-                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE) {
+                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE, standardized = FALSE) {
     tryCatch({
         # Use global risk model path if not specified
         if (is.null(file_path)) {
@@ -850,16 +851,22 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
         train_logger("INFO", "Step 5/6: Setting up global risk variables...")
         setup_global_risk_variables(analysis_results_path = FALSE)
 
-        # Abandoned this as things were getting too complicated
-        # ── NEW: pooled standardized predictions by Condition × Phase ──
-        train_logger("INFO", "Step 6/6: Computing pooled standardized risks by Condition × Phase...")
-        std_means <- compute_pooled_standardized_risks(
-            model,
-            all_hazard_samples
-        )
-
-        # Return both model and standardized means
-        return(list(model = model, standardized_means = std_means))
+        # Conditionally compute standardized risks based on parameter
+        if (standardized) {
+            # ── NEW: pooled standardized predictions by Condition × Phase ──
+            train_logger("INFO", "Step 6/6: Computing pooled standardized risks by Condition × Phase...")
+            std_means <- compute_pooled_standardized_risks(
+                model,
+                all_hazard_samples
+            )
+            
+            # Return both model and standardized means
+            return(list(model = model, standardized_means = std_means))
+        } else {
+            train_logger("INFO", "Step 6/6: Skipping standardized risk computation (disabled)")
+            # Return just the model
+            return(model)
+        }
     })
 }
 
