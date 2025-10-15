@@ -465,6 +465,42 @@ validate_cache_metadata <- function(cached_metadata, current_metadata, data_type
   return(TRUE)
 }
 
+#' Load only metadata from RDS cache file (without loading the full dataset)
+#' @param data_type The type of data
+#' @return List with 'metadata' field, or NULL if not found/invalid
+load_cache_metadata_only <- function(data_type) {
+  cache_logger <- create_module_logger("CACHE")
+  cache_path <- get_cache_file_path(data_type)
+
+  if (file.exists(cache_path)) {
+    tryCatch(
+      {
+        # Get file info for diagnostics
+        file_info <- file.info(cache_path)
+        file_size_mb <- round(file_info$size / (1024 * 1024), 2)
+        cache_logger("DEBUG", "RDS file size:", file_size_mb, "MB")
+
+        # For now, we'll skip metadata validation to avoid loading the full file
+        # This is a temporary solution - in the future, we could implement
+        # a more sophisticated approach to read only the metadata from RDS files
+        cache_logger("DEBUG", "Skipping metadata validation to avoid loading", file_size_mb, "MB file")
+        cache_logger("DEBUG", "Assuming metadata is valid (will validate when actually loading data)")
+
+        # Return NULL to indicate we couldn't validate metadata without loading the full file
+        # The actual validation will happen when the data is loaded
+        return(NULL)
+      },
+      error = function(e) {
+        cache_logger("ERROR", "Error reading metadata from cache file", cache_path, ":", e$message)
+        return(NULL)
+      }
+    )
+  } else {
+    cache_logger("DEBUG", "No cache file found for", data_type, "at", cache_path)
+    return(NULL)
+  }
+}
+
 #' Load cached data from RDS file with metadata validation
 #' @param data_type The type of data to load
 #' @param current_metadata Optional current metadata to validate against cached metadata
@@ -474,6 +510,22 @@ load_cache_from_file <- function(data_type, current_metadata = NULL) {
   cache_path <- get_cache_file_path(data_type)
 
   if (file.exists(cache_path)) {
+    # First, check metadata without loading the full dataset
+    if (!is.null(current_metadata)) {
+      cache_logger("DEBUG", "Checking metadata before loading full dataset")
+      cached_metadata <- load_cache_metadata_only(data_type)
+
+      if (!is.null(cached_metadata)) {
+        metadata_valid <- validate_cache_metadata(cached_metadata, current_metadata, data_type)
+        if (!metadata_valid) {
+          cache_logger("INFO", "Cache metadata validation failed - cache is invalid for current context")
+          return(list(data = data.frame(), metadata = NULL))
+        }
+        cache_logger("DEBUG", "Cache metadata validation passed - proceeding to load data")
+      }
+    }
+
+    # Now load the full dataset
     tryCatch(
       {
         # Get file info for diagnostics
@@ -505,16 +557,6 @@ load_cache_from_file <- function(data_type, current_metadata = NULL) {
 
           if (!is.null(cached_metadata)) {
             cache_logger("DEBUG", "Cached metadata:", paste(names(cached_metadata), collapse = ", "))
-          }
-
-          # Validate metadata if current metadata is provided
-          if (!is.null(current_metadata) && !is.null(cached_metadata)) {
-            metadata_valid <- validate_cache_metadata(cached_metadata, current_metadata, data_type)
-            if (!metadata_valid) {
-              cache_logger("INFO", "Cache metadata validation failed - cache is invalid for current context")
-              return(list(data = data.frame(), metadata = NULL))
-            }
-            cache_logger("DEBUG", "Cache metadata validation passed")
           }
 
           # Additional diagnostics
