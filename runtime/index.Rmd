@@ -73,11 +73,8 @@ source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
 source("source/risk_model.R", local = FALSE)
 
-# Load risk model and extract tau for parallel processing (only if it exists)
-#setup_global_risk_variables()
-
 # Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE, extra_global_vars = c("GLOBAL_RISK_TAU", "GLOBAL_HAZARD_SAMPLES_PREDS"))
+allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
 allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 
 ## Plotting code

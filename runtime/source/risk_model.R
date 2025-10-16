@@ -384,97 +384,81 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
     )
 }
 
-#' Score trial with risk model
+#' Apply standardized condition and phase to hazard samples
 #'
-#' @param sim_data Simulation data from get_simulation_data()
+#' @param hazard_samples Data frame with hazard samples
 #' @param model Fitted model from train_risk_model()
-#' @param tau Time horizon for drop prediction (default 0.2 seconds)
-#' @param standardized Whether to standardize predictions to reference condition/phase
-#' @param use_factors Whether to include condition/phase factors in prediction (default FALSE)
-#' @param preds_path Path to saved predictions file (default uses global path)
-#' @param prefer Preferred prediction type: "p_hat_fe" (fixed-effects) or "p_hat_re" (subject-specific)
-#' @return Data frame with one row containing risk metrics
+#' @param standardized_condition Optional condition to use for standardized predictions (overrides data condition)
+#' @param standardized_phase Optional phase to use for standardized predictions (overrides data phase)
+#' @return Modified hazard_samples with standardized condition/phase factors
 #' @export
-# ARCHIVED: Score trial with saved predictions (kept for reference)
-score_trial_with_saved_predictions <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = FALSE,
-                                               preds_path = NULL,
-                                               prefer = c("p_hat_fe", "p_hat_re")) {
-    if (is.null(model)) {
-        return(list(
-            individual_predictions = numeric(0),
-            hazard_samples = data.frame()
-        ))
-    }
+apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standardized_condition = NULL, standardized_phase = NULL) {
+    factor_logger <- create_module_logger("APPLY_FACTORS")
+    factor_logger("DEBUG", "Applying model factors to", nrow(hazard_samples), "hazard samples...")
+    
+    # Set participant factor
+    hazard_samples$participant <- factor(hazard_samples$participant)
+    factor_logger("DEBUG", "Set participant factor with", nlevels(hazard_samples$participant), "levels")
+    
+    # Use standardized values if provided, otherwise use actual values from data
+    ref_condition <- if (!is.null(standardized_condition)) standardized_condition else hazard_samples$condition
+    ref_phase <- if (!is.null(standardized_phase)) standardized_phase else hazard_samples$phase
+    
+    factor_logger("DEBUG", "Using reference condition:", ref_condition, "phase:", ref_phase)
 
-    # Use global path if not specified
-    if (is.null(preds_path)) {
-        ensure_global_data_initialized()
-        preds_path <- risk_hazard_samples_preds_path
-    }
-
-    prefer <- intersect(prefer, c("p_hat_fe", "p_hat_re"))
-
-    # Try to load saved predictions
-    haz_all <- NULL
-    if (file.exists(preds_path)) {
-        tryCatch(
-            {
-                haz_all <- readRDS(preds_path)
-                score_logger <- create_module_logger("SCORE")
-                score_logger("DEBUG", "Loaded saved predictions from:", preds_path)
-            },
-            error = function(e) {
-                score_logger("ERROR", "Failed to load saved predictions:", e$message)
-                haz_all <- NULL
-            }
-        )
-    }
-
-    # Identify this participant/trial
-    pid <- unique(sim_data$participant)
-    if (length(pid) != 1) pid <- pid[1]
-
-    trial <- unique(sim_data$trial)
-    if (length(trial) != 1) trial <- trial[1]
-
-    # If we have saved predictions, filter and return
-    if (!is.null(haz_all)) {
-        sel <- rep(TRUE, nrow(haz_all))
-        if ("participant" %in% names(haz_all)) sel <- sel & (as.character(haz_all$participant) == as.character(pid))
-        if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
-
-        haz_trial <- haz_all[sel, , drop = FALSE]
-        score_logger("DEBUG", "Filtered to", nrow(haz_trial), "rows for participant", pid, "trial", trial)
-        if (nrow(haz_trial) > 0) {
-            # Pick preferred prediction column
-            pred_col <- prefer[prefer %in% names(haz_trial)][1]
-            if (is.na(pred_col)) {
-                warning("No predicted columns found in saved file; computing on the fly.")
-            } else {
-                score_logger("DEBUG", "Using saved predictions (", pred_col, ") for participant", pid, "trial", trial)
-                return(list(
-                    individual_predictions = haz_trial[[pred_col]],
-                    hazard_samples = haz_trial
-                ))
-            }
+    if ("condition" %in% names(model$model)) {
+        model_cond_levels <- levels(model$model$condition)
+        factor_logger("DEBUG", "Model condition levels:", paste(model_cond_levels, collapse = ", "))
+        if (ref_condition %in% model_cond_levels) {
+            hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
+            factor_logger("DEBUG", "Applied condition factor:", ref_condition)
+        } else {
+            hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
+            factor_logger("WARN", "Reference condition", ref_condition, "not in model levels, using default:", model_cond_levels[1])
         }
     }
 
-    # Fallback: compute predictions on the fly for this trial only
-    score_logger("DEBUG", "Computing predictions on-the-fly for participant", pid, "trial", trial)
-    return(score_trial_with_model(sim_data, model, tau, standardized = standardized, use_factors = use_factors))
+    if ("phase" %in% names(model$model)) {
+        model_phase_levels <- levels(model$model$phase)
+        factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
+        if (ref_phase %in% model_phase_levels) {
+            hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
+            factor_logger("DEBUG", "Applied phase factor:", ref_phase)
+        } else {
+            hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
+            factor_logger("WARN", "Reference phase", ref_phase, "not in model levels, using default:", model_phase_levels[1])
+        }
+    }
+
+    # Handle cond_phase interaction
+    if ("cond_phase" %in% names(model$model)) {
+        expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
+        model_cond_phase_levels <- levels(model$model$cond_phase)
+        factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
+        factor_logger("DEBUG", "Expected cond_phase:", expected_cond_phase)
+        if (expected_cond_phase %in% model_cond_phase_levels) {
+            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+            factor_logger("DEBUG", "Applied cond_phase factor:", expected_cond_phase)
+        } else {
+            hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
+            factor_logger("WARN", "Expected cond_phase", expected_cond_phase, "not in model levels, using default:", model_cond_phase_levels[1])
+        }
+    }
+
+    factor_logger("DEBUG", "Factor application completed successfully")
+    return(hazard_samples)
 }
 
 #' Score trial with risk model (on-the-fly computation only)
 #'
 #' @param sim_data Simulation data from get_simulation_data()
 #' @param model Fitted model from train_risk_model()
-#' @param tau Time horizon for drop prediction (default 0.2 seconds)
-#' @param standardized Whether to standardize predictions to reference condition/phase
-#' @param use_factors Whether to include condition/phase factors in prediction (default FALSE)
+#' @param tau Time horizon for drop prediction (default 0.15 seconds)
+#' @param standardized_condition Optional condition to use for standardized predictions (overrides data condition)
+#' @param standardized_phase Optional phase to use for standardized predictions (overrides data phase)
 #' @return List with individual_predictions and hazard_samples
 #' @export
-score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FALSE, use_factors = TRUE) {
+score_trial_with_model <- function(sim_data, model, tau = 0.15, standardized_condition = NULL, standardized_phase = NULL) {
     if (is.null(model)) {
         return(list(
             individual_predictions = numeric(0),
@@ -501,59 +485,8 @@ score_trial_with_model <- function(sim_data, model, tau = 0.2, standardized = FA
         ))
     }
 
-    # Set participant factor
-    hazard_samples$participant <- factor(pid)
-
-    # Handle condition/phase factors only if requested
-    if (use_factors) {
-        if (standardized) {
-            # Use reference levels for standardized predictions
-            ref_condition <- "control"
-            ref_phase <- "baseline_task"
-
-            if ("condition" %in% names(model$model)) {
-                model_cond_levels <- levels(model$model$condition)
-                if (ref_condition %in% model_cond_levels) {
-                    hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
-                } else {
-                    hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
-                }
-            }
-
-            if ("phase" %in% names(model$model)) {
-                model_phase_levels <- levels(model$model$phase)
-                if (ref_phase %in% model_phase_levels) {
-                    hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
-                } else {
-                    hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
-                }
-            }
-
-            # Handle cond_phase interaction
-            if ("cond_phase" %in% names(model$model)) {
-                expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
-                model_cond_phase_levels <- levels(model$model$cond_phase)
-                if (expected_cond_phase %in% model_cond_phase_levels) {
-                    hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
-                } else {
-                    hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
-                }
-            }
-        } else {
-            # Use actual condition/phase from data
-            if ("condition" %in% names(model$model) && "condition" %in% names(hazard_samples)) {
-                hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
-            }
-            if ("phase" %in% names(model$model) && "phase" %in% names(hazard_samples)) {
-                hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
-            }
-            if ("cond_phase" %in% names(model$model)) {
-                expected_cond_phase <- paste(hazard_samples$condition, hazard_samples$phase, sep = ".")
-                model_cond_phase_levels <- levels(model$model$cond_phase)
-                hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
-            }
-        }
-    }
+    # Handle condition/phase factors (if they are supplied)
+    hazard_samples <- apply_model_factors_to_hazard_samples(hazard_samples, model, standardized_condition, standardized_phase)
 
     # Predict probabilities for each sample
     # Only expect bam models
@@ -589,12 +522,6 @@ save_risk_model <- function(model, file_path, tau = NULL) {
         save_logger("DEBUG", "Adding tau attribute to model:", tau, "seconds")
     } else {
         save_logger("WARN", "No tau provided, model will be saved without tau attribute")
-    }
-
-    # Verify the attribute was added
-    if (!is.null(tau)) {
-        saved_tau <- attr(model, "tau")
-        save_logger("DEBUG", "Verified tau attribute:", saved_tau, "seconds")
     }
 
     saveRDS(model, file_path)
@@ -638,79 +565,38 @@ load_risk_model <- function(file_path) {
 #' @param analysis_results_path Path to the analysis results RDS file (optional, uses global path if not provided).
 #'   Pass FALSE to skip loading the analysis results.
 #' @export
-setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path = NULL, analysis_results_path = NULL) {
+#' Ensure global hazard samples with predictions are available
+#'
+#' This function checks if global hazard samples with predictions exist, and if not,
+#' loads them from the default path. It's a lightweight version of setup_global_risk_variables
+#' that only handles hazard samples.
+#'
+#' @return TRUE if hazard samples are available, FALSE otherwise
+#' @export
+ensure_global_hazard_samples_available <- function() {
+    # Check if global hazard samples already exist
+    if (exists("GLOBAL_HAZARD_SAMPLES_PREDS") && !is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+        global_logger <- create_module_logger("GLOBAL")
+        global_logger("DEBUG", "Global hazard samples already available with", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "rows")
+        return(TRUE)
+    }
+    
     # Ensure global data is initialized to access paths
     ensure_global_data_initialized()
-
-    # Load risk model and extract tau for parallel processing (only if not explicitly skipped)
-    if (!identical(model_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(model_path)) {
-            model_path <- risk_model_path
-        }
-
-        global_logger <- create_module_logger("GLOBAL")
-        if (file.exists(model_path)) {
-            GLOBAL_RISK_MODEL <<- load_risk_model(model_path)
-            GLOBAL_RISK_TAU <<- attr(GLOBAL_RISK_MODEL, "tau")
-            global_logger("INFO", "Risk model loaded from:", model_path)
-            if (!is.null(GLOBAL_RISK_TAU)) {
-                global_logger("DEBUG", "Risk model tau:", GLOBAL_RISK_TAU, "seconds")
-            } else {
-                global_logger("WARN", "No tau found in risk model")
-            }
-        } else {
-            global_logger("WARN", "No risk model found at:", model_path, "- use dashboard to load one")
-        }
+    
+    global_logger <- create_module_logger("GLOBAL")
+    
+    # Try to load hazard samples from default path
+    if (file.exists(risk_hazard_samples_preds_path)) {
+        GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(risk_hazard_samples_preds_path)
+        global_logger("INFO", "Loaded hazard samples with predictions from:", risk_hazard_samples_preds_path)
+        global_logger("DEBUG", "Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows")
+        return(TRUE)
     } else {
-        global_logger("DEBUG", "Skipping risk model loading (model_path = FALSE)")
-    }
-
-    # Load hazard samples with predictions into global workspace (only if not explicitly skipped)
-    if (!identical(hazard_samples_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(hazard_samples_path)) {
-            hazard_samples_path <- risk_hazard_samples_preds_path
-        }
-
-        if (file.exists(hazard_samples_path)) {
-            GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(hazard_samples_path)
-            global_logger("INFO", "Hazard samples with predictions loaded from:", hazard_samples_path)
-            global_logger("DEBUG", "Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows")
-        } else {
-            global_logger("WARN", "No hazard samples with predictions found at:", hazard_samples_path)
-        }
-    } else {
-        global_logger("DEBUG", "Skipping hazard samples loading (hazard_samples_path = FALSE)")
-    }
-
-    # Load analysis results into global workspace (only if not explicitly skipped)
-    if (!identical(analysis_results_path, FALSE)) {
-        # Use global path if not provided or if NULL
-        if (is.null(analysis_results_path)) {
-            analysis_results_path <- risk_analysis_results_path
-        }
-
-        if (file.exists(analysis_results_path)) {
-            GLOBAL_HAZARD_ANALYSIS_RESULTS <<- readRDS(analysis_results_path)
-            global_logger("INFO", "Analysis results loaded from:", analysis_results_path)
-            if (!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS)) {
-                global_logger(
-                    "DEBUG", "Loaded analysis results with",
-                    ifelse(!is.null(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks),
-                        nrow(GLOBAL_HAZARD_ANALYSIS_RESULTS$standardized_risks), 0
-                    ),
-                    "standardized risk combinations"
-                )
-            }
-        } else {
-            global_logger("WARN", "No analysis results found at:", analysis_results_path)
-        }
-    } else {
-        global_logger("DEBUG", "Skipping analysis results loading (analysis_results_path = FALSE)")
+        global_logger("WARN", "No hazard samples with predictions found at:", risk_hazard_samples_preds_path)
+        return(FALSE)
     }
 }
-
 
 #' Train and save risk model using all available trials
 #'
@@ -720,11 +606,11 @@ setup_global_risk_variables <- function(model_path = NULL, hazard_samples_path =
 #' @param sampling_freq Sampling frequency for resampling (default 90 Hz)
 #' @param file_path Path to save the RDS file (default uses global risk_model_path)
 #' @param use_by_interaction Whether to use factor-by smooths for shape differences (default TRUE)
-#' @param standardized Whether to enable standardized training (default FALSE)
 #' @return Fitted model object
 #' @export
-train_and_save_risk_model <- function(participants, trials, tau = 0.2,
-                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE, standardized = FALSE) {
+train_and_save_risk_model <- function(participants, trials, tau = 0.15,
+                                      sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE,
+                                      standardized_condition = NULL, standardized_phase = NULL) {
     tryCatch({
         # Use global risk model path if not specified
         if (is.null(file_path)) {
@@ -759,7 +645,7 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
 
             tryCatch(
                 {
-                    sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
+                    sim_data <- get_simulation_data(participant, trial)
                     if (!is.null(sim_data) && nrow(sim_data) > 0) {
                         # Apply episode-based resampling to simulation data if requested
                         if (sampling_freq < 90) {
@@ -834,27 +720,21 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             train_logger("ERROR", "Hazard samples file was not created at", risk_hazard_samples_path)
         }
 
-        # Stuff for pooled standardized risks analysis, abandoned this as things were getting too complicated
-
         # ── NEW: Add per-sample predictions to saved hazard samples ──
         train_logger("INFO", "Step 4/5: Adding per-sample predictions to hazard samples...")
         ensure_global_data_initialized()
 
         # Add fixed-effects predictions (recommended for comparability across participants)
+        all_hazard_samples <- apply_model_factors_to_hazard_samples(all_hazard_samples, model, standardized_condition, standardized_phase)
         annotate_hazard_predictions(model, all_hazard_samples,
             include_re = FALSE,
             out_path = risk_hazard_samples_preds_path
         )
 
-
-        # Set up global variables with the newly trained model
-        train_logger("INFO", "Step 5/6: Setting up global risk variables...")
-        setup_global_risk_variables(analysis_results_path = FALSE)
-
         # Conditionally compute standardized risks based on parameter
-        if (standardized) {
+        if (nrow(all_hazard_samples) > 0) {
             # ── NEW: pooled standardized predictions by Condition × Phase ──
-            train_logger("INFO", "Step 6/6: Computing pooled standardized risks by Condition × Phase...")
+            train_logger("INFO", "Step 5/5: Computing pooled standardized risks by Condition × Phase...")
             std_means <- compute_pooled_standardized_risks(
                 model,
                 all_hazard_samples
@@ -863,68 +743,13 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.2,
             # Return both model and standardized means
             return(list(model = model, standardized_means = std_means))
         } else {
-            train_logger("INFO", "Step 6/6: Skipping standardized risk computation (disabled)")
+            train_logger("INFO", "Step 5/5: Skipping standardized risk computation (no samples found)")
             # Return just the model
             return(model)
         }
     })
 }
 
-#' Score all trials with saved risk model
-#'
-#' @param participants Vector of participant IDs
-#' @param trials Vector of trial numbers
-#' @param file_path Path to the saved RDS file (default uses global risk_model_path)
-#' @param tau Time horizon for drop prediction (default 0.2 seconds)
-#' @return Data frame with risk scores for all trials
-#' @export
-score_all_trials_with_saved_model <- function(participants, trials,
-                                              file_path = NULL,
-                                              tau = 0.2) {
-    # Use global risk model path if not specified
-    if (is.null(file_path)) {
-        ensure_global_data_initialized()
-        file_path <- risk_model_path
-    }
-    model <- load_risk_model(file_path)
-
-    if (is.null(model)) {
-        score_logger <- create_module_logger("SCORE")
-        score_logger("ERROR", "No risk model found at", file_path)
-        return(data.frame())
-    }
-
-    results_list <- list()
-
-    for (participant in participants) {
-        for (trial in trials) {
-            tryCatch(
-                {
-                    sim_data <- get_simulation_data(participant, trial, enable_risk = FALSE)
-                    if (!is.null(sim_data) && nrow(sim_data) > 0) {
-                        risk_scores <- score_trial_with_model(sim_data, model, tau, use_factors = FALSE)
-                        risk_scores$participant <- participant
-                        risk_scores$trial <- trial
-                        results_list[[length(results_list) + 1]] <- risk_scores
-                    }
-                },
-                error = function(e) {
-                    score_logger("ERROR", "Error scoring participant", participant, "trial", trial, ":", e$message)
-                }
-            )
-        }
-    }
-
-    # Combine all results efficiently
-    if (length(results_list) > 0) {
-        results <- data.table::rbindlist(results_list, fill = TRUE)
-        results <- as.data.frame(results)
-    } else {
-        results <- data.frame()
-    }
-
-    return(results)
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-sample prediction annotation for saved hazard samples
@@ -942,8 +767,7 @@ score_all_trials_with_saved_model <- function(participants, trials,
 annotate_hazard_predictions <- function(model,
                                         hazard_samples,
                                         include_re = FALSE,
-                                        out_path = NULL,
-                                        chunk_by = c("participant")) {
+                                        out_path = NULL) {
     # Use global path if not specified, skip saving if FALSE
     if (is.null(out_path)) {
         ensure_global_data_initialized()
@@ -955,69 +779,23 @@ annotate_hazard_predictions <- function(model,
 
     predict_logger <- create_module_logger("PREDICT")
     predict_logger("INFO", "Annotating hazard samples with", if (include_re) "subject-specific" else "fixed-effects", "predictions...")
-
-    # Ensure factors are properly set - use original values if model levels are empty
-    if ("condition" %in% names(model$model)) {
-        model_cond_levels <- levels(model$model$condition)
-
-        # If model levels are empty or NULL, use original data levels
-        if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
-            orig_cond_values <- unique(as.character(hazard_samples$condition))
-            hazard_samples$condition <- factor(hazard_samples$condition, levels = orig_cond_values)
-        } else {
-            hazard_samples$condition <- factor(as.character(hazard_samples$condition), levels = model_cond_levels)
-        }
-    } else {
-        hazard_samples$condition <- factor(hazard_samples$condition)
-    }
-
-    if ("phase" %in% names(model$model)) {
-        model_phase_levels <- levels(model$model$phase)
-
-        # If model levels are empty or NULL, use original data levels
-        if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
-            orig_phase_values <- unique(as.character(hazard_samples$phase))
-            hazard_samples$phase <- factor(hazard_samples$phase, levels = orig_phase_values)
-        } else {
-            hazard_samples$phase <- factor(as.character(hazard_samples$phase), levels = model_phase_levels)
-        }
-    } else {
-        hazard_samples$phase <- factor(hazard_samples$phase)
-    }
-    hazard_samples$participant <- factor(hazard_samples$participant)
-
+    
     # Choose whether to include random effect smooth
     pred_args <- list(type = "response")
     if (!include_re) pred_args$exclude <- "s(participant)" # fixed-effects only
 
-    # Predict in chunks (by participant to keep factor levels stable and memory friendly)
-    chunk_by <- intersect(chunk_by, names(hazard_samples))
-    if (length(chunk_by) == 0) chunk_by <- "participant"
+    # Predict all at once
+    predict_logger("DEBUG", "Processing", nrow(hazard_samples), "samples in prediction...")
 
-    split_idx <- split(seq_len(nrow(hazard_samples)), hazard_samples[[chunk_by[1]]])
-
-    p_hat <- numeric(nrow(hazard_samples))
-    predict_logger("DEBUG", "Processing", length(split_idx), "participants in chunks...")
-
-    for (i in seq_along(split_idx)) {
-        ix <- split_idx[[i]]
-        newdf <- hazard_samples[ix, , drop = FALSE]
-
-        tryCatch(
-            {
-                pred_result <- do.call(predict, c(list(object = model, newdata = newdf), pred_args))
-                p_hat[ix] <- pred_result
-            },
-            error = function(e) {
-                predict_logger("ERROR", "ERROR in chunk", i, ":", e$message)
-                p_hat[ix] <- NA_real_
-            }
-        )
-
-        if (i %% 10 == 0 || i == length(split_idx)) {
-            predict_logger("DEBUG", "Progress:", i, "/", length(split_idx), "participants (", round(100 * i / length(split_idx), 1), "%)")
+    tryCatch(
+        {
+            p_hat <- do.call(predict, c(list(object = model, newdata = hazard_samples), pred_args))
+        },
+        error = function(e) {
+            predict_logger("ERROR", "ERROR in prediction:", e$message)
+            p_hat <- rep(NA_real_, nrow(hazard_samples))
         }
-    }
+    )
 
     # Attach prediction column (name indicates FE/RE)
     colname <- if (include_re) "p_hat_re" else "p_hat_fe"
@@ -1028,21 +806,15 @@ annotate_hazard_predictions <- function(model,
     eta_args <- list(type = "link")
     if (!include_re) eta_args$exclude <- "s(participant)"
 
-    eta_hat <- numeric(nrow(hazard_samples))
-    for (i in seq_along(split_idx)) {
-        ix <- split_idx[[i]]
-        newdf <- hazard_samples[ix, , drop = FALSE]
-
-        tryCatch(
-            {
-                eta_result <- do.call(predict, c(list(object = model, newdata = newdf), eta_args))
-                eta_hat[ix] <- eta_result
-            },
-            error = function(e) {
-                eta_hat[ix] <- NA_real_
-            }
-        )
-    }
+    tryCatch(
+        {
+            eta_hat <- do.call(predict, c(list(object = model, newdata = hazard_samples), eta_args))
+        },
+        error = function(e) {
+            predict_logger("ERROR", "ERROR in eta prediction:", e$message)
+            eta_hat <- rep(NA_real_, nrow(hazard_samples))
+        }
+    )
     hazard_samples[[eta_colname]] <- eta_hat
 
     # Add 1s drop risk calculation using eta and tau
@@ -1078,7 +850,6 @@ annotate_hazard_predictions <- function(model,
     # Save and return (only if out_path is not NULL)
     if (!is.null(out_path)) {
         saveRDS(hazard_samples, out_path)
-        setup_global_risk_variables(hazard_samples_path = out_path, model_path = FALSE, analysis_results_path = FALSE)
         predict_logger("INFO", "Saved hazard samples with predictions to:", out_path)
     } else {
         predict_logger("DEBUG", "Skipped saving hazard samples (out_path = FALSE)")
@@ -1888,9 +1659,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         )
         saveRDS(analysis_results_to_save, final_path)
         analysis_logger("INFO", "Analysis results saved to:", final_path)
-
-        # Set up global variables with the analysis results
-        setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE, analysis_results_path = final_path)
     } else {
         analysis_logger("DEBUG", "Skipped saving analysis results (analysis_results_path = FALSE)")
     }

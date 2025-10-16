@@ -283,10 +283,6 @@ observe({
       selected = default_ref
     )
   }
-})
-
-observe({
-  data <- get_stats_data()
 
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)

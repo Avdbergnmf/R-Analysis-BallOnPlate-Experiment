@@ -44,6 +44,17 @@ checkboxInput("enable_standardized_training", "Enable Standardized Training",
   value = FALSE, width = "100%"
 )
 
+# Standardized condition and phase selection (only shown when standardized training is enabled)
+conditionalPanel(
+  condition = "input.enable_standardized_training == true",
+  selectizeInput("standardized_condition", "Standardized Condition",
+    choices = NULL, selected = NULL, multiple = FALSE
+  ),
+  selectizeInput("standardized_phase", "Standardized Phase",
+    choices = NULL, selected = NULL, multiple = FALSE
+  )
+)
+
 # Risk model management
 selectizeInput("risk_model_file", "Risk Model File",
   choices = NULL, selected = NULL, multiple = FALSE
@@ -59,7 +70,7 @@ actionButton("train_risk_model", "Train New Model",
 selectizeInput("hazard_samples_file", "Hazard Samples File",
   choices = NULL, selected = NULL, multiple = FALSE
 )
-actionButton("load_hazard_samples", "Load Hazard Samples & Apply Model",
+actionButton("predict_hazard_samples", "Predict",
   class = "btn-info", style = "margin-top: 5px;"
 )
 
@@ -97,13 +108,15 @@ sim_data <- reactive({
   }
 
   # Get the simulation data with UI parameters
-  get_simulation_data(
-    participant,
-    trial,
+  sim_data <- get_simulation_data(participant,trial)
+
+  sim_data <- add_risk_predictions(sim_data,
     enable_risk = input$enable_risk_predictions,
-    tau = input$risk_tau,
-    allow_direct_model = input$allow_direct_model
+    allow_direct_model = input$allow_direct_model,
+    standardized_condition = if (input$enable_standardized_training) input$standardized_condition else NULL,
+    standardized_phase = if (input$enable_standardized_training) input$standardized_phase else NULL
   )
+  return(sim_data)
 })
 
 # Update data availability status
@@ -161,6 +174,37 @@ observe({
     updateSelectizeInput(session, "sim_vars",
       choices = available_vars,
       selected = keep
+    )
+  }
+})
+
+# Update standardized condition and phase choices when data changes
+observe({
+  req(input$sim_participant, input$sim_trialNum)
+  
+  # Use the reactive sim_data to get available conditions and phases
+  data <- sim_data()
+  if (is.null(data) || nrow(data) == 0) {
+    updateSelectizeInput(session, "standardized_condition", choices = NULL, selected = NULL)
+    updateSelectizeInput(session, "standardized_phase", choices = NULL, selected = NULL)
+    return()
+  }
+  
+  # Update available conditions
+  if ("condition" %in% names(data)) {
+    available_conditions <- unique(data$condition)
+    updateSelectizeInput(session, "standardized_condition",
+      choices = available_conditions,
+      selected = if (length(available_conditions) > 0) available_conditions[1] else NULL
+    )
+  }
+  
+  # Update available phases
+  if ("phase" %in% names(data)) {
+    available_phases <- unique(data$phase)
+    updateSelectizeInput(session, "standardized_phase",
+      choices = available_phases,
+      selected = if (length(available_phases) > 0) available_phases[1] else NULL
     )
   }
 })
@@ -325,44 +369,24 @@ observeEvent(input$train_risk_model, {
       if (!is.null(model)) {
         # Handle both return types: model object or list with model and standardized_means
         if (is.list(model) && "model" %in% names(model)) {
-          # Standardized training was enabled, model is a list
           actual_model <- model$model
-          standardized_means <- model$standardized_means
-          
-          # Load the actual model into global workspace
-          GLOBAL_RISK_MODEL <<- actual_model
-          
-          # Get model summary for status
-          model_summary <- summary(actual_model)
-          n_obs <- nrow(actual_model@frame)
-          
-          output$risk_model_status <- renderText(
-            sprintf(
-              "✓ Risk model trained with standardized analysis and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
-              length(unique(valid_combinations$participant)),
-              nrow(valid_combinations),
-              n_obs,
-              risk_model_path
-            )
-          )
         } else {
-          # Standard training, model is the actual model object
-          GLOBAL_RISK_MODEL <<- model
-          
-          # Get model summary for status
-          model_summary <- summary(model)
-          n_obs <- nrow(model@frame)
-          
-          output$risk_model_status <- renderText(
-            sprintf(
-              "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
-              length(unique(valid_combinations$participant)),
-              nrow(valid_combinations),
-              n_obs,
-              risk_model_path
-            )
-          )
+          actual_model <- model
         }
+          
+        # Get model summary for status
+        model_summary <- summary(actual_model)
+        n_obs <- nrow(actual_model@frame)
+        
+        output$risk_model_status <- renderText(
+          sprintf(
+            "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
+            length(unique(valid_combinations$participant)),
+            nrow(valid_combinations),
+            n_obs,
+            risk_model_path
+          )
+        )
       } else {
         output$risk_model_status <- renderText("Failed to train risk model - no valid data found")
       }
@@ -374,7 +398,7 @@ observeEvent(input$train_risk_model, {
 })
 
 # Load hazard samples and apply model
-observeEvent(input$load_hazard_samples, {
+observeEvent(input$predict_hazard_samples, {
   req(input$hazard_samples_file, input$risk_model_file)
 
   if (input$hazard_samples_file == "No hazard samples files found") {
@@ -399,7 +423,7 @@ observeEvent(input$load_hazard_samples, {
       }
 
       # Always load original hazard samples and compute predictions fresh
-      output$risk_model_status <- renderText("Loading hazard samples and computing predictions...")
+      output$risk_model_status <- renderText("Predicting hazard samples...")
 
       # Load original hazard samples
       hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
@@ -411,13 +435,7 @@ observeEvent(input$load_hazard_samples, {
       }
 
       # Apply pooled standardized risk computation
-      output$risk_model_status <- renderText("Computing pooled standardized risks...")
-
-      # Isolate reactive values to prevent re-execution
-      tau_value <- isolate(input$risk_tau)
-
-      # Always annotate hazard samples with fresh predictions
-      output$risk_model_status <- renderText("Adding predictions to hazard samples...")
+      output$risk_model_status <- renderText("Applying model to hazard samples...")
 
       # Annotate hazard samples with fixed-effects predictions
       hazard_samples <- annotate_hazard_predictions(
@@ -427,15 +445,12 @@ observeEvent(input$load_hazard_samples, {
         out_path = risk_hazard_samples_preds_path
       )
 
-      # Set up global variables with the loaded model and hazard samples
-      setup_global_risk_variables(model_path = model_path, hazard_samples_path = hazard_samples_path, analysis_results_path = FALSE)
-
       # Show success popup
       n_participants <- length(unique(hazard_samples$participant))
       n_samples <- nrow(hazard_samples)
 
       showModal(modalDialog(
-        title = "✓ Hazard Samples Loaded & Model Applied Successfully!",
+        title = "✓ Model Applied and Predictions Computed Successfully!",
         paste0(
           "Loaded ", n_samples, " hazard samples from ",
           n_participants, " participants\n\n",
@@ -459,17 +474,39 @@ observeEvent(input$load_hazard_samples, {
 
 # Perform Risk Analysis button handler
 observeEvent(input$perform_risk_analysis, {
-  # Check if we have the required data
-  if (is.null(GLOBAL_RISK_MODEL) || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
-    output$risk_model_status <- renderText("Please load hazard samples and apply model first")
+  # Check if we have the required file selections
+  req(input$risk_model_file, input$hazard_samples_file)
+  
+  if (input$risk_model_file == "No risk model files found") {
+    output$risk_model_status <- renderText("Please select a valid risk model file")
+    return()
+  }
+  
+  if (input$hazard_samples_file == "No hazard samples files found") {
+    output$risk_model_status <- renderText("Please select a valid hazard samples file")
     return()
   }
 
   tryCatch(
     {
-      # Get the stored data
-      hazard_samples <- GLOBAL_HAZARD_SAMPLES_PREDS
-      model <- GLOBAL_RISK_MODEL
+      # Load the selected files
+      output$risk_model_status <- renderText("Loading selected model and hazard samples...")
+      
+      model_path <- file.path(dataExtraFolder, input$risk_model_file)
+      model <- load_risk_model(model_path)
+      
+      hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
+      hazard_samples <- readRDS(hazard_samples_path)
+      
+      if (is.null(model)) {
+        output$risk_model_status <- renderText("Failed to load selected risk model")
+        return()
+      }
+      
+      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+        output$risk_model_status <- renderText("Failed to load selected hazard samples or samples are empty")
+        return()
+      }
 
       # Perform the risk analysis
       output$risk_model_status <- renderText("Computing pooled standardized risks...")
@@ -479,9 +516,6 @@ observeEvent(input$perform_risk_analysis, {
         model = model,
         hazard_samples = hazard_samples
       )
-
-      # Set up global variables (skip model and hazard samples, only load analysis results)
-      setup_global_risk_variables(model_path = FALSE, hazard_samples_path = FALSE)
 
       # Show success popup with plot
       n_combinations <- nrow(results$standardized_risks)

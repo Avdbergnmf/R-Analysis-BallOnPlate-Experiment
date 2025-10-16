@@ -191,7 +191,7 @@ get_simulation_variable_names <- function() {
 #' @param trial Trial number
 #' @return Tibble with simulation data or empty tibble if no data found
 #' @export
-get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.2, allow_direct_model = FALSE) {
+get_simulation_data <- function(participant, trial) {
     sim_logger("INFO", "Loading simulation data for participant", participant, "trial", trial)
     # Load raw simulation data and apply trial duration capping
     sim_data <- get_t_data(participant, "sim", trial)
@@ -252,19 +252,7 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
         )
 
     # Process the simulation data (now with task columns and identifiers available)
-    sim_data <- process_simulation_data(sim_data, level_data, enable_risk, tau, allow_direct_model)
-
-    # DEBUG: Check if time_in_bowl column successfully merged and resolve duplicates if needed
-    time_in_bowl_like <- grep("^time_in_bowl", colnames(sim_data), value = TRUE)
-    if (length(time_in_bowl_like) > 1 && !("time_in_bowl" %in% colnames(sim_data))) {
-        # Prefer unsuffixed column if exists, otherwise take the first match
-        sim_data$time_in_bowl <- sim_data[[time_in_bowl_like[1]]]
-    }
-
-    if ("time_in_bowl" %in% colnames(sim_data)) {
-        non_na_idx <- which(!is.na(sim_data$time_in_bowl))
-        first_val <- if (length(non_na_idx) > 0) sim_data$time_in_bowl[non_na_idx[1]] else NA_real_
-    }
+    sim_data <- process_simulation_data(sim_data, level_data)
 
     return(sim_data)
 }
@@ -275,7 +263,7 @@ get_simulation_data <- function(participant, trial, enable_risk = TRUE, tau = 0.
 #' @param level_data Level data for arcDeg assignment
 #' @return Processed simulation data with enhanced metrics
 #' @export
-process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, tau = 0.2, allow_direct_model = FALSE) {
+process_simulation_data <- function(sim_data, level_data) {
     # Step 1: Detect respawn events for ball fall counting
     sim_data <- detect_respawn_events(sim_data)
 
@@ -311,11 +299,8 @@ process_simulation_data <- function(sim_data, level_data, enable_risk = FALSE, t
     # Step 8: Set first sample after each gap to NA to prevent velocity/acceleration spikes
     sim_data <- zero_first_sample_after_gaps(sim_data)
 
-    # Step 8.5: Add power and work calculations AFTER zeroing gaps to prevent NA propagation
+    # Step 9: Add power and work calculations AFTER zeroing gaps to prevent NA propagation
     sim_data <- add_power_cols(sim_data)
-
-    # Step 9: Add risk predictions if model exists and enabled
-    sim_data <- add_risk_predictions(sim_data, enable_risk, tau, allow_direct_model)
 
     return(sim_data)
 }
@@ -735,7 +720,7 @@ assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "un
 }
 
 
-add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_direct_model = FALSE) {
+add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model = FALSE, standardized_condition = NULL, standardized_phase = NULL) {
     sim_logger("INFO", "Starting add_risk_predictions for", nrow(data), "samples, enable_risk=", enable_risk)
 
     # Add velocity towards edge metrics using helper function
@@ -764,21 +749,13 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
     sim_logger("INFO", "Attempting to use global hazard samples with predictions...")
     tryCatch(
         {
-            # Check if global hazard samples exist
-            if (!exists("GLOBAL_HAZARD_SAMPLES_PREDS") || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
-                stop("No global hazard samples with predictions found")
+            # Ensure global hazard samples are available
+            if (!ensure_global_hazard_samples_available()) {
+                stop("Failed to load global hazard samples with predictions")
             }
 
-            # Get tau from global variable if available
-            if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
-                sim_logger("DEBUG", "Using tau from global variable:", sprintf("%.3f seconds", GLOBAL_RISK_TAU))
-                tau <- GLOBAL_RISK_TAU
-            } else {
-                sim_logger("DEBUG", "No global tau found, using parameter:", sprintf("%.3f seconds", tau))
-            }
-
-            # Try to use global hazard samples
-            risk_scores <- score_trial_with_global_predictions(data, tau)
+            # Try to use global hazard samples with the new method
+            risk_scores <- score_trial_with_hazards_predictions(data, GLOBAL_HAZARD_SAMPLES_PREDS)
 
             # Check if we got valid predictions
             if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
@@ -796,7 +773,6 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
                 stop(sprintf("Too many NA predictions from global hazard samples (%.1f%% NA)", na_ratio * 100))
             }
 
-            prediction_method <- "global_hazard_samples"
             sim_logger("INFO", "SUCCESS: Using global hazard samples with predictions")
         },
         error = function(e) {
@@ -804,61 +780,6 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
             risk_scores <<- NULL
         }
     )
-
-    # Fallback: Use direct model prediction if global hazard samples failed and allowed
-    if (is.null(risk_scores) && allow_direct_model) {
-        sim_logger("INFO", "Falling back to direct model prediction (allow_direct_model=TRUE)")
-        tryCatch(
-            {
-                # Check if global risk model exists
-                if (!exists("GLOBAL_RISK_MODEL") || is.null(GLOBAL_RISK_MODEL)) {
-                    stop("No global risk model found - use dashboard to load one")
-                }
-
-                model <- GLOBAL_RISK_MODEL
-                sim_logger("DEBUG", "Using global risk model, class:", class(model)[1])
-
-                # Check if this is an old glmmTMB model
-                if (inherits(model, "glmmTMB")) {
-                    stop("Found old glmmTMB model. Please retrain the model to use the new mgcv::bam approach.")
-                }
-
-                # Get tau from global variable if available
-                if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
-                    sim_logger("DEBUG", "Using tau from global variable:", sprintf("%.3f seconds", GLOBAL_RISK_TAU))
-                    tau <- GLOBAL_RISK_TAU
-                } else {
-                    sim_logger("DEBUG", "No global tau found, using parameter:", sprintf("%.3f seconds", tau))
-                }
-
-                # Use direct model prediction (standardized by default)
-                risk_scores <- score_trial_with_model(data, model, tau, standardized = FALSE, use_factors = FALSE)
-
-                # Check if we got valid predictions
-                if (is.null(risk_scores) || length(risk_scores$individual_predictions) == 0) {
-                    stop("No valid predictions returned from direct model")
-                }
-
-                # Check for all NA predictions (indicates a problem)
-                if (all(is.na(risk_scores$individual_predictions))) {
-                    stop("All predictions are NA from direct model")
-                }
-
-                # Check for mostly NA predictions (indicates a serious problem)
-                na_ratio <- sum(is.na(risk_scores$individual_predictions)) / length(risk_scores$individual_predictions)
-                if (na_ratio > 0.9) {
-                    stop(sprintf("Too many NA predictions from direct model (%.1f%% NA)", na_ratio * 100))
-                }
-
-                prediction_method <- "direct_model"
-                sim_logger("INFO", "SUCCESS: Using direct model prediction as fallback")
-            },
-            error = function(e) {
-                sim_logger("WARN", "Direct model prediction also failed:", e$message)
-                risk_scores <<- NULL
-            }
-        )
-    }
 
     # If both methods failed, return early
     if (is.null(risk_scores)) {
@@ -895,9 +816,8 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
             n_valid_bin <- sum(!is.na(p_bin))
             n_valid_lambda <- sum(!is.na(lambda))
             n_valid_1s <- sum(!is.na(p_1s))
-
-            approach_name <- if (prediction_method == "direct_model") "Direct model predictions" else "Global hazard predictions"
-            sim_logger("INFO", "SUCCESS:", approach_name, "computed for all samples:")
+            
+            sim_logger("INFO", "SUCCESS:", "Predictions computed for all samples:")
             sim_logger("INFO", "  - drop_risk_bin:", n_valid_bin, "/", nrow(data), "valid values (", sprintf("%.1f%%", 100 * n_valid_bin / nrow(data)), ")")
             sim_logger("INFO", "  - drop_lambda:", n_valid_lambda, "/", nrow(data), "valid values (", sprintf("%.1f%%", 100 * n_valid_lambda / nrow(data)), ")")
             sim_logger("INFO", "  - drop_risk_1s:", n_valid_1s, "/", nrow(data), "valid values (", sprintf("%.1f%%", 100 * n_valid_1s / nrow(data)), ")")
@@ -924,17 +844,17 @@ add_risk_predictions <- function(data, enable_risk = FALSE, tau = 0.2, allow_dir
     return(data)
 }
 
-#' Score trial with global hazard samples predictions (efficient approach)
+#' Score trial with hazard samples predictions (takes data as input)
 #'
 #' @param sim_data Simulation data from get_simulation_data()
-#' @param tau Time horizon for drop prediction (default 0.2 seconds)
+#' @param hazard_predictions_data Hazard samples with predictions data frame
 #' @return List with individual_predictions and hazard_samples
 #' @export
 
-score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
-    # Check if global hazard samples exist
-    if (!exists("GLOBAL_HAZARD_SAMPLES_PREDS") || is.null(GLOBAL_HAZARD_SAMPLES_PREDS)) {
-        sim_logger("WARN", "No global hazard samples with predictions found")
+score_trial_with_hazards_predictions <- function(sim_data, hazard_predictions_data) {
+    # Check if hazard predictions data is provided
+    if (is.null(hazard_predictions_data) || nrow(hazard_predictions_data) == 0) {
+        sim_logger("WARN", "No hazard predictions data provided")
         return(list(
             individual_predictions = numeric(0),
             hazard_samples = data.frame()
@@ -948,13 +868,12 @@ score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
     trial <- unique(sim_data$trial)
     if (length(trial) != 1) trial <- trial[1]
 
-    # Filter global hazard samples by participant and trial
-    haz_all <- GLOBAL_HAZARD_SAMPLES_PREDS
-    sel <- rep(TRUE, nrow(haz_all))
-    if ("participant" %in% names(haz_all)) sel <- sel & (as.character(haz_all$participant) == as.character(pid))
-    if ("trial" %in% names(haz_all)) sel <- sel & (as.character(haz_all$trial) == as.character(trial))
+    # Filter hazard predictions data by participant and trial
+    sel <- rep(TRUE, nrow(hazard_predictions_data))
+    if ("participant" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$participant) == as.character(pid))
+    if ("trial" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$trial) == as.character(trial))
 
-    haz_trial <- haz_all[sel, , drop = FALSE]
+    haz_trial <- hazard_predictions_data[sel, , drop = FALSE]
     sim_logger("DEBUG", "Filtered to", nrow(haz_trial), "rows for participant", pid, "trial", trial)
 
     if (nrow(haz_trial) == 0) {
@@ -974,7 +893,7 @@ score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
             pred_col <- available_cols[1]
             sim_logger("DEBUG", "Using fallback prediction column:", pred_col)
         } else {
-            sim_logger("ERROR", "No prediction columns found in global hazard samples")
+            sim_logger("ERROR", "No prediction columns found in hazard predictions data")
             return(list(
                 individual_predictions = numeric(0),
                 hazard_samples = data.frame()
@@ -982,7 +901,7 @@ score_trial_with_global_predictions <- function(sim_data, tau = 0.2) {
         }
     }
 
-    sim_logger("DEBUG", "Using global predictions (", pred_col, ") for participant", pid, "trial", trial)
+    sim_logger("DEBUG", "Using hazard predictions (", pred_col, ") for participant", pid, "trial", trial)
 
     return(list(
         individual_predictions = haz_trial[[pred_col]],

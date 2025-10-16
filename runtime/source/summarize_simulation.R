@@ -195,6 +195,8 @@ compute_task_metrics <- function(sim_data, min_attempt_duration = 0) {
 # Helper for get_all_task_metrics
 get_metrics <- function(p, t) {
     sim_data <- get_simulation_data(p, t)
+    # Add risk predictions if model exists and enabled
+    sim_data <- add_risk_predictions(sim_data, enable_risk = TRUE, allow_direct_model = FALSE)
     return(compute_task_metrics(sim_data))
 }
 
