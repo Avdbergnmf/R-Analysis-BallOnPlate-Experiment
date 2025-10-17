@@ -530,7 +530,9 @@ observeEvent(input$ttest_assumption_row, {
   lookup <- ttest_assumption_lookup()
   info <- lookup[[input$ttest_assumption_row]]
   if (is.null(info)) {
-    showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
+    if (exists("showNotification")) {
+      showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
+    }
     return()
   }
 
@@ -568,7 +570,9 @@ observeEvent(input$show_did_analysis, {
   data <- get_stats_data()
 
   if (is.null(lmm)) {
-    showNotification("Model could not be fitted. Please check your model settings.", type = "error")
+    if (exists("showNotification")) {
+      showNotification("Model could not be fitted. Please check your model settings.", type = "error")
+    }
     return()
   }
 

@@ -74,11 +74,27 @@ MEMORY_MONITORING <- cfg_get("logging", "memory_monitoring")
 # =============================================================================
 
 # Load utility functions
+cat("[GLOBAL] Loading utility functions...\n")
 source("source/utils/logging.R")
+cat("[GLOBAL] ✓ logging.R loaded\n")
+
+# Make logging functions globally available for feature modules
+cat("[GLOBAL] Making logging functions globally available for feature modules\n")
+create_logger <<- create_logger
+create_module_logger <<- create_module_logger
+cat("[GLOBAL] ✓ Logging functions now globally available\n")
+
 source("source/utils/cache.R")
+cat("[GLOBAL] ✓ cache.R loaded\n")
 source("source/utils/data_loading.R")
+cat("[GLOBAL] ✓ data_loading.R loaded\n")
 source("source/utils/dynamic_input.R")
+cat("[GLOBAL] ✓ dynamic_input.R loaded\n")
+source("source/utils/get_filtered_data.R")  # Load before filter_manager since it defines get_mu_dyn_long_data
+cat("[GLOBAL] ✓ get_filtered_data.R loaded\n")
 source("source/utils/filter_manager.R")
+cat("[GLOBAL] ✓ filter_manager.R loaded\n")
+cat("[GLOBAL] All utility functions loaded successfully\n")
 
 # =============================================================================
 # FEATURE MODULE LOADING
@@ -105,8 +121,11 @@ load_feature <- function(feature_name) {
     stop("Feature '", feature_name, "' not found at path: ", feature_path)
   }
   
-  # Create environment for the feature
-  feature_env <- new.env(parent = baseenv())
+  # Create environment for the feature with global environment as parent
+  # This allows features to access all global functions without manual assignment
+  feature_env <- new.env(parent = .GlobalEnv)
+  
+  cat(sprintf("[GLOBAL] Created %s feature environment with global access\n", feature_name))
   
   # Load all R files in the feature directory
   r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)
@@ -115,7 +134,14 @@ load_feature <- function(feature_name) {
   }
   
   for (f in r_files) {
-    sys.source(f, envir = feature_env, chdir = TRUE)
+    cat(sprintf("[GLOBAL] Loading feature file: %s\n", basename(f)))
+    tryCatch({
+      sys.source(f, envir = feature_env, chdir = TRUE)
+      cat(sprintf("[GLOBAL] ✓ %s loaded successfully\n", basename(f)))
+    }, error = function(e) {
+      cat(sprintf("[GLOBAL] ✗ ERROR loading %s: %s\n", basename(f), e$message))
+      stop(e)
+    })
   }
   
   # Convert to list and store globally

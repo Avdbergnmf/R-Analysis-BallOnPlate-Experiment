@@ -3,6 +3,9 @@
 #' Public interface for statistical analysis functions.
 #' This is the main entry point for all statistical operations.
 
+# Create shared logger for the stats feature
+stats_logger <- create_module_logger("STATS")
+
 # =============================================================================
 # DATA VALIDATION API
 # =============================================================================
@@ -58,7 +61,18 @@ set_reference_level <- function(data, var_name, ref_level) {
 #' @param average_across Whether to average across conditions
 #' @return Processed statistical dataset
 prepare_stats_dataset <- function(use_summarized, average_across) {
-    build_stats_data(use_summarized, average_across)
+    stats_logger("DEBUG", sprintf("prepare_stats_dataset called: use_summarized=%s, average_across=%s", use_summarized, average_across))
+    
+    # Check if build_stats_data function exists
+    if (!exists("build_stats_data")) {
+        stats_logger("ERROR", "build_stats_data function not found in current environment")
+        stop("build_stats_data function not found")
+    }
+    
+    stats_logger("DEBUG", "Calling build_stats_data")
+    result <- build_stats_data(use_summarized, average_across)
+    stats_logger("DEBUG", sprintf("build_stats_data returned %d rows", nrow(result)))
+    return(result)
 }
 
 # =============================================================================

@@ -7,6 +7,10 @@
 #' @author Alex van den Berg
 #' @version 1.0
 
+# Create module-specific logger for filter manager operations
+filter_manager_logger <- create_module_logger("FILTER-MANAGER")
+filter_manager_logger("INFO", "Filter manager module loaded")
+
 # =============================================================================
 # FILTER STATE MANAGEMENT
 # =============================================================================
@@ -34,8 +38,13 @@
 #' Get current filter state
 #' @return List of current filter parameters
 get_filter_state <- function() {
+  filter_manager_logger("DEBUG", "get_filter_state called")
   return(.filter_state)
 }
+
+# Make filter manager functions available globally
+filter_manager_logger("INFO", "Making get_filter_state globally available")
+get_filter_state <<- get_filter_state
 
 #' Update filter state from Shiny inputs
 #' @param input Shiny input object
@@ -92,7 +101,14 @@ set_filter_state <- function(participants = NULL, trials = NULL, conditions = NU
 #' Get filtered parameters using current filter state
 #' @return Filtered data frame
 get_current_filtered_params <- function() {
-  get_filtered_params(
+  filter_manager_logger("DEBUG", "get_current_filtered_params called")
+  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s", 
+    if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
+    if(is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
+    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
+  ))
+  
+  result <- get_filtered_params(
     participants = .filter_state$participants,
     trials = .filter_state$trials,
     conditions = .filter_state$conditions,
@@ -101,12 +117,27 @@ get_current_filtered_params <- function() {
     suspect = .filter_state$suspect,
     sides = .filter_state$sides
   )
+  
+  filter_manager_logger("DEBUG", sprintf("get_current_filtered_params returning %d rows", nrow(result)))
+  return(result)
 }
+
+# Make filter manager functions available globally
+filter_manager_logger("INFO", "Making get_current_filtered_params globally available")
+get_current_filtered_params <<- get_current_filtered_params
 
 #' Get mu dynamic long data using current filter state
 #' @return Processed mu data frame
 get_current_mu_dyn_long <- function() {
-  get_mu_dyn_long_data(
+  filter_manager_logger("DEBUG", "get_current_mu_dyn_long called")
+  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s, do_slicing=%s", 
+    if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
+    if(is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
+    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions),
+    .filter_state$do_slicing
+  ))
+  
+  result <- get_mu_dyn_long_data(
     participants = .filter_state$participants,
     trials = .filter_state$trials,
     conditions = .filter_state$conditions,
@@ -120,7 +151,14 @@ get_current_mu_dyn_long <- function() {
     add_diff = .filter_state$add_diff,
     remove_middle_slices = .filter_state$remove_middle_slices
   )
+  
+  filter_manager_logger("DEBUG", sprintf("get_current_mu_dyn_long returning %d rows", nrow(result)))
+  return(result)
 }
+
+# Make filter manager functions available globally
+filter_manager_logger("INFO", "Making get_current_mu_dyn_long globally available")
+get_current_mu_dyn_long <<- get_current_mu_dyn_long
 
 # =============================================================================
 # SHINY INTEGRATION
@@ -148,6 +186,7 @@ create_filtered_data_reactives <- function() {
     
     # Reactive version that uses current filter state
     get_mu_dyn_long = reactive({
+      refresh_trigger()  # Force dependency on refresh trigger
       get_current_mu_dyn_long()
     })
   )

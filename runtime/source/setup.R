@@ -68,6 +68,7 @@ library(shinyjs) # ShinyJS for interactive UI
 
 library(qs) # caching data faster
 library(config) # configuration management
+library(digest) # for creating cache keys
 
 # Load initialization functions
 source("source/initialization.R", local = FALSE)

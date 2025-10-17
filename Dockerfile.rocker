@@ -8,7 +8,7 @@ RUN install2.r --skipinstalled \
     ggplot2 ggpubr readxl rstatix plotrix car Rmisc tidyr devtools ggpattern \
     lme4 emmeans lmerTest MuMIn svglite jsonlite pwr lme4 DT \
     signal pracma ggstatsplot ggside zoo ggExtra dbscan plotly lmtest foreach \
-    viridis doParallel markdown shinyBS reshape2 mgcv R.utils qs config\ 
+    viridis doParallel markdown shinyBS reshape2 mgcv R.utils qs config digest\ 
     && rm -rf /tmp/downloaded_packages \
     && strip /usr/local/lib/R/site-library/*/libs/*.so
 

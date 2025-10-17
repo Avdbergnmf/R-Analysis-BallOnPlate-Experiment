@@ -32,10 +32,8 @@ source("source/setup.R")
 cat("=== FORCING COMPLETE REINITIALIZATION AT STARTUP ===\n")
 initialize_global_parameters()
 initialize_global_data()
-cat("=== REINITIALIZATION COMPLETE ===\n")
-# =============================================================================
 
-## Get Results
+## Get Results - Load data BEFORE feature modules
 source("source/get_data_from_loop.R", local = FALSE)
 source("source/calc_all_gait_params.R", local = FALSE)
 source("source/get_questionnaire_results.R", local = FALSE)
@@ -52,10 +50,31 @@ udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
 udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
 
 # Load or calculate the data using the global parallel setting
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
+cat("=== LOADING MAIN DATA OBJECTS ===\n")
+allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
 allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
+
+# Load all feature modules AFTER data is available
+cat("=== LOADING FEATURE MODULES ===\n")
+feature_names <- c("gait", "psd", "stats", "outliers")
+for (feature_name in feature_names) {
+  if (!exists(feature_name, envir = .GlobalEnv)) {
+    cat(sprintf("Loading %s feature module...\n", feature_name))
+    assign(feature_name, load_feature(feature_name), envir = .GlobalEnv)
+    cat(sprintf("✓ %s feature module loaded\n", feature_name))
+  } else {
+    cat(sprintf("✓ %s feature module already loaded\n", feature_name))
+  }
+}
+cat("=== ALL FEATURE MODULES LOADED ===\n")
+
+# Load remaining data objects
+cat("=== LOADING REMAINING DATA OBJECTS ===\n")
+allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
+allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+cat("=== ALL DATA OBJECTS LOADED ===\n")
 
 ## The simulation source
 source("source/profile_shapes.R", local = FALSE)
@@ -69,12 +88,12 @@ source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
 source("source/risk_model.R", local = FALSE)
 
-# Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+# Task and complexity metrics are now loaded above with other data objects
 
 ## Plotting code
 source("source/plotting.R", local = FALSE)
+
+cat("=== INITIALIZATION COMPLETE ===\n")
 
 # for testing combining of tables
 # mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)

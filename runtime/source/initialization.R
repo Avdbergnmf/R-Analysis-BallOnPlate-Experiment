@@ -511,12 +511,4 @@ ensure_global_data_initialized <- function() {
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
-    
-    # Load all features globally for efficiency (after global data is initialized)
-    feature_names <- c("gait", "psd", "stats", "outliers")
-    for (feature_name in feature_names) {
-        if (!exists(feature_name, envir = .GlobalEnv)) {
-            assign(feature_name, load_feature(feature_name), envir = .GlobalEnv)
-        }
-    }
 }

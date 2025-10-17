@@ -3,6 +3,9 @@
 #' Public interface for gait event detection and analysis functions.
 #' This module provides comprehensive foot event detection for gait analysis.
 
+# Create shared logger for the gait feature
+gait_logger <- create_module_logger("GAIT")
+
 # =============================================================================
 # MAIN GAIT EVENT DETECTION
 # =============================================================================

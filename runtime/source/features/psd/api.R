@@ -3,6 +3,9 @@
 #' Public interface for power spectral density analysis functions.
 #' This is the main entry point for all PSD operations.
 
+# Create shared logger for the PSD feature
+psd_logger <- create_module_logger("PSD")
+
 # =============================================================================
 # CORE COMPUTATION API
 # =============================================================================

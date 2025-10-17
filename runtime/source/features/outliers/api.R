@@ -3,6 +3,9 @@
 #' Public interface for outlier detection, checking, marking, and application functions.
 #' This module provides comprehensive outlier handling for heel strike data.
 
+# Create shared logger for the outliers feature
+outliers_logger <- create_module_logger("OUTLIERS")
+
 # =============================================================================
 # DETECTION FUNCTIONS
 # =============================================================================

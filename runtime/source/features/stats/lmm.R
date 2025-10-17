@@ -34,11 +34,37 @@ fit_lmm <- function(data, formula) {
 #' @param average_across Whether to average across conditions
 #' @return Processed statistical dataset
 build_stats_data <- function(use_summarized, average_across) {
+    stats_logger("DEBUG", sprintf("build_stats_data called: use_summarized=%s, average_across=%s", use_summarized, average_across))
+    
+    # Check if required functions exist
+    if (!exists("get_current_mu_dyn_long")) {
+        stats_logger("ERROR", "get_current_mu_dyn_long function not found in current environment")
+        stop("get_current_mu_dyn_long function not found")
+    }
+    if (!exists("get_current_filtered_params")) {
+        stats_logger("ERROR", "get_current_filtered_params function not found in current environment")
+        stop("get_current_filtered_params function not found")
+    }
+    
+    stats_logger("DEBUG", "Required functions found, proceeding with data loading")
+    
     dt <- if (use_summarized) {
+        stats_logger("DEBUG", "Loading summarized data via get_current_mu_dyn_long")
         x <- get_current_mu_dyn_long()
-        if (average_across) summarize_across_conditions(x) else x
+        stats_logger("DEBUG", sprintf("get_current_mu_dyn_long returned %d rows", nrow(x)))
+        if (average_across) {
+            stats_logger("DEBUG", "Applying summarize_across_conditions")
+            result <- summarize_across_conditions(x)
+            stats_logger("DEBUG", sprintf("summarize_across_conditions returned %d rows", nrow(result)))
+            result
+        } else {
+            x
+        }
     } else {
-        get_current_filtered_params()
+        stats_logger("DEBUG", "Loading filtered params via get_current_filtered_params")
+        result <- get_current_filtered_params()
+        stats_logger("DEBUG", sprintf("get_current_filtered_params returned %d rows", nrow(result)))
+        result
     }
 
     if (!is_stats_data_valid(dt)) {

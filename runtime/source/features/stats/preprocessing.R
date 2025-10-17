@@ -48,7 +48,7 @@ apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
     if (transform_type == "log10") {
         # Check if all values are positive for log10 transformation
         if (any(dep_var_values <= 0, na.rm = TRUE)) {
-            if (exists("showNotification", envir = .GlobalEnv)) {
+            if (exists("showNotification")) {
                 showNotification(
                     "Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.",
                     type = "warning"
@@ -61,7 +61,7 @@ apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
     } else if (transform_type == "logit") {
         # Check if all values are between 0 and 1 for logit transformation
         if (any(dep_var_values <= 0 | dep_var_values >= 1, na.rm = TRUE)) {
-            if (exists("showNotification", envir = .GlobalEnv)) {
+            if (exists("showNotification")) {
                 showNotification(
                     "Warning: Some values are <= 0 or >= 1. Cannot apply logit transformation. Values must be strictly between 0 and 1 (proportions).",
                     type = "warning"
