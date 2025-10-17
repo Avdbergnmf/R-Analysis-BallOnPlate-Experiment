@@ -118,9 +118,9 @@ load_feature <- function(feature_name) {
     stop("Feature '", feature_name, "' not found at path: ", feature_path)
   }
   
-  # Create environment for the feature with global environment as parent
-  # This allows features to access all global functions without manual assignment
-  feature_env <- new.env(parent = .GlobalEnv)
+  # Create environment for the feature with base environment as parent
+  # This ensures features are truly self-contained and must explicitly receive dependencies
+  feature_env <- new.env(parent = baseenv())
   
   # Inject logging utilities into the feature environment
   # This makes features self-contained while still having access to logging
@@ -131,7 +131,7 @@ load_feature <- function(feature_name) {
     feature_env$create_module_logger <- create_module_logger
   }
   
-  cat(sprintf("[GLOBAL] Created %s feature environment with global access and logging utilities\n", feature_name))
+  cat(sprintf("[GLOBAL] Created %s feature environment with base access and logging utilities\n", feature_name))
   
   # Load all R files in the feature directory
   r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)

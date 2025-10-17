@@ -5,10 +5,9 @@
 #' Find foot events for a participant and trial
 #' @param participant Participant identifier
 #' @param trialNum Trial number
+#' @param preprocessedData List containing preprocessed data (leftfoot, rightfoot, hip)
 #' @return List with heelStrikes and toeOffs dataframes
-find_foot_events <- function(participant, trialNum) {
-  preprocessedData <- get_preprocessed_data(participant, trialNum, c("leftfoot", "rightfoot", "hip"))
-
+find_foot_events <- function(participant, trialNum, preprocessedData) {
   leftfoot <- preprocessedData$leftfoot
   rightfoot <- preprocessedData$rightfoot
   hip <- preprocessedData$hip

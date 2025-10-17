@@ -13,9 +13,10 @@ gait_logger <- create_module_logger("GAIT")
 #' Find foot events for a participant and trial
 #' @param participant Participant identifier
 #' @param trialNum Trial number
+#' @param preprocessedData List containing preprocessed data (leftfoot, rightfoot, hip)
 #' @return List with heelStrikes and toeOffs dataframes
-detect_foot_events <- function(participant, trialNum) {
-  find_foot_events(participant, trialNum)
+detect_foot_events <- function(participant, trialNum, preprocessedData) {
+  find_foot_events(participant, trialNum, preprocessedData)
 }
 
 # =============================================================================
@@ -130,9 +131,7 @@ safe_approximation <- function(x, y, xout, rule = 1) {
 
 # Note: The following functions are available directly from the module:
 # - get_rotations_data()
-# - load_rotations(participant, trialNum)
-# - preprocess_data(participant, trialNum, dataName)
-# - get_preprocessed_data(participant, trialNum, dataList)
+# - load_rotations(participant, trialNum, rotations_data)
 
 # =============================================================================
 # DATA TRANSFORMATIONS

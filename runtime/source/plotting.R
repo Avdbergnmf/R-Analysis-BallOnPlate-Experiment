@@ -50,7 +50,7 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
 
   if (is.null(preprocessedData)) {
     # Gait feature is loaded globally in initialization
-    preprocessedData <- gait$get_preprocessed_data(participant, trialNum)
+    preprocessedData <- get_preprocessed_data(participant, trialNum)
   }
 
   rightData <- preprocessedData$rightfoot

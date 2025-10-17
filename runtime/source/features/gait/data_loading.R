@@ -16,16 +16,10 @@ get_rotations_data <- function() {
 #' Load rotations for a specific participant and trial
 #' @param participant Participant identifier
 #' @param trialNum Trial number
+#' @param rotations_data Dataframe with rotation data (passed as parameter)
 #' @return Vector of rotations or empty vector if not found
-load_rotations <- function(participant, trialNum) {
-  # Ensure rotations_data is loaded (moved to initialization.R for performance)
-  ensure_global_data_initialized()
-
-  if (is.null(rotations_data)) {
-    rotations_data <- get_rotations_data()
-  }
-
-  if (length(rotations_data) == 0) {
+load_rotations <- function(participant, trialNum, rotations_data) {
+  if (is.null(rotations_data) || length(rotations_data) == 0) {
     return(c())
   }
 

@@ -19,11 +19,11 @@ get_p_results <- function(participant, settingName, trialNumber) {
   # use cached results if available
   cache_key <- paste0(participant)
   if (exists(cache_key, envir = .p_results_cache)) {
-    results <- get(cache_key, envir = .p_results_cache)
+    results <- base::get(cache_key, envir = .p_results_cache)
   } else {
     resultsFile <- get_p_resultsFile(participant)
     results <- as.data.frame(data.table::fread(resultsFile))
-    assign(cache_key, results, envir = .p_results_cache)
+    base::assign(cache_key, results, envir = .p_results_cache)
   }
 
   # find the row where trial_num matches the requested trialNumber
@@ -368,13 +368,13 @@ get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ
 
   # Return cached data if available
   if (exists(cache_key, envir = .questionnaire_cache)) {
-    return(get(cache_key, envir = .questionnaire_cache))
+    return(base::get(cache_key, envir = .questionnaire_cache))
   }
 
   # Load and cache if not present
   qInfopath <- file.path(questionnaireInfoFolder, paste0(qType, ".csv"))
   questionnaire <- as.data.frame(data.table::fread(qInfopath))
-  assign(cache_key, questionnaire, envir = .questionnaire_cache)
+  base::assign(cache_key, questionnaire, envir = .questionnaire_cache)
 
   return(questionnaire)
 }
@@ -386,13 +386,13 @@ get_question_weights <- function(qType) { # qType = IMI / UserExperience
 
   # Return cached data if available
   if (exists(cache_key, envir = .questionnaire_cache)) {
-    return(get(cache_key, envir = .questionnaire_cache))
+    return(base::get(cache_key, envir = .questionnaire_cache))
   }
 
   # Load and cache if not present
   qpath <- file.path(questionnaireInfoFolder, paste0(qType, "_weights.csv"))
   questionnaire <- as.data.frame(data.table::fread(qpath))
-  assign(cache_key, questionnaire, envir = .questionnaire_cache)
+  base::assign(cache_key, questionnaire, envir = .questionnaire_cache)
 
   return(questionnaire)
 }
@@ -745,4 +745,53 @@ add_category_columns <- function(data) {
     )
 
   return(data)
+}
+
+# =============================================================================
+# DATA PREPROCESSING FUNCTIONS
+# =============================================================================
+
+#' Preprocess data for a specific participant, trial, and data type
+#' @param participant Participant identifier
+#' @param trialNum Trial number
+#' @param dataName Data type name (e.g., "leftfoot", "rightfoot", "hip")
+#' @return Preprocessed dataframe
+preprocess_data <- function(participant, trialNum, dataName) {
+  data <- get_t_data(participant, dataName, trialNum)
+
+  # Check if data is empty
+  if (is.null(data) || nrow(data) == 0) {
+    message(sprintf("preprocess_data: No data found for participant %s, trial %s, dataName %s. Returning empty data frame.", participant, trialNum, dataName))
+    return(data.frame())
+  }
+
+  if (gait$is_kinematic_data(data)) {
+    # Get rotations data from global variable (loaded in initialization.R)
+    if (exists("rotations_data") && !is.null(rotations_data)) {
+      rotation <- gait$load_rotations(participant, trialNum, rotations_data)
+      if (length(rotation) > 0) { # If rotation is found, apply it
+        rotation <- rotation[1] # Take the first rotation if multiple are found
+        data <- rotate_y(data, rotation)
+      }
+    }
+    moveSpeed <- get_move_speed(participant, trialNum)
+    data$actual_pos_z <- data$pos_z + moveSpeed * data$time
+  }
+
+  return(data)
+}
+
+#' Get preprocessed data for multiple data types
+#' @param participant Participant identifier
+#' @param trialNum Trial number
+#' @param dataList List of data types to preprocess
+#' @return List of preprocessed dataframes
+get_preprocessed_data <- function(participant, trialNum, dataList = c("leftfoot", "rightfoot", "hip")) {
+  result <- list()
+  for (dataName in dataList) {
+    # Use a more descriptive name for each element in the list
+    # e.g., "leftFoot", "rightFoot", "hip", etc.
+    result[[dataName]] <- preprocess_data(participant, trialNum, dataName)
+  }
+  return(result)
 }

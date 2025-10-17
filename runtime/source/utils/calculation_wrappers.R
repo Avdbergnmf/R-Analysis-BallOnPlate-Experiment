@@ -9,8 +9,11 @@
 #' @param trial Trial number
 #' @return Tibble with gait parameters
 calculate_gait_parameters <- function(participant, trialNum) {
-  # Use gait feature module for foot event detection
-  gaitData <- gait$detect_foot_events(participant, trialNum)
+  # Get preprocessed data using utils function (depends on global cache environments)
+  preprocessedData <- get_preprocessed_data(participant, trialNum, c("leftfoot", "rightfoot", "hip"))
+  
+  # Use gait feature module for foot event detection with preprocessed data
+  gaitData <- gait$detect_foot_events(participant, trialNum, preprocessedData)
 
   heelStrikesData <- gaitData$heelStrikes # should already be sorted based on time
   toeOffsData <- gaitData$toeOffs
