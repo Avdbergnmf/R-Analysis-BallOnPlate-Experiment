@@ -10,9 +10,6 @@ library(tibble)
 # Source the risk model functions
 source("source/risk_model.R")
 
-# Source the logging utilities
-source("source/logging_utils.R")
-
 # Create module-specific logger for simulation data processing
 sim_logger <- create_module_logger("SIMULATION-DATA")
 

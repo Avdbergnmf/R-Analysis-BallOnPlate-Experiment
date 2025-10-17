@@ -119,7 +119,6 @@ tableOutput("overallMeanTable")
 source("source/get_simulation_data.R", local = TRUE)
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
-source("source/logging_utils.R", local = TRUE)
 
 # Create logger for this page
 page_logger <- create_module_logger("PAGE5-HISTOGRAMS")

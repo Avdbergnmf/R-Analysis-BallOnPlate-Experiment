@@ -1,6 +1,3 @@
-# Load logging utilities
-source("source/logging_utils.R")
-
 # Create module-specific logger
 summarize_logger <- create_module_logger("SUMMARIZE-GAITPARAMS")
 
