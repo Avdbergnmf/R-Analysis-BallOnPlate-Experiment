@@ -192,8 +192,7 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
-# Source statistical utility functions
-source("source/stats_utils.R", local = TRUE)
+# Statistical utility functions are now loaded globally via the stats feature module
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())
@@ -211,12 +210,12 @@ get_stats_data <- reactive({
   }
 
   # Handle empty data case
-  if (!is_stats_data_valid(dt)) {
-    return(handle_invalid_stats_data())
+  if (!stats$validate_stats_data(dt)) {
+    return(stats$handle_invalid_data())
   }
 
   # Apply reference levels so the column names match what the selectors expect
-  dt <- apply_reference_levels(dt)
+  dt <- stats$prepare_stats_dataset(input$useSummarized, input$averageAcross)
   dt
 })
 
@@ -307,18 +306,18 @@ get_lmer <- reactive({
   req(dep_var_valid()) # ← stop early but quietly if no dep-var
 
   data <- get_stats_data()
-  validate_ready_for_lmm(data)
+  # Validation is now handled in fit_mixed_model
 
   # Apply custom reference levels if specified
   if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
-    data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+    data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
   }
   if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
-    data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+    data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
   }
 
   # Apply transformation to dependent variable if selected
-  data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+  data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
   if (is.null(data)) {
     return(NULL)
   }
@@ -327,14 +326,12 @@ get_lmer <- reactive({
   if (doCustom) {
     formula <- as.formula(paste(input$depVar, "~", input$customModel))
   } else {
-    formula <- build_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
+    formula <- stats$create_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
   }
 
-  if (input$doCentering) {
-    data <- center_predictors(data, formula, input$depVar, input$doScaling)
-  }
+  # Centering is now handled in fit_mixed_model
 
-  fit_lmm(data, formula)
+  stats$fit_mixed_model(data, formula, input$depVar, input$doCentering, input$doScaling)
 })
 
 # ----------------  LMM OUTPUTS ----------------
@@ -477,27 +474,34 @@ output$post_hoc_table <- renderTable(
 
     # Apply same reference levels as in get_lmer()
     if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
-      data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+      data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
     }
     if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
-      data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+      data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
     }
 
     # Apply same transformation as in get_lmer()
-    data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+    data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
     if (is.null(data)) {
       return(data.frame(Message = "Transformation failed. Cannot perform post-hoc analysis."))
     }
 
     # Prepare analysis (use posthoc_correction for emmeans, not correctionMethod which is for fixed effects)
-    lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)
-    if (is.null(lmm_posthoc)) {
+    posthoc_results <- stats$run_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)
+    if (is.null(posthoc_results$results)) {
       return(data.frame(Message = "No significant main or interaction effects found."))
     }
+    
+    # Create lmm_posthoc structure for compatibility with existing code
+    lmm_posthoc <- list(
+      combined = list(df = posthoc_results$results),
+      posthoc_results = posthoc_results$metadata$posthoc_results,
+      all_indep_vars = posthoc_results$metadata$all_indep_vars
+    )
 
     # Choose method based on paired_ttest input
     if (input$paired_ttest) {
-      res <- compute_paired_ttest_table(lmm_posthoc, data, input$depVar, input$num_tests)
+      res <- stats$run_paired_ttest_analysis(lmm_posthoc, data, input$depVar, input$num_tests)
 
       # Store assumption lookup data and add assumption buttons
       assumption_lookup <- attr(res, "assumption_lookup")
@@ -508,7 +512,7 @@ output$post_hoc_table <- renderTable(
         if ("AssumptionID" %in% names(res)) {
           assumption_ids <- res$AssumptionID
           res$AssumptionID <- NULL # Remove ID column from display
-          res$Assumptions <- sapply(assumption_ids, build_assumption_button)
+          res$Assumptions <- sapply(assumption_ids, stats$create_assumption_button)
         }
       }
     } else {
@@ -548,13 +552,13 @@ observeEvent(input$ttest_assumption_row, {
 # DiD button UI
 output$did_button_ui <- renderUI({
   req(dep_var_valid())
-  HTML(build_did_button())
+  HTML(stats$create_did_button())
 })
 
 # LMM assumption button
 output$lmm_assumption_button_ui <- renderUI({
   req(dep_var_valid())
-  HTML(build_lmm_assumption_button())
+  HTML(stats$create_lmm_assumption_button())
 })
 
 # DiD analysis observer
@@ -570,7 +574,7 @@ observeEvent(input$show_did_analysis, {
   }
 
   # Compute DiD analysis (uses Kenward-Roger df and selected correction method)
-  did_results <- compute_did_analysis(lmm, data, input$correctionMethod)
+  did_results <- stats$run_did_analysis(lmm, data, input$correctionMethod)
 
   # Check if we have valid results
   if (!is.null(did_results$message)) {

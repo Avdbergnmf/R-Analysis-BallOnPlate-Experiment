@@ -70,6 +70,8 @@ library(markdown) # Markdown rendering for data dictionary
 
 library(shinyjs) # ShinyJS for interactive UI
 
+library(qs) # caching data faster
+library(config) # configuration management
 
 # Load initialization functions
 source("source/initialization.R", local = FALSE)

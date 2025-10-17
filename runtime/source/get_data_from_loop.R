@@ -1,8 +1,3 @@
-# Load logging utilities
-if (!exists("create_module_logger")) {
-  source("source/logging_utils.R", local = FALSE)
-}
-
 getTypes <- function(dt) {
     numericDataTypes <- sapply(dt, is.numeric)
     logicalDataTypes <- sapply(dt, is.logical)

@@ -3,10 +3,21 @@
 #' This file contains operations that are expensive and should only run once
 #' during setup, not every time source files are loaded in parallel workers.
 #' It also consolidates all configuration parameters in one place.
+#' 
+#' Uses qs::qsave/qread for efficient caching of loaded data.
+
+# Source global configuration and utilities
+source("global.R")
+
+# Create module-specific logger for initialization
+init_logger <- create_module_logger("GLOBAL")
 
 #' Initialize all global parameters and configuration
 initialize_global_parameters <- function() {
-    cat(sprintf("[%s] Initializing global parameters...\n", format(Sys.time(), "%H:%M:%S")))
+    init_logger("INFO", "Initializing global parameters...")
+    
+    # Configuration is already loaded in global.R
+    init_logger("INFO", sprintf("Configuration loaded (force_rewrite: %s)", CACHE_FORCE_REWRITE))
 
     # =============================================================================
     # FILE PATHS AND DIRECTORIES
@@ -111,18 +122,15 @@ initialize_global_parameters <- function() {
     )
 
     # =============================================================================
-    # PERFORMANCE CONFIGURATION
+    # PERFORMANCE CONFIGURATION (from global.R)
     # =============================================================================
-    # Parallel processing control
-    USE_PARALLEL <<- TRUE # Enable/disable parallel processing for expensive operations
-    ENABLE_FILE_LOGGING <<- TRUE # Enable/disable parallel process logging to files
-    THRESHOLD_PARALLEL <<- 10 # Threshold for using parallel processing when loading missing combinations
-
-    # Cache control
-    FORCE_RECALC <<- FALSE # Set to TRUE to ignore cached RDS files and recompute datasets
-
-    # Signal filtering control
-    USE_CONTINUOUS_FILTERING <<- TRUE # Enable/disable 4Hz low-pass filter on continuous data before complexity calculation
+    # These variables are already set in global.R from the config
+    # Just assign them to the global environment for backward compatibility
+    USE_PARALLEL <<- USE_PARALLEL
+    ENABLE_FILE_LOGGING <<- ENABLE_FILE_LOGGING
+    THRESHOLD_PARALLEL <<- THRESHOLD_PARALLEL
+    FORCE_RECALC <<- FORCE_RECALC
+    USE_CONTINUOUS_FILTERING <<- USE_CONTINUOUS_FILTERING
 
     # =============================================================================
     # DATA ANALYSIS CONFIGURATION
@@ -156,8 +164,8 @@ initialize_global_parameters <- function() {
     # =============================================================================
     # Default parameters for filtering and signal processing
     default_poly_order <<- 4
-    default_fs <<- 200 # Default sampling frequency
-    default_cutoff_freq <<- 5
+    default_fs <<- DEFAULT_SAMPLING_FREQ # Default sampling frequency
+    default_cutoff_freq <<- DEFAULT_CUTOFF_FREQ
     hampel_k <<- 7
     hampel_t0 <<- 3
 
@@ -255,24 +263,7 @@ initialize_global_parameters <- function() {
         "familiarisation_stand" = "FS",
         "familiarisation_training" = "FT"
     )
-
-    # =============================================================================
-    # FACTOR LEVEL DEFINITIONS
-    # =============================================================================
-    # Common factor levels that appear in effect names (for cleaning variable names)
-    factor_levels <<- c(
-        # Boolean levels
-        "TRUE", "FALSE",
-        # Polynomial contrasts
-        ".L", ".Q", ".C",
-        # Numeric levels
-        "[0-9.]+",
-        # Condition levels
-        names(condition_map),
-        # Phase levels
-        names(phase_map)
-    )
-
+    
     # =============================================================================
     # VARIABLE MAPPING CONFIGURATION
     # =============================================================================
@@ -307,8 +298,8 @@ initialize_global_parameters <- function() {
     cat(sprintf("[%s] Global parameters initialized.\n", format(Sys.time(), "%H:%M:%S")))
 }
 
-#' Initialize global data that's expensive to load - OPTIMIZED VERSION
-#' This version uses efficient data structures and cleanup to reduce overhead
+#' Initialize global data that's expensive to load - CACHED VERSION
+#' This version uses qs caching for efficient data loading and cleanup
 initialize_global_data <- function() {
     # Set flag to prevent recursive initialization
     .INITIALIZING_GLOBAL_DATA <<- TRUE
@@ -320,17 +311,26 @@ initialize_global_data <- function() {
                 initialize_global_parameters()
             }
 
-            cat(sprintf("[%s] Loading participant list and file mappings (optimized)...\n", format(Sys.time(), "%H:%M:%S")))
+            init_logger("INFO", "Loading participant list and file mappings (cached)...")
 
-            # Load participant list efficiently
-            participants <<- list.dirs(path = dataFolder, full.names = FALSE, recursive = FALSE)
+            # Load participant list with caching
+            participants <<- load_dir_with_cache(
+                dir_path = dataFolder,
+                cache_key = "participants",
+                cache_dir = cacheFolder,
+                full_names = FALSE,
+                recursive = FALSE
+            )
 
-            # Load filename dictionary with efficient approach
-            cat(sprintf("[%s] Loading filename dictionary...\n", format(Sys.time(), "%H:%M:%S")))
-            filenameDict_raw <- data.table::fread(file.path(dataExtraFolder, filenameDictFile),
+            # Load filename dictionary with caching
+            init_logger("INFO", "Loading filename dictionary...")
+            filenameDict_raw <- load_csv_with_cache(
+                file_path = file.path(dataExtraFolder, filenameDictFile),
+                cache_key = "filename_dict",
+                cache_dir = cacheFolder,
                 stringsAsFactors = FALSE,
                 verbose = FALSE
-            ) # Suppress verbose output
+            )
 
             # Create efficient named list and clean up intermediate data
             filenameDict <<- setNames(as.list(filenameDict_raw[[2]]), filenameDict_raw[[1]])
@@ -341,16 +341,21 @@ initialize_global_data <- function() {
             rm(filenameDict_raw)
             gc()
 
-            # Load outlier data (separate step and heel-strike files)
-            cat(sprintf("[%s] Loading outlier data...\n", format(Sys.time(), "%H:%M:%S")))
+            # Load outlier data (separate step and heel-strike files) with caching
+            init_logger("INFO", "Loading outlier data...")
             tryCatch(
                 {
                     step_file <- file.path(dataExtraFolder, outliersFile)
                     heel_file <- file.path(dataExtraFolder, falseHeelStrikesFile)
 
+                    # Load step outliers with caching
                     if (file.exists(step_file)) {
-                        outliers_steps_data <<- data.table::fread(step_file,
-                            stringsAsFactors = FALSE, verbose = FALSE
+                        outliers_steps_data <<- load_csv_with_cache(
+                            file_path = step_file,
+                            cache_key = "outliers_steps",
+                            cache_dir = cacheFolder,
+                            stringsAsFactors = FALSE,
+                            verbose = FALSE
                         )
                     } else {
                         outliers_steps_data <<- data.table::as.data.table(data.frame(
@@ -358,9 +363,14 @@ initialize_global_data <- function() {
                         ))
                     }
 
+                    # Load heel strike outliers with caching
                     if (file.exists(heel_file)) {
-                        outliers_heel_data <<- data.table::fread(heel_file,
-                            stringsAsFactors = FALSE, verbose = FALSE
+                        outliers_heel_data <<- load_csv_with_cache(
+                            file_path = heel_file,
+                            cache_key = "outliers_heel",
+                            cache_dir = cacheFolder,
+                            stringsAsFactors = FALSE,
+                            verbose = FALSE
                         )
                     } else {
                         outliers_heel_data <<- data.table::as.data.table(data.frame(
@@ -391,15 +401,29 @@ initialize_global_data <- function() {
                 }
             )
 
-            # Load rotation data with fallback handling
-            cat(sprintf("[%s] Loading rotation data (with fallback)...\n", format(Sys.time(), "%H:%M:%S")))
+            # Load rotation data with fallback handling and caching
+            init_logger("INFO", "Loading rotation data (with fallback and caching)...")
             tryCatch(
                 {
-                    rotations_data <<- get_rotations_data()
-                    # If rotations_data is large, consider converting to data.table for efficiency
-                    if (is.data.frame(rotations_data) && nrow(rotations_data) > 1000) {
-                        rotations_data <<- data.table::as.data.table(rotations_data)
+                    # Try to load rotation data with caching
+                    load_rotation_function <- function() {
+                        if (exists("get_rotations_data")) {
+                            data <- get_rotations_data()
+                            # If rotations_data is large, consider converting to data.table for efficiency
+                            if (is.data.frame(data) && nrow(data) > 1000) {
+                                data <- data.table::as.data.table(data)
+                            }
+                            return(data)
+                        } else {
+                            return(data.frame()) # Empty data frame as fallback
+                        }
                     }
+                    
+                    rotations_data <<- load_with_cache(
+                        cache_key = "rotations_data",
+                        load_function = load_rotation_function,
+                        cache_dir = cacheFolder
+                    )
                 },
                 error = function(e) {
                     warning("Could not load rotation data (get_rotations_data not available): ", e$message)
@@ -407,17 +431,26 @@ initialize_global_data <- function() {
                 }
             )
 
-            # Load example data for column names with minimal loading
-            cat(sprintf("[%s] Loading column options (minimal data loading)...\n", format(Sys.time(), "%H:%M:%S")))
+            # Load example data for column names with minimal loading and caching
+            init_logger("INFO", "Loading column options (minimal data loading with caching)...")
             if (exists("participants") && length(participants) > 0) {
                 tryCatch(
                     {
-                        # Instead of loading full data, just get column names efficiently
-                        temp_data <- get_t_data(participants[1], "leftfoot", 1)
-                        xOptions2D <<- colnames(temp_data)
-                        # Clean up immediately
-                        rm(temp_data)
-                        gc()
+                        # Load column names with caching
+                        load_column_names_function <- function() {
+                            if (exists("get_t_data")) {
+                                temp_data <- get_t_data(participants[1], "leftfoot", 1)
+                                return(colnames(temp_data))
+                            } else {
+                                return(c("time", "pos_x", "pos_y", "pos_z", "rot_x", "rot_y", "rot_z"))
+                            }
+                        }
+                        
+                        xOptions2D <<- load_with_cache(
+                            cache_key = "xOptions2D",
+                            load_function = load_column_names_function,
+                            cache_dir = cacheFolder
+                        )
                     },
                     error = function(e) {
                         warning("Could not load xOptions2D: ", e$message)
@@ -430,7 +463,10 @@ initialize_global_data <- function() {
             }
 
 
-            cat(sprintf("[%s] Global data initialization complete (optimized).\n", format(Sys.time(), "%H:%M:%S")))
+            init_logger("INFO", "Global data initialization complete (cached).")
+            
+            # Print cache statistics
+            print_cache_stats(cacheFolder)
 
             # Clear the initialization flag
             rm(.INITIALIZING_GLOBAL_DATA, envir = .GlobalEnv)
@@ -448,15 +484,8 @@ initialize_global_data <- function() {
     )
 }
 
-#' Escape special regex characters in a string
-#' @param str The string to escape
-#' @return The escaped string
-escape_regex_chars <- function(str) {
-    gsub("([.^$*+?()[\\]|])", "\\\\\\1", str)
-}
-
 #' Efficient version of ensure_global_data_initialized
-#' This version includes cleanup but no memory monitoring
+#' This version includes caching and cleanup
 ensure_global_data_initialized <- function() {
     # Skip initialization if we're in the middle of worker sourcing to prevent infinite loops
     if (exists(".WORKER_INITIALIZING", envir = .GlobalEnv)) {
@@ -482,120 +511,4 @@ ensure_global_data_initialized <- function() {
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
-}
-
-#' Clean effect names by extracting base variable names from factor effects
-#' @param effect_name The effect name from the model (e.g., "conditionperturbation")
-#' @param input_vars Vector of input variable names to match against
-#' @return The cleaned base variable name (e.g., "condition")
-clean_effect_name <- function(effect_name, input_vars) {
-    ensure_global_data_initialized()
-
-    # Handle edge cases
-    if (is.null(effect_name) || effect_name == "" || length(effect_name) == 0) {
-        return("")
-    }
-
-    # If effect_name is already in input_vars, return it as is
-    if (effect_name %in% input_vars) {
-        return(effect_name)
-    }
-
-    # Try to match against actual input variables first (most specific match first)
-    # Sort input_vars by length (longest first) to ensure we match the most specific variable name
-    sorted_vars <- input_vars[order(nchar(input_vars), decreasing = TRUE)]
-
-    for (var in sorted_vars) {
-        # Escape special regex characters in the variable name
-        escaped_var <- escape_regex_chars(var)
-        # Use word boundary or end of string to ensure we match the complete variable name
-        # Avoid matching substrings of the variable name by requiring the rest to be recognized factor levels
-        pattern <- paste0("^", escaped_var, "(?=", paste(factor_levels, collapse = "|"), "|$)")
-        if (grepl(pattern, effect_name, perl = TRUE)) {
-            return(var)
-        }
-    }
-
-    # If no match found but the effect_name looks like a simple variable name
-    # (no factor levels attached), return it as-is
-    if (!grepl(paste(factor_levels, collapse = "|"), effect_name)) {
-        return(effect_name)
-    }
-
-    # Fallback: try to match common factor patterns
-    factor_pattern <- paste(factor_levels, collapse = "|")
-    base_var_match <- gsub(paste0("^(.*?)(", factor_pattern, ")$"), "\\1", effect_name)
-
-    # If the pattern didn't change anything, return the original name
-    if (base_var_match == effect_name) {
-        return(effect_name)
-    }
-
-    return(base_var_match)
-}
-
-#' Create pretty labels for factor effects using predefined mappings
-#' @param effect_name The effect name from the model
-#' @param input_vars Vector of input variable names
-#' @param data The dataset to check factor levels
-#' @return Pretty formatted effect name
-get_pretty_factor_labels <- function(effect_name, input_vars, data = NULL) {
-    ensure_global_data_initialized()
-
-    # Try to match against actual input variables
-    for (var in input_vars) {
-        # Escape special regex characters in the variable name
-        escaped_var <- escape_regex_chars(var)
-        if (grepl(paste0("^", escaped_var), effect_name)) {
-            # Extract the level part
-            level <- gsub(paste0("^", escaped_var), "", effect_name)
-
-            # For condition variable, use the condition map
-            if (var == "condition" && level %in% names(condition_map)) {
-                return(var) # Just return "condition" instead of "conditionP"
-            }
-
-            # For other variables, check if they're factors and get their levels
-            if (!is.null(data) && var %in% names(data) && is.factor(data[[var]])) {
-                # Get the actual levels from the data
-                var_levels <- levels(data[[var]])
-                if (level %in% var_levels) {
-                    # Return just the base variable name for factor variables
-                    return(var)
-                }
-            }
-
-            # If no special handling, return the original effect name
-            return(effect_name)
-        }
-    }
-
-    # For other variables, return as is
-    return(effect_name)
-}
-
-#' Apply reference levels to factor variables in a dataset
-#' @param data The dataset to modify
-#' @return The dataset with proper reference levels set for factors
-apply_reference_levels <- function(data) {
-    ensure_global_data_initialized()
-
-    # Apply reference levels to each variable that has a defined reference level
-    for (var_name in names(reference_levels)) {
-        if (var_name %in% names(data)) {
-            # Check if the variable exists and has the specified reference level
-            if (reference_levels[[var_name]] %in% unique(data[[var_name]])) {
-                data[[var_name]] <- relevel(factor(data[[var_name]]), ref = reference_levels[[var_name]])
-                # cat(sprintf("[INFO] Set reference level for %s to '%s'\n", var_name, reference_levels[[var_name]]))
-            } else {
-                warning(sprintf(
-                    "Reference level '%s' not found in variable '%s'. Available levels: %s",
-                    reference_levels[[var_name]], var_name,
-                    paste(unique(data[[var_name]]), collapse = ", ")
-                ))
-            }
-        }
-    }
-
-    return(data)
 }
