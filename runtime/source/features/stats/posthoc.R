@@ -71,7 +71,7 @@ combine_posthoc_results <- function(posthoc_results, all_indep_vars, data) {
         if (grepl(":", effect)) {
             parts <- unlist(strsplit(effect, ":"))
             pretty_parts <- sapply(parts, function(p) get_pretty_factor_labels(p, all_indep_vars, data))
-            paste(pretty_parts, collapse = " × ")
+            paste(pretty_parts, collapse = " x ")
         } else {
             get_pretty_factor_labels(effect, all_indep_vars, data)
         }
@@ -105,7 +105,7 @@ is_meaningful_comparison_row <- function(contrast_str, effect_name) {
     } # just keep it (shows up in the table)
 
     # For main effects, just check if the variable names match
-    is_main_effect <- !grepl(" × ", effect_name)
+    is_main_effect <- !grepl(" x ", effect_name)
     if (is_main_effect) {
         return(TRUE)
     }

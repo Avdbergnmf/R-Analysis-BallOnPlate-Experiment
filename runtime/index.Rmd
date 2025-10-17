@@ -21,8 +21,6 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # Configuration variables are now centralized in source/initialization.R
 
 source("source/setup.R")
-source("source/outlier_utils.R", local = FALSE)
-source("source/data_loading.R", local = FALSE)
 source("source/pre_processing.R", local = FALSE)
 
 source("source/find_foot_events.R", local = FALSE)
@@ -78,11 +76,6 @@ allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complex
 
 ## Plotting code
 source("source/plotting.R", local = FALSE)
-
-# Dynamic input utilities (loaded once for all pages)
-source("source/dynamic_input_utils.R", local = FALSE)
-
-
 
 # for testing combining of tables
 # mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)

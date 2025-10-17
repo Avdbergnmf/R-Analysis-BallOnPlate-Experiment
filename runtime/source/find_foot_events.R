@@ -1,11 +1,6 @@
 ################ Data Manipulation ################
 
 # Helper function to check if hip data is stationary
-if (!exists("apply_outliers", mode = "function")) {
-  # Ensure the unified outlier helpers are available
-  source("source/outlier_utils.R", local = FALSE)
-}
-
 is_hip_stationary <- function(hipData, threshold_cm = 0.01, time_window = 30) {
   first_seconds <- hipData$time <= (hipData$time[1] + time_window)
   hip_range_x <- max(hipData$pos_x[first_seconds]) - min(hipData$pos_x[first_seconds])
@@ -438,7 +433,7 @@ find_foot_events <- function(participant, trialNum) {
   }
 
   # Mark outlier steps and remove false heel-strikes based on global CSV data FIRST
-  combinedHeelStrikes <- apply_outliers(
+  combinedHeelStrikes <- outliers$apply_outlier_processing(
     combinedHeelStrikes,
     heel_outliers  = outliers_heel_data,
     step_outliers  = outliers_steps_data,

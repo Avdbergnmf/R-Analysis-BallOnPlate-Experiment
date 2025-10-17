@@ -6,8 +6,6 @@
 #' @author Alex van den Berg
 #' @version 1.0
 
-library(config)
-
 # Load configuration from config.yml
 # The config package automatically picks the environment based on R_CONFIG_ACTIVE
 cfg <- config::get(file = "config.yml")
@@ -78,24 +76,39 @@ MEMORY_MONITORING <- cfg_get("logging", "memory_monitoring")
 # Load utility functions
 source("source/utils/logging.R")
 source("source/utils/cache.R")
+source("source/utils/data_loading.R")
+source("source/utils/dynamic_input.R")
 
 # =============================================================================
-# LOAD FEATURE MODULES
+# FEATURE MODULE LOADING
 # =============================================================================
+# Note: Feature modules are loaded separately after initialization
+# to avoid circular dependencies.
 
-# Load stats feature module
-stats_env <- new.env(parent = emptyenv())
-for (f in list.files("source/features/stats", "\\.R$", full.names = TRUE)) {
-  sys.source(f, envir = stats_env)
+#' Load all feature modules
+#' This function should be called after initialization is complete
+load_feature_modules <- function() {
+  # Load stats feature module
+  stats_env <<- new.env(parent = emptyenv())
+  for (f in list.files("source/features/stats", "\\.R$", full.names = TRUE)) {
+    sys.source(f, envir = stats_env)
+  }
+  stats <<- as.list(stats_env)  # use as stats$validate_stats_data()
+  
+  # Load PSD feature module
+  psd_env <<- new.env(parent = emptyenv())
+  for (f in list.files("source/features/psd", "\\.R$", full.names = TRUE)) {
+    sys.source(f, envir = psd_env)
+  }
+  psd <<- as.list(psd_env)  # use as psd$compute_psd()
+  
+  # Load outliers feature module
+  outliers_env <<- new.env(parent = emptyenv())
+  for (f in list.files("source/features/outliers", "\\.R$", full.names = TRUE)) {
+    sys.source(f, envir = outliers_env)
+  }
+  outliers <<- as.list(outliers_env)  # use as outliers$find_heel_strikes()
 }
-stats <- as.list(stats_env)  # use as stats$validate_stats_data()
-
-# Load PSD feature module
-psd_env <- new.env(parent = emptyenv())
-for (f in list.files("source/features/psd", "\\.R$", full.names = TRUE)) {
-  sys.source(f, envir = psd_env)
-}
-psd <- as.list(psd_env)  # use as psd$compute_psd()
 
 # =============================================================================
 # INITIALIZATION

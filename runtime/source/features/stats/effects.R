@@ -78,8 +78,6 @@ clean_effect_name <- function(effect_name, input_vars) {
 #' @param data The dataset to check factor levels
 #' @return Pretty formatted effect name
 get_pretty_factor_labels <- function(effect_name, input_vars, data = NULL) {
-    ensure_global_data_initialized()
-
     # Try to match against actual input variables
     for (var in input_vars) {
         # Escape special regex characters in the variable name
@@ -89,7 +87,7 @@ get_pretty_factor_labels <- function(effect_name, input_vars, data = NULL) {
             level <- gsub(paste0("^", escaped_var), "", effect_name)
 
             # For condition variable, use the condition map
-            if (var == "condition" && level %in% names(condition_map)) {
+            if (var == "condition" && exists("condition_map", envir = .GlobalEnv) && level %in% names(condition_map)) {
                 return(var) # Just return "condition" instead of "conditionP"
             }
 
@@ -120,7 +118,7 @@ clean_effect_key <- function(effect, all_indep_vars) {
     if (grepl(":", effect)) {
         parts <- unlist(strsplit(effect, ":"))
         base <- sapply(parts, function(p) clean_effect_name(p, all_indep_vars))
-        paste(sort(base), collapse = " × ")
+        paste(sort(base), collapse = " x ")
     } else {
         clean_effect_name(effect, all_indep_vars)
     }

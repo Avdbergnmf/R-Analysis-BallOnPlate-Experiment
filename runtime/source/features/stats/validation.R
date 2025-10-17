@@ -18,7 +18,10 @@ minimal_stats_schema <- function() {
 #' @param message Warning message to display to user
 #' @return Minimal data frame schema
 handle_invalid_stats_data <- function(message = "No data available for statistical analysis. Please check your filter settings.") {
-    showNotification(message, type = "warning", duration = 5)
+    # Only show notification if in Shiny context
+    if (exists("showNotification", envir = .GlobalEnv)) {
+        showNotification(message, type = "warning", duration = 5)
+    }
     minimal_stats_schema()
 }
 

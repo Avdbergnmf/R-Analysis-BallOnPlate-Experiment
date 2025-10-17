@@ -1,12 +1,3 @@
-# Optimized data loading with fast CSV reading using data.table::fread instead of read.csv
-# Note: All packages now loaded centrally in setup.R
-
-################ PARAMETER INITIALIZATION ################
-# All parameters are now defined in initialization.R for centralized configuration
-# Note: ensure_global_data_initialized() is called by functions that need the data
-################ Data retrieval / helper methods ################
-
-# New helper: convert trial identifiers such as "T5" to the numeric value 5
 sanitize_trial_num <- function(trialNum) {
   as.numeric(gsub("[^0-9]", "", as.character(trialNum)))
 }

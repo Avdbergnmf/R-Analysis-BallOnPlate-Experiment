@@ -48,10 +48,12 @@ apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
     if (transform_type == "log10") {
         # Check if all values are positive for log10 transformation
         if (any(dep_var_values <= 0, na.rm = TRUE)) {
-            showNotification(
-                "Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.",
-                type = "warning"
-            )
+            if (exists("showNotification", envir = .GlobalEnv)) {
+                showNotification(
+                    "Warning: Some values are <= 0. Cannot apply log10 transformation. Consider adding a constant or using a different transformation.",
+                    type = "warning"
+                )
+            }
             return(NULL)
         }
         # Apply log10 transformation
@@ -59,10 +61,12 @@ apply_depvar_transform <- function(data, dep_var, transform_type = "none") {
     } else if (transform_type == "logit") {
         # Check if all values are between 0 and 1 for logit transformation
         if (any(dep_var_values <= 0 | dep_var_values >= 1, na.rm = TRUE)) {
-            showNotification(
-                "Warning: Some values are <= 0 or >= 1. Cannot apply logit transformation. Values must be strictly between 0 and 1 (proportions).",
-                type = "warning"
-            )
+            if (exists("showNotification", envir = .GlobalEnv)) {
+                showNotification(
+                    "Warning: Some values are <= 0 or >= 1. Cannot apply logit transformation. Values must be strictly between 0 and 1 (proportions).",
+                    type = "warning"
+                )
+            }
             return(NULL)
         }
         # Apply logit transformation: log(p / (1 - p))
@@ -108,8 +112,11 @@ apply_custom_reference_level <- function(data, var_name, ref_level) {
 #' @param data The dataset to modify
 #' @return The dataset with proper reference levels set for factors
 apply_reference_levels <- function(data) {
-    ensure_global_data_initialized()
-
+    # Check if reference_levels is available
+    if (!exists("reference_levels", envir = .GlobalEnv)) {
+        return(data)
+    }
+    
     # Apply reference levels to each variable that has a defined reference level
     for (var_name in names(reference_levels)) {
         if (var_name %in% names(data)) {

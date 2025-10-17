@@ -511,4 +511,9 @@ ensure_global_data_initialized <- function() {
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
+    
+    # Load feature modules after initialization is complete
+    if (!exists("stats", envir = .GlobalEnv) || !exists("psd", envir = .GlobalEnv) || !exists("outliers", envir = .GlobalEnv)) {
+        load_feature_modules()
+    }
 }
