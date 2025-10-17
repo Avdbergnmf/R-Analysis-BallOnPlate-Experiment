@@ -78,6 +78,7 @@ source("source/utils/logging.R")
 source("source/utils/cache.R")
 source("source/utils/data_loading.R")
 source("source/utils/dynamic_input.R")
+source("source/utils/filter_manager.R")
 
 # =============================================================================
 # FEATURE MODULE LOADING
@@ -105,7 +106,7 @@ load_feature <- function(feature_name) {
   }
   
   # Create environment for the feature
-  feature_env <- new.env(parent = emptyenv())
+  feature_env <- new.env(parent = baseenv())
   
   # Load all R files in the feature directory
   r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)
@@ -114,7 +115,7 @@ load_feature <- function(feature_name) {
   }
   
   for (f in r_files) {
-    sys.source(f, envir = feature_env)
+    sys.source(f, envir = feature_env, chdir = TRUE)
   }
   
   # Convert to list and store globally

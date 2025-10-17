@@ -2,6 +2,8 @@
 #'
 #' Functions for processing and aggregating power spectrum data across groups
 
+# Filter manager is already loaded by global.R
+
 #' Compute power spectrum data for all groups
 #' @param cached_tracker_data Cached tracker data frame
 #' @param var_name Variable name to analyze (e.g., "pos_x", "vel_y")
@@ -20,8 +22,8 @@ compute_power_spectrum_data <- function(cached_tracker_data, var_name, group_by,
     return(NULL)
   }
   
-  # Get grouping information from get_mu_dyn_long
-  mu_data <- get_mu_dyn_long()
+  # Get grouping information using filter manager
+  mu_data <- get_current_mu_dyn_long()
   if (is.null(mu_data) || nrow(mu_data) == 0) {
     warning("No mu data available for grouping")
     return(NULL)

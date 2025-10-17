@@ -214,7 +214,7 @@ get_stats_data <- reactive({
   }
 
   # Apply reference levels so the column names match what the selectors expect
-  dt <- stats$prepare_stats_dataset(input$useSummarized, input$averageAcross)
+  dt <- stats$prepare_stats_dataset(input$getSummarizedData_stats, input$averageData_stats)
   dt
 })
 

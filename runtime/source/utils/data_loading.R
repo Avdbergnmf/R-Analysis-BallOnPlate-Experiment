@@ -13,7 +13,7 @@ get_p_resultsFile <- function(participant) {
 }
 
 # Environment for caching trial result files per participant
-.p_results_cache <- new.env(parent = emptyenv())
+.p_results_cache <- new.env(parent = baseenv())
 
 get_p_results <- function(participant, settingName, trialNumber) {
   # use cached results if available
@@ -359,7 +359,7 @@ get_q_data <- function(participant, qType) {
 }
 
 # Caching environment for questionnaire metadata to avoid repeated CSV loading
-.questionnaire_cache <- new.env(parent = emptyenv())
+.questionnaire_cache <- new.env(parent = baseenv())
 
 # Cached questionnaire info loading - avoids repeated CSV reads for better performance
 get_question_info <- function(qType) { # qType = IMI / SSQ / VEQ

@@ -35,10 +35,10 @@ fit_lmm <- function(data, formula) {
 #' @return Processed statistical dataset
 build_stats_data <- function(use_summarized, average_across) {
     dt <- if (use_summarized) {
-        x <- get_mu_dyn_long()
+        x <- get_current_mu_dyn_long()
         if (average_across) summarize_across_conditions(x) else x
     } else {
-        filteredParams()
+        get_current_filtered_params()
     }
 
     if (!is_stats_data_valid(dt)) {

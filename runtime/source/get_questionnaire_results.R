@@ -4,7 +4,7 @@ compute_scores <- function(pnum, qType) {
   qdata <- get_q_data(pnum, qType)
 
   qinfo <- get_question_info(qType)
-  combined <- merge(qdata, qinfo, by = "QuestionID")
+  combined <- base::merge(qdata, qinfo, by = "QuestionID")
 
   # Retrieve the weights and score info
   qweights <- get_question_weights(qType)
@@ -129,7 +129,7 @@ get_all_questionnaire_results <- function(loop_function = NULL) {
 
   # Merge all questionnaire results by participant and answer_type
   allQResults <- Reduce(function(x, y) {
-    merge(x, y, by = c("participant", "answer_type"), all = TRUE)
+    base::merge(x, y, by = c("participant", "answer_type"), all = TRUE)
   }, results_list)
 
   # Add condition column (between-participant design)

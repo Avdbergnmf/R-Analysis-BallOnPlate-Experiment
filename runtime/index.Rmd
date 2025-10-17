@@ -90,7 +90,7 @@ Sidebar {.sidebar}
 ```
 
 ```{r, context="server", local=FALSE}
-source("source/get_filtered_data.R", local = TRUE)
+source("source/utils/get_filtered_data.R", local = TRUE)
 ```
 
 

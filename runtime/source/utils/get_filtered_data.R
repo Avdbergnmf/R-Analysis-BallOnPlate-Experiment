@@ -68,10 +68,9 @@ apply_step_filters <- function(data) {
   return(data)
 }
 
-filteredParams <- reactive({
-  # Force dependency on `refresh_trigger()`
-  refresh_trigger()
-
+# Non-reactive version for use outside Shiny context
+get_filtered_params <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL, 
+                               outliers = NULL, suspect = NULL, sides = NULL) {
   # Check if allGaitParams exists and has data
   if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
     return(data.frame()) # Return empty dataframe if no data available
@@ -83,14 +82,45 @@ filteredParams <- reactive({
   # Convert to data.frame for filtering
   dt_data <- as.data.frame(.allGaitParams_dt)
 
-  # Apply both trial-based and step-based filters
-  dt_data <- apply_trial_filters(dt_data)
-  dt_data <- apply_step_filters(dt_data)
+  # Apply filters with provided parameters
+  if (!is.null(participants) && length(participants) > 0) {
+    dt_data <- dt_data[dt_data$participant %in% participants, ]
+  }
+  if (!is.null(trials) && length(trials) > 0) {
+    dt_data <- dt_data[dt_data$trialNum %in% trials, ]
+  }
+  if (!is.null(conditions) && length(conditions) > 0) {
+    dt_data <- dt_data[dt_data$condition %in% conditions, ]
+  }
+  if (!is.null(phases) && length(phases) > 0) {
+    dt_data <- dt_data[dt_data$phase %in% phases, ]
+  }
+  if (!is.null(outliers) && length(outliers) > 0 && "outlierSteps" %in% colnames(dt_data)) {
+    dt_data <- dt_data[dt_data$outlierSteps %in% outliers, ]
+  }
+  if (!is.null(suspect) && length(suspect) > 0 && "suspect" %in% colnames(dt_data)) {
+    dt_data <- dt_data[dt_data$suspect %in% suspect, ]
+  }
+  if (!is.null(sides) && length(sides) > 0 && "foot" %in% colnames(dt_data)) {
+    dt_data <- dt_data[dt_data$foot %in% sides, ]
+  }
 
   return(dt_data)
-})
+}
 
-get_mu_dyn_long <- reactive({
+
+# Create filter state updater (this reactive updates the global filter state)
+filter_state_updater <- create_filter_updater()
+
+# Create reactive data accessors using filter manager
+filtered_data_reactives <- create_filtered_data_reactives()
+filteredParams <- filtered_data_reactives$filteredParams
+
+# Non-reactive version for use outside Shiny context
+get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL,
+                                outliers = NULL, suspect = NULL, sides = NULL,
+                                do_slicing = FALSE, slice_length = NULL, avg_feet = FALSE, 
+                                add_diff = FALSE, remove_middle_slices = FALSE) {
   # Check if required global data objects are available
   if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
     return(NULL)
@@ -99,15 +129,25 @@ get_mu_dyn_long <- reactive({
   # Initialize data.table and apply ONLY step-based filters (not trial filters yet)
   init_gait_data_table()
   step_filtered_data <- as.data.frame(.allGaitParams_dt)
-  step_filtered_data <- apply_step_filters(step_filtered_data)
+  
+  # Apply step-based filters with provided parameters
+  if (!is.null(outliers) && length(outliers) > 0 && "outlierSteps" %in% colnames(step_filtered_data)) {
+    step_filtered_data <- step_filtered_data[step_filtered_data$outlierSteps %in% outliers, ]
+  }
+  if (!is.null(suspect) && length(suspect) > 0 && "suspect" %in% colnames(step_filtered_data)) {
+    step_filtered_data <- step_filtered_data[step_filtered_data$suspect %in% suspect, ]
+  }
+  if (!is.null(sides) && length(sides) > 0 && "foot" %in% colnames(step_filtered_data)) {
+    step_filtered_data <- step_filtered_data[step_filtered_data$foot %in% sides, ]
+  }
 
   # Get the regular gait mu data - conditionally use sliced or non-sliced version
-  if (input$do_slicing) {
+  if (do_slicing) {
     # Ensure allQResults exists for sliced version
     qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
-    mu_gait <- get_full_mu_sliced(step_filtered_data, qResults, categories, input$slice_length, input$avg_feet, input$add_diff, input$remove_middle_slices)
+    mu_gait <- get_full_mu_sliced(step_filtered_data, qResults, categories, slice_length, avg_feet, add_diff, remove_middle_slices)
   } else {
-    mu_gait <- get_full_mu(step_filtered_data, categories, input$avg_feet, input$add_diff)
+    mu_gait <- get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
   }
 
   # Verify all required data is available
@@ -150,12 +190,23 @@ get_mu_dyn_long <- reactive({
       if (nrow(lookup) == 0) next
       agg <- stats::aggregate(lookup[[var_name]], by = list(participant = lookup$participant), FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE)))
       names(agg)[2] <- col_name
-      mu <- merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
+      mu <- base::merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
     }
   }
 
   # NOW apply trial-based filters to the complete merged dataset
-  mu <- apply_trial_filters(mu)
+  if (!is.null(participants) && length(participants) > 0) {
+    mu <- mu[mu$participant %in% participants, ]
+  }
+  if (!is.null(trials) && length(trials) > 0) {
+    mu <- mu[mu$trialNum %in% trials, ]
+  }
+  if (!is.null(conditions) && length(conditions) > 0) {
+    mu <- mu[mu$condition %in% conditions, ]
+  }
+  if (!is.null(phases) && length(phases) > 0) {
+    mu <- mu[mu$phase %in% phases, ]
+  }
 
   # Update global numeric choices for derived metrics UI
   if (!is.null(mu) && nrow(mu) > 0) {
@@ -182,7 +233,10 @@ get_mu_dyn_long <- reactive({
   }
 
   return(mu)
-})
+}
+
+# Use the reactive from filter manager
+get_mu_dyn_long <- filtered_data_reactives$get_mu_dyn_long
 
 # Reactive: filtered questionnaire results based on sidebar filters
 filteredQResults <- reactive({
