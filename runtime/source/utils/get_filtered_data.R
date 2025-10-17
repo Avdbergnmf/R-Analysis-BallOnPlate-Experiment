@@ -139,14 +139,12 @@ if (exists("input") && is.reactive(input)) {
 # Non-reactive version for use outside Shiny context
 get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL,
                                 outliers = NULL, suspect = NULL, sides = NULL,
-                                do_slicing = FALSE, slice_length = NULL, avg_feet = FALSE, 
-                                add_diff = FALSE, remove_middle_slices = FALSE) {
+                                avg_feet = FALSE, add_diff = FALSE) {
   # Create cache key from parameters
   cache_key <- digest::digest(list(
     participants = participants, trials = trials, conditions = conditions, phases = phases,
     outliers = outliers, suspect = suspect, sides = sides,
-    do_slicing = do_slicing, slice_length = slice_length, avg_feet = avg_feet,
-    add_diff = add_diff, remove_middle_slices = remove_middle_slices
+    avg_feet = avg_feet, add_diff = add_diff
   ))
   
   # Check cache first
@@ -186,13 +184,12 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
     step_filtered_data <- step_filtered_data[step_filtered_data$foot %in% sides, ]
   }
 
-  # Get the regular gait mu data - conditionally use sliced or non-sliced version
-  if (do_slicing) {
-    # Ensure allQResults exists for sliced version
-    qResults <- if (exists("allQResults") && !is.null(allQResults)) allQResults else data.frame()
-    mu_gait <- get_full_mu_sliced(step_filtered_data, qResults, categories, slice_length, avg_feet, add_diff, remove_middle_slices)
+  # Get the regular gait mu data using gait feature module
+  if (exists("gait") && is.function(gait$get_full_mu)) {
+    mu_gait <- gait$get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
   } else {
-    mu_gait <- get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
+    filtered_data_logger("ERROR", "gait$get_full_mu function not available")
+    stop("gait$get_full_mu function not available")
   }
 
   # Check if all required data is available, return early if not

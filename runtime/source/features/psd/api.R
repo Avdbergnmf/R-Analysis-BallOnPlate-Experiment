@@ -123,12 +123,13 @@ normalize_psd <- function(psd_df, method = "sum") {
 #' @param max_freq Maximum frequency
 #' @param smooth_bandwidth Smoothing bandwidth
 #' @param normalize Normalize power
+#' @param mu_data The mu dynamic long data for grouping (optional)
 #' @return Data frame with power spectrum for each group
 compute_group_psd <- function(cached_tracker_data, var_name, group_by, split_by = NULL,
                               max_freq = 2.5, smooth_bandwidth = 0.1, 
-                              normalize = TRUE) {
+                              normalize = TRUE, mu_data = NULL) {
     compute_power_spectrum_data(cached_tracker_data, var_name, group_by, split_by,
-                                max_freq, smooth_bandwidth, normalize)
+                                max_freq, smooth_bandwidth, normalize, mu_data)
 }
 
 #' Extract and process trial data for PSD analysis
@@ -225,14 +226,15 @@ plot_psd_with_ci <- function(ps_data, confidence_level = 0.95, split_by = NULL, 
 #' @param normalize Normalize power
 #' @param plot_type Type of plot to create
 #' @param base_size Base font size for plot
+#' @param mu_data The mu dynamic long data for grouping (optional)
 #' @return List with PSD data and plot
 run_psd_analysis <- function(cached_tracker_data, var_name, group_by, split_by = NULL,
                              max_freq = 2.5, smooth_bandwidth = 0.1, normalize = TRUE,
-                             plot_type = "line", base_size = 10) {
+                             plot_type = "line", base_size = 10, mu_data = NULL) {
     
     # Compute PSD data
     psd_data <- compute_group_psd(cached_tracker_data, var_name, group_by, split_by,
-                                  max_freq, smooth_bandwidth, normalize)
+                                  max_freq, smooth_bandwidth, normalize, mu_data)
     
     # Create plot
     psd_plot <- NULL

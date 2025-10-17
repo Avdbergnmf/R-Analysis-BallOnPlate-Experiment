@@ -199,22 +199,20 @@ ttest_assumption_state <- reactiveVal(NULL)
 
 ############ Getting and setting data
 get_stats_data <- reactive({
-  if (input$getSummarizedData_stats) {
-    dt <- get_mu_dyn_long()
-    if (input$averageData_stats) {
-      dt <- summarize_across_conditions(dt)
-    }
+  # Get the data based on user selection
+  data <- if (input$getSummarizedData_stats) {
+    get_mu_dyn_long()
   } else {
-    dt <- filteredParams()
+    filteredParams()
   }
 
   # Handle empty data case
-  if (!stats$validate_stats_data(dt)) {
+  if (!stats$validate_stats_data(data)) {
     return(stats$handle_invalid_data())
   }
 
   # Apply reference levels so the column names match what the selectors expect
-  dt <- stats$prepare_stats_dataset(input$getSummarizedData_stats, input$averageData_stats)
+  dt <- stats$prepare_stats_dataset(data, input$averageData_stats)
   dt
 })
 

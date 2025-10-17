@@ -168,6 +168,100 @@ get_gait_statistics <- function(gait_data) {
 }
 
 # =============================================================================
+# GAIT PARAMETER SUMMARIZATION
+# =============================================================================
+
+#' Get summary statistics by foot
+#' @param data Input data frame
+#' @param dataType Column name to summarize
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @return Summarized data frame
+get_summ_by_foot <- function(data, dataType, categories, avg_feet = TRUE) {
+  get_summ_by_foot(data, dataType, categories, avg_feet)
+}
+
+#' Calculate complexity metrics for specified data types (combining both feet)
+#' @param data Input data frame
+#' @param dataType Column name to analyze
+#' @param categories Grouping categories
+#' @param compute_complexity_func Function to compute complexity metrics
+#' @return Complexity data frame
+get_complexity_combined <- function(data, dataType, categories, compute_complexity_func) {
+  get_complexity_combined(data, dataType, categories, compute_complexity_func)
+}
+
+#' Average across feet and also calculate diff between left and right foot
+#' @param data Input data frame
+#' @param types Data types to process
+#' @param categories Grouping categories
+#' @param add_diff Whether to add foot differences
+#' @return List of summarized data frames
+average_over_feet <- function(data, types, categories, add_diff = FALSE) {
+  average_over_feet(data, types, categories, add_diff)
+}
+
+#' Summarize table with comprehensive statistics
+#' @param data Input data frame
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @param add_diff Whether to add foot differences
+#' @param get_types_func Function to get data types from data
+#' @param columns_to_not_summarize Columns to exclude from summarization
+#' @return Summarized data frame
+summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE, 
+                           get_types_func = NULL, columns_to_not_summarize = character(0)) {
+  summarize_table(data, categories, avg_feet, add_diff, get_types_func, columns_to_not_summarize)
+}
+
+#' Get full mu (summarized gait parameters)
+#' @param allGaitParams Gait parameters data
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @param add_diff Whether to add foot differences
+#' @param get_types_func Function to get data types from data
+#' @param columns_to_not_summarize Columns to exclude from summarization
+#' @return Summarized gait data
+get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE,
+                       get_types_func = NULL, columns_to_not_summarize = character(0)) {
+  get_full_mu(allGaitParams, categories, avg_feet, add_diff, get_types_func, columns_to_not_summarize)
+}
+
+#' Generic function to merge gait data with any other dataset
+#' @param mu_gait Gait data (authoritative source for conditions)
+#' @param other_data Other dataset to merge (questionnaire, task, complexity, etc.)
+#' @param data_type_name Descriptive name for logging (e.g., "questionnaire", "task", "complexity")
+#' @param merge_by Vector of column names to merge by (default: c("participant", "trialNum"))
+#' @return Merged data frame with all data preserved (missing values filled with NA)
+merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", merge_by = c("participant", "trialNum")) {
+  merge_mu_with_data(mu_gait, other_data, data_type_name, merge_by)
+}
+
+#' Prepare questionnaire data for merging with gait data
+#' @param questionnaire_data Raw questionnaire data
+#' @return Prepared questionnaire data with trial mapping
+prep_questionnaire_for_merge <- function(questionnaire_data) {
+  prep_questionnaire_for_merge(questionnaire_data)
+}
+
+#' Filter dataset to only include participant/trial combinations that exist in gait data
+#' @param mu_gait Gait data containing the reference participant/trial combinations
+#' @param data_to_filter Dataset to filter (task, complexity, etc.)
+#' @param data_type_name Descriptive name for error messages
+#' @return Filtered dataset
+filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data") {
+  filter_by_gait_combinations(mu_gait, data_to_filter, data_type_name)
+}
+
+#' Summarize data across conditions
+#' @param data Data frame to summarize
+#' @param columns_to_not_summarize Columns to exclude from summarization
+#' @return Summarized data frame
+summarize_across_conditions <- function(data, columns_to_not_summarize = character(0)) {
+  summarize_across_conditions(data, columns_to_not_summarize)
+}
+
+# =============================================================================
 # CONVENIENCE FUNCTIONS
 # =============================================================================
 

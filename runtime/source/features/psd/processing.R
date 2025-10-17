@@ -12,20 +12,20 @@
 #' @param max_freq Maximum frequency
 #' @param smooth_bandwidth Smoothing bandwidth
 #' @param normalize Normalize power
+#' @param mu_data The mu dynamic long data for grouping (optional)
 #' @return Data frame with power spectrum for each group
 compute_power_spectrum_data <- function(cached_tracker_data, var_name, group_by, split_by = NULL,
-                                        max_freq = 2.5, smooth_bandwidth = 0.1, 
-                                        normalize = TRUE) {
+                                       max_freq = 2.5, smooth_bandwidth = 0.1, 
+                                       normalize = TRUE, mu_data = NULL) {
   
   if (is.null(cached_tracker_data) || nrow(cached_tracker_data) == 0) {
     warning("No cached tracker data provided")
     return(NULL)
   }
   
-  # Get grouping information using filter manager
-  mu_data <- get_current_mu_dyn_long()
+  # Use provided mu_data or return NULL if not available
   if (is.null(mu_data) || nrow(mu_data) == 0) {
-    warning("No mu data available for grouping")
+    warning("No mu data provided for grouping")
     return(NULL)
   }
   

@@ -78,11 +78,6 @@ cat("[GLOBAL] Loading utility functions...\n")
 source("source/utils/logging.R")
 cat("[GLOBAL] ✓ logging.R loaded\n")
 
-# Make logging functions globally available for feature modules
-cat("[GLOBAL] Making logging functions globally available for feature modules\n")
-create_logger <<- create_logger
-create_module_logger <<- create_module_logger
-cat("[GLOBAL] ✓ Logging functions now globally available\n")
 
 source("source/utils/cache.R")
 cat("[GLOBAL] ✓ cache.R loaded\n")

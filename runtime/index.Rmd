@@ -38,6 +38,18 @@ source("source/get_data_from_loop.R", local = FALSE)
 source("source/calc_all_gait_params.R", local = FALSE)
 source("source/get_questionnaire_results.R", local = FALSE)
 
+## The simulation source
+source("source/profile_shapes.R", local = FALSE)
+source("source/simulation_core.R", local = FALSE)
+source("source/get_simulation_data.R", local = FALSE)
+
+
+## Summary tables
+# Note: summarize_gaitparams.R functions are now integrated into the gait feature module
+source("source/summarize_simulation.R", local = FALSE)
+source("source/complexity.R", local = FALSE)
+source("source/risk_model.R", local = FALSE)
+
 # File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
@@ -75,18 +87,6 @@ cat("=== LOADING REMAINING DATA OBJECTS ===\n")
 allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
 allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 cat("=== ALL DATA OBJECTS LOADED ===\n")
-
-## The simulation source
-source("source/profile_shapes.R", local = FALSE)
-source("source/simulation_core.R", local = FALSE)
-source("source/get_simulation_data.R", local = FALSE)
-
-
-## Summary tables
-source("source/summarize_gaitparams.R", local = FALSE)
-source("source/summarize_simulation.R", local = FALSE)
-source("source/complexity.R", local = FALSE)
-source("source/risk_model.R", local = FALSE)
 
 # Task and complexity metrics are now loaded above with other data objects
 

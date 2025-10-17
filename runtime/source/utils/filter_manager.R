@@ -42,9 +42,6 @@ get_filter_state <- function() {
   return(.filter_state)
 }
 
-# Make filter manager functions available globally
-filter_manager_logger("INFO", "Making get_filter_state globally available")
-get_filter_state <<- get_filter_state
 
 #' Update filter state from Shiny inputs
 #' @param input Shiny input object
@@ -122,19 +119,15 @@ get_current_filtered_params <- function() {
   return(result)
 }
 
-# Make filter manager functions available globally
-filter_manager_logger("INFO", "Making get_current_filtered_params globally available")
-get_current_filtered_params <<- get_current_filtered_params
 
 #' Get mu dynamic long data using current filter state
 #' @return Processed mu data frame
 get_current_mu_dyn_long <- function() {
   filter_manager_logger("DEBUG", "get_current_mu_dyn_long called")
-  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s, do_slicing=%s", 
+  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s", 
     if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
     if(is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
-    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions),
-    .filter_state$do_slicing
+    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
   ))
   
   result <- get_mu_dyn_long_data(
@@ -145,20 +138,14 @@ get_current_mu_dyn_long <- function() {
     outliers = .filter_state$outliers,
     suspect = .filter_state$suspect,
     sides = .filter_state$sides,
-    do_slicing = .filter_state$do_slicing,
-    slice_length = .filter_state$slice_length,
     avg_feet = .filter_state$avg_feet,
-    add_diff = .filter_state$add_diff,
-    remove_middle_slices = .filter_state$remove_middle_slices
+    add_diff = .filter_state$add_diff
   )
   
   filter_manager_logger("DEBUG", sprintf("get_current_mu_dyn_long returning %d rows", nrow(result)))
   return(result)
 }
 
-# Make filter manager functions available globally
-filter_manager_logger("INFO", "Making get_current_mu_dyn_long globally available")
-get_current_mu_dyn_long <<- get_current_mu_dyn_long
 
 # =============================================================================
 # SHINY INTEGRATION

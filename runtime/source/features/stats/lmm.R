@@ -30,41 +30,35 @@ fit_lmm <- function(data, formula) {
 }
 
 #' Build the stats dataset from inputs and finalize it (validate + reference levels)
-#' @param use_summarized Whether to use summarized data
+#' @param data The dataset to use for statistical analysis
 #' @param average_across Whether to average across conditions
 #' @return Processed statistical dataset
-build_stats_data <- function(use_summarized, average_across) {
-    stats_logger("DEBUG", sprintf("build_stats_data called: use_summarized=%s, average_across=%s", use_summarized, average_across))
+build_stats_data <- function(data, average_across = FALSE) {
+    stats_logger("DEBUG", sprintf("build_stats_data called: average_across=%s", average_across))
     
-    # Check if required functions exist
-    if (!exists("get_current_mu_dyn_long")) {
-        stats_logger("ERROR", "get_current_mu_dyn_long function not found in current environment")
-        stop("get_current_mu_dyn_long function not found")
-    }
-    if (!exists("get_current_filtered_params")) {
-        stats_logger("ERROR", "get_current_filtered_params function not found in current environment")
-        stop("get_current_filtered_params function not found")
+    # Validate required data is provided
+    if (is.null(data) || nrow(data) == 0) {
+        stats_logger("ERROR", "No data provided to build_stats_data")
+        stop("No data provided to build_stats_data")
     }
     
-    stats_logger("DEBUG", "Required functions found, proceeding with data loading")
+    stats_logger("DEBUG", sprintf("Data provided with %d rows", nrow(data)))
     
-    dt <- if (use_summarized) {
-        stats_logger("DEBUG", "Loading summarized data via get_current_mu_dyn_long")
-        x <- get_current_mu_dyn_long()
-        stats_logger("DEBUG", sprintf("get_current_mu_dyn_long returned %d rows", nrow(x)))
-        if (average_across) {
-            stats_logger("DEBUG", "Applying summarize_across_conditions")
-            result <- summarize_across_conditions(x)
-            stats_logger("DEBUG", sprintf("summarize_across_conditions returned %d rows", nrow(result)))
-            result
+    # Apply summarize_across_conditions if requested (works for both dataset types)
+    dt <- if (average_across) {
+        stats_logger("DEBUG", "Applying summarize_across_conditions")
+        # Check if gait module is available and has the function
+        if (exists("gait") && is.function(gait$summarize_across_conditions)) {
+            result <- gait$summarize_across_conditions(data)
         } else {
-            x
+            stats_logger("ERROR", "gait$summarize_across_conditions function not available")
+            stop("gait$summarize_across_conditions function not available")
         }
-    } else {
-        stats_logger("DEBUG", "Loading filtered params via get_current_filtered_params")
-        result <- get_current_filtered_params()
-        stats_logger("DEBUG", sprintf("get_current_filtered_params returned %d rows", nrow(result)))
+        stats_logger("DEBUG", sprintf("summarize_across_conditions returned %d rows", nrow(result)))
         result
+    } else {
+        stats_logger("DEBUG", "Using data as-is")
+        data
     }
 
     if (!is_stats_data_valid(dt)) {

@@ -1,7 +1,18 @@
-# Create module-specific logger
-summarize_logger <- create_module_logger("SUMMARIZE-GAITPARAMS")
+#' Gait Parameter Summarization Functions
+#'
+#' Functions for summarizing and processing gait parameters data.
+#' All functions are self-contained and accept data as parameters.
 
-get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
+# Create module-specific logger
+summarize_logger <- create_module_logger("GAIT-SUMMARIZE")
+
+#' Get summary statistics by foot
+#' @param data Input data frame
+#' @param dataType Column name to summarize
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @return Summarized data frame
+get_summ_by_foot <- function(data, dataType, categories, avg_feet = TRUE) {
   summarize_logger("DEBUG", "Starting get_summ_by_foot for dataType:", dataType, "with categories:", paste(categories, collapse = ", "))
   summarize_logger("DEBUG", "Input data dimensions:", nrow(data), "x", ncol(data))
   summarize_logger("DEBUG", "Averaging over feet:", avg_feet)
@@ -47,8 +58,13 @@ get_summ_by_foot <- function(dataType, categories, data, avg_feet = TRUE) {
   return(data)
 }
 
-# Calculate complexity metrics for specified data types (combining both feet)
-get_complexity_combined <- function(dataType, categories, data) {
+#' Calculate complexity metrics for specified data types (combining both feet)
+#' @param data Input data frame
+#' @param dataType Column name to analyze
+#' @param categories Grouping categories
+#' @param compute_complexity_func Function to compute complexity metrics
+#' @return Complexity data frame
+get_complexity_combined <- function(data, dataType, categories, compute_complexity_func) {
   summarize_logger("DEBUG", "Starting get_complexity_combined for dataType:", dataType)
   summarize_logger("DEBUG", "Input data dimensions:", nrow(data), "x", ncol(data))
   summarize_logger("DEBUG", "Original categories:", paste(categories, collapse = ", "))
@@ -70,10 +86,10 @@ get_complexity_combined <- function(dataType, categories, data) {
     stop("Missing categories: ", paste(missing_categories, collapse = ", "))
   }
   
-  # Check if compute_complexity function is available
-  if (!exists("compute_complexity")) {
-    summarize_logger("ERROR", "compute_complexity function not found. Make sure complexity.R is loaded.")
-    stop("compute_complexity function not found")
+  # Validate compute_complexity function
+  if (!is.function(compute_complexity_func)) {
+    summarize_logger("ERROR", "compute_complexity_func must be a function")
+    stop("compute_complexity_func must be a function")
   }
 
   # Calculate complexity metrics for each group (combining both feet)
@@ -95,7 +111,7 @@ get_complexity_combined <- function(dataType, categories, data) {
       }
 
       # Calculate complexity metrics on combined data from both feet
-      complexity_result <- compute_complexity(values) # assumes complexity.R is loaded
+      complexity_result <- compute_complexity_func(values)
 
       # Convert to data frame
       as.data.frame(complexity_result)
@@ -108,7 +124,12 @@ get_complexity_combined <- function(dataType, categories, data) {
   return(complexity_data)
 }
 
-# Average across feet and also calculate diff between left and right foot and add it to mu
+#' Average across feet and also calculate diff between left and right foot and add it to mu
+#' @param data Input data frame
+#' @param types Data types to process
+#' @param categories Grouping categories
+#' @param add_diff Whether to add foot differences
+#' @return List of summarized data frames
 average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   summarize_logger("DEBUG", "Starting average_over_feet with", length(types), "data types")
   summarize_logger("DEBUG", "Data types:", paste(types, collapse = ", "))
@@ -121,7 +142,7 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   summarize_logger("DEBUG", "Categories without foot:", paste(categories_no_foot, collapse = ", "))
   
   summarize_logger("INFO", "Calculating averaged summaries for", length(types), "data types")
-  mu_avg <- lapply(types, get_summ_by_foot, categories_no_foot, data, avg_feet = TRUE)
+  mu_avg <- lapply(types, function(type) get_summ_by_foot(data, type, categories_no_foot, avg_feet = TRUE))
   mu_avg <- setNames(mu_avg, types)
   summarize_logger("DEBUG", "Averaged summaries completed")
 
@@ -132,7 +153,7 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
 
     # Step 1: Get per-foot summaries without averaging over feet
     summarize_logger("DEBUG", "Getting per-foot summaries")
-    mu_per_foot <- lapply(types, get_summ_by_foot, categories_with_foot, data, avg_feet = FALSE)
+    mu_per_foot <- lapply(types, function(type) get_summ_by_foot(data, type, categories_with_foot, avg_feet = FALSE))
     mu_per_foot <- setNames(mu_per_foot, types)
 
     # Step 2: Calculate the differences between left and right foot measurements
@@ -187,9 +208,16 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   }
 }
 
-# This table is huge (like 160 columns)
-summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE) { # note: add diff only works if also averaging over feet
-  log_operation_start(summarize_logger, "SUMMARIZE_TABLE")
+#' Summarize table with comprehensive statistics
+#' @param data Input data frame
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @param add_diff Whether to add foot differences
+#' @param get_types_func Function to get data types from data
+#' @param columns_to_not_summarize Columns to exclude from summarization
+#' @return Summarized data frame
+summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE, 
+                           get_types_func = NULL, columns_to_not_summarize = character(0)) {
   summarize_logger("INFO", "Starting summarize_table")
   summarize_logger("DEBUG", "Input data dimensions:", nrow(data), "x", ncol(data))
   summarize_logger("DEBUG", "Categories:", paste(categories, collapse = ", "))
@@ -200,23 +228,19 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
   orig_data <- data
   summarize_logger("DEBUG", "Original data preserved for metadata extraction")
 
-  # Check if getTypes function exists
-  if (!exists("getTypes")) {
-    summarize_logger("ERROR", "getTypes function not found. Make sure required dependencies are loaded.")
-    stop("getTypes function not found")
+  # Get data types using provided function or default logic
+  if (is.function(get_types_func)) {
+    dataTypes <- setdiff(get_types_func(data), categories)
+  } else {
+    # Default logic: assume numeric columns are data types
+    numeric_cols <- names(data)[sapply(data, is.numeric)]
+    dataTypes <- setdiff(numeric_cols, categories)
   }
   
-  dataTypes <- setdiff(getTypes(data), categories)
   summarize_logger("DEBUG", "Found", length(dataTypes), "data types to summarize")
   summarize_logger("DEBUG", "Data types:", paste(dataTypes, collapse = ", "))
 
-  # Check if columns_to_not_summarize exists
-  if (!exists("columns_to_not_summarize")) {
-    summarize_logger("WARN", "columns_to_not_summarize not defined, using empty vector")
-    columns_to_not_summarize <- character(0)
-  } else {
-    summarize_logger("DEBUG", "Columns to not summarize:", paste(columns_to_not_summarize, collapse = ", "))
-  }
+  summarize_logger("DEBUG", "Columns to not summarize:", paste(columns_to_not_summarize, collapse = ", "))
 
   # Remove descriptive columns **after** saving orig_data so they are not included in numeric summaries
   data <- data %>% select(-all_of(columns_to_not_summarize))
@@ -232,7 +256,7 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
   } else {
     summarize_logger("INFO", "Computing summaries without averaging over feet")
     # If not averaging over feet, compute mu normally
-    mu <- lapply(types, get_summ_by_foot, categories, data, avg_feet = FALSE)
+    mu <- lapply(types, function(type) get_summ_by_foot(data, type, categories, avg_feet = FALSE))
     mu <- setNames(mu, types)
   }
   summarize_logger("DEBUG", "Summary calculations completed for", length(mu), "data types")
@@ -282,19 +306,28 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE)
   
   final_dims <- c(nrow(mu_wide), ncol(mu_wide))
   summarize_logger("INFO", "Final table dimensions:", final_dims[1], "x", final_dims[2])
-  log_operation_end(summarize_logger, "SUMMARIZE_TABLE", success = TRUE)
 
   return(mu_wide)
 }
 
-get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE) { # I could not get the optional feet averaging to work without having to pass it all the way down (would be nice to have some post-processing function that averages afterwards, optionally, but in the end went with this cumbersome road)
+#' Get full mu (summarized gait parameters)
+#' @param allGaitParams Gait parameters data
+#' @param categories Grouping categories
+#' @param avg_feet Whether to average over feet
+#' @param add_diff Whether to add foot differences
+#' @param get_types_func Function to get data types from data
+#' @param columns_to_not_summarize Columns to exclude from summarization
+#' @return Summarized gait data
+get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE,
+                       get_types_func = NULL, columns_to_not_summarize = character(0)) {
   summarize_logger("DEBUG", "Starting get_full_mu")
   summarize_logger("DEBUG", "Input gait params dimensions:", nrow(allGaitParams), "x", ncol(allGaitParams))
   summarize_logger("DEBUG", "Categories:", paste(categories, collapse = ", "))
   summarize_logger("DEBUG", "Average over feet:", avg_feet, "Add differences:", add_diff)
   
   # Get the summarized gait data (without questionnaire merging)
-  muGait <- summarize_table(allGaitParams, c(categories, "foot"), avg_feet, add_diff) ##### Note that we add foot here as a category, to make sure we summarize each foot individually
+  muGait <- summarize_table(allGaitParams, c(categories, "foot"), avg_feet, add_diff,
+                           get_types_func, columns_to_not_summarize)
   
   summarize_logger("DEBUG", "get_full_mu completed. Result dimensions:", nrow(muGait), "x", ncol(muGait))
   return(muGait)
@@ -307,7 +340,6 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
 #' @param merge_by Vector of column names to merge by (default: c("participant", "trialNum"))
 #' @return Merged data frame with all data preserved (missing values filled with NA)
 merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", merge_by = c("participant", "trialNum")) {
-  log_operation_start(summarize_logger, paste("MERGE_MU_WITH", toupper(data_type_name)))
   summarize_logger("INFO", "Starting merge_mu_with_data for", data_type_name)
   summarize_logger("DEBUG", "Gait data dimensions:", nrow(mu_gait), "x", ncol(mu_gait))
   summarize_logger("DEBUG", "Other data dimensions:", nrow(other_data), "x", ncol(other_data))
@@ -321,7 +353,6 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
   
   if (is.null(other_data) || nrow(other_data) == 0) {
     summarize_logger("WARN", "Other data is empty or NULL, returning gait data only")
-    log_operation_end(summarize_logger, paste("MERGE_MU_WITH", toupper(data_type_name)), success = TRUE)
     return(mu_gait)
   }
   
@@ -395,13 +426,12 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
   }
 
   summarize_logger("INFO", "Merge completed successfully. Final dimensions:", nrow(merged_data), "x", ncol(merged_data))
-  log_operation_end(summarize_logger, paste("MERGE_MU_WITH", toupper(data_type_name)), success = TRUE)
   return(merged_data)
 }
 
 #' Prepare questionnaire data for merging with gait data
 #' @param questionnaire_data Raw questionnaire data
-#' @return List with prepared_data and merge_by columns
+#' @return Prepared questionnaire data with trial mapping
 prep_questionnaire_for_merge <- function(questionnaire_data) {
   summarize_logger("DEBUG", "Starting prep_questionnaire_for_merge")
   summarize_logger("DEBUG", "Input questionnaire data dimensions:", nrow(questionnaire_data), "x", ncol(questionnaire_data))
@@ -491,8 +521,9 @@ filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name 
 
 #' Summarize data across conditions
 #' @param data Data frame to summarize
+#' @param columns_to_not_summarize Columns to exclude from summarization
 #' @return Summarized data frame
-summarize_across_conditions <- function(data) {
+summarize_across_conditions <- function(data, columns_to_not_summarize = character(0)) {
   summarize_logger("DEBUG", "Starting summarize_across_conditions")
   summarize_logger("DEBUG", "Input data dimensions:", nrow(data), "x", ncol(data))
   
@@ -533,24 +564,20 @@ summarize_across_conditions <- function(data) {
   summarize_logger("DEBUG", "Summarization completed. Result dimensions:", nrow(summarized_data), "x", ncol(summarized_data))
 
   # Add back non-summarizable columns (descriptive/demographic data that doesn't change per participant)
-  if (exists("columns_to_not_summarize")) {
-    available_meta_cols <- intersect(columns_to_not_summarize, colnames(orig_data))
-    summarize_logger("DEBUG", "Available metadata columns:", paste(available_meta_cols, collapse = ", "))
+  available_meta_cols <- intersect(columns_to_not_summarize, colnames(orig_data))
+  summarize_logger("DEBUG", "Available metadata columns:", paste(available_meta_cols, collapse = ", "))
+  
+  if (length(available_meta_cols) > 0) {
+    meta_data <- orig_data %>%
+      select(participant, all_of(available_meta_cols)) %>%
+      distinct()
     
-    if (length(available_meta_cols) > 0) {
-      meta_data <- orig_data %>%
-        select(participant, all_of(available_meta_cols)) %>%
-        distinct()
-      
-      summarize_logger("DEBUG", "Metadata dimensions:", nrow(meta_data), "x", ncol(meta_data))
+    summarize_logger("DEBUG", "Metadata dimensions:", nrow(meta_data), "x", ncol(meta_data))
 
-      summarized_data <- summarized_data %>%
-        left_join(meta_data, by = "participant")
-      
-      summarize_logger("DEBUG", "Metadata joined successfully")
-    }
-  } else {
-    summarize_logger("WARN", "columns_to_not_summarize not defined")
+    summarized_data <- summarized_data %>%
+      left_join(meta_data, by = "participant")
+    
+    summarize_logger("DEBUG", "Metadata joined successfully")
   }
 
   summarize_logger("DEBUG", "summarize_across_conditions completed. Final dimensions:", nrow(summarized_data), "x", ncol(summarized_data))

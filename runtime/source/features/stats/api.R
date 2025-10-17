@@ -57,11 +57,11 @@ set_reference_level <- function(data, var_name, ref_level) {
 }
 
 #' Build and prepare statistical dataset
-#' @param use_summarized Whether to use summarized data
+#' @param data The dataset to use for statistical analysis
 #' @param average_across Whether to average across conditions
 #' @return Processed statistical dataset
-prepare_stats_dataset <- function(use_summarized, average_across) {
-    stats_logger("DEBUG", sprintf("prepare_stats_dataset called: use_summarized=%s, average_across=%s", use_summarized, average_across))
+prepare_stats_dataset <- function(data, average_across = FALSE) {
+    stats_logger("DEBUG", sprintf("prepare_stats_dataset called: average_across=%s", average_across))
     
     # Check if build_stats_data function exists
     if (!exists("build_stats_data")) {
@@ -69,8 +69,8 @@ prepare_stats_dataset <- function(use_summarized, average_across) {
         stop("build_stats_data function not found")
     }
     
-    stats_logger("DEBUG", "Calling build_stats_data")
-    result <- build_stats_data(use_summarized, average_across)
+    stats_logger("DEBUG", "Calling build_stats_data with provided data")
+    result <- build_stats_data(data, average_across)
     stats_logger("DEBUG", sprintf("build_stats_data returned %d rows", nrow(result)))
     return(result)
 }
