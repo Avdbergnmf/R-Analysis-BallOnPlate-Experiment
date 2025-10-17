@@ -429,52 +429,6 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
   return(merged_data)
 }
 
-#' Prepare questionnaire data for merging with gait data
-#' @param questionnaire_data Raw questionnaire data
-#' @return Prepared questionnaire data with trial mapping
-prep_questionnaire_for_merge <- function(questionnaire_data) {
-  summarize_logger("DEBUG", "Starting prep_questionnaire_for_merge")
-  summarize_logger("DEBUG", "Input questionnaire data dimensions:", nrow(questionnaire_data), "x", ncol(questionnaire_data))
-  
-  if (!"answer_type" %in% colnames(questionnaire_data)) {
-    summarize_logger("ERROR", "Questionnaire data must have 'answer_type' column")
-    stop("Questionnaire data must have 'answer_type' column")
-  }
-
-  # Check available answer types
-  answer_types <- unique(questionnaire_data$answer_type)
-  summarize_logger("DEBUG", "Available answer types:", paste(answer_types, collapse = ", "))
-
-  # Create trial mapping for questionnaire results
-  # training2 answers are assigned to both trial 7 and trial 8
-  summarize_logger("DEBUG", "Creating trial mapping for questionnaire results")
-  q_results_mapped <- questionnaire_data %>%
-    mutate(
-      trialNum = case_when(
-        answer_type == "baseline_task" ~ list(5L),
-        answer_type == "retention" ~ list(10L),
-        answer_type == "training2" ~ list(c(7L, 8L)), # Assign to both training trials
-        answer_type == "transfer" ~ list(11L),
-        TRUE ~ list(integer(0))
-      )
-    ) %>%
-    tidyr::unnest(trialNum) %>% # Expand rows for multiple trial assignments
-    dplyr::filter(!is.na(trialNum)) # Only keep questionnaire results that have a trial mapping
-
-  summarize_logger("DEBUG", "Trial mapping completed. Mapped data dimensions:", nrow(q_results_mapped), "x", ncol(q_results_mapped))
-  
-  # Log trial assignments
-  trial_assignments <- q_results_mapped %>%
-    group_by(answer_type, trialNum) %>%
-    summarise(count = n(), .groups = "drop")
-  summarize_logger("DEBUG", "Trial assignments:")
-  for (i in 1:nrow(trial_assignments)) {
-    summarize_logger("DEBUG", "  ", trial_assignments$answer_type[i], "-> trial", trial_assignments$trialNum[i], "(", trial_assignments$count[i], "records)")
-  }
-  
-  summarize_logger("DEBUG", "prep_questionnaire_for_merge completed")
-  return(q_results_mapped)
-}
 
 #' Filter dataset to only include participant/trial combinations that exist in gait data
 #' @param mu_gait Gait data containing the reference participant/trial combinations

@@ -36,7 +36,6 @@ initialize_global_data()
 ## Get Results - Load data BEFORE feature modules
 source("source/get_data_from_loop.R", local = FALSE)
 source("source/calc_all_gait_params.R", local = FALSE)
-source("source/get_questionnaire_results.R", local = FALSE)
 
 ## The simulation source
 source("source/profile_shapes.R", local = FALSE)
@@ -45,7 +44,6 @@ source("source/get_simulation_data.R", local = FALSE)
 
 
 ## Summary tables
-# Note: summarize_gaitparams.R functions are now integrated into the gait feature module
 source("source/summarize_simulation.R", local = FALSE)
 source("source/complexity.R", local = FALSE)
 source("source/risk_model.R", local = FALSE)
@@ -70,7 +68,7 @@ dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
 # Load all feature modules AFTER data is available
 cat("=== LOADING FEATURE MODULES ===\n")
-feature_names <- c("gait", "psd", "stats", "outliers")
+feature_names <- c("gait", "psd", "stats", "outliers", "questionnaire")
 for (feature_name in feature_names) {
   if (!exists(feature_name, envir = .GlobalEnv)) {
     cat(sprintf("Loading %s feature module...\n", feature_name))

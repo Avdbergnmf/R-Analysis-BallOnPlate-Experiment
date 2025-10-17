@@ -185,12 +185,7 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   }
 
   # Get the regular gait mu data using gait feature module
-  if (exists("gait") && is.function(gait$get_full_mu)) {
-    mu_gait <- gait$get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
-  } else {
-    filtered_data_logger("ERROR", "gait$get_full_mu function not available")
-    stop("gait$get_full_mu function not available")
-  }
+  mu_gait <- gait$get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
 
   # Check if all required data is available, return early if not
   if (!exists("allQResults") || !exists("allTaskMetrics") || !exists("allComplexityMetrics")) {
@@ -213,12 +208,13 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   # This now preserves all data from all sources
   filtered_data_logger("DEBUG", "Starting data merging process")
   mu <- mu_gait
-  q_prepped <- prep_questionnaire_for_merge(allQResults)
-  mu <- merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
+  # Use questionnaire feature module for preparation
+  q_prepped <- questionnaire$prep_questionnaire_for_merge(allQResults)
+  mu <- gait$merge_mu_with_data(mu, q_prepped, "questionnaire", c("participant", "trialNum"))
   filtered_data_logger("DEBUG", sprintf("Merged questionnaire data, mu now has %d rows", nrow(mu)))
-  mu <- merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
+  mu <- gait$merge_mu_with_data(mu, allTaskMetrics, "task", c("participant", "trialNum"))
   filtered_data_logger("DEBUG", sprintf("Merged task metrics, mu now has %d rows", nrow(mu)))
-  mu <- merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
+  mu <- gait$merge_mu_with_data(mu, allComplexityMetrics, "complexity", c("participant", "trialNum"))
   filtered_data_logger("DEBUG", sprintf("Merged complexity metrics, mu now has %d rows", nrow(mu)))
 
   # Inject global derived metrics from full MU (before trial filtering)

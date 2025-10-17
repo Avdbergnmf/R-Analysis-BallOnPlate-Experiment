@@ -47,13 +47,7 @@ build_stats_data <- function(data, average_across = FALSE) {
     # Apply summarize_across_conditions if requested (works for both dataset types)
     dt <- if (average_across) {
         stats_logger("DEBUG", "Applying summarize_across_conditions")
-        # Check if gait module is available and has the function
-        if (exists("gait") && is.function(gait$summarize_across_conditions)) {
-            result <- gait$summarize_across_conditions(data)
-        } else {
-            stats_logger("ERROR", "gait$summarize_across_conditions function not available")
-            stop("gait$summarize_across_conditions function not available")
-        }
+        result <- gait$summarize_across_conditions(data)
         stats_logger("DEBUG", sprintf("summarize_across_conditions returned %d rows", nrow(result)))
         result
     } else {

@@ -237,12 +237,6 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
   merge_mu_with_data(mu_gait, other_data, data_type_name, merge_by)
 }
 
-#' Prepare questionnaire data for merging with gait data
-#' @param questionnaire_data Raw questionnaire data
-#' @return Prepared questionnaire data with trial mapping
-prep_questionnaire_for_merge <- function(questionnaire_data) {
-  prep_questionnaire_for_merge(questionnaire_data)
-}
 
 #' Filter dataset to only include participant/trial combinations that exist in gait data
 #' @param mu_gait Gait data containing the reference participant/trial combinations
