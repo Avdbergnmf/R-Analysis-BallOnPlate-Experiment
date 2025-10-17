@@ -85,8 +85,6 @@ source("source/utils/dynamic_input.R")
 # Note: Feature modules are loaded separately after initialization
 # to avoid circular dependencies.
 #
-# SPECIAL CASE: The 'gait' feature is loaded globally in initialization.R
-# for efficiency in parallel processing and plotting functions.
 
 #' Load a specific feature module by name
 #' @param feature_name Name of the feature to load (e.g., "stats", "psd", "outliers")

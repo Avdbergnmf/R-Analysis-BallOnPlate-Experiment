@@ -3,8 +3,7 @@
 #' This file contains the setup of data loaders and validators for specific data types.
 #' Add new data types here by defining their loader and validator functions.
 
-# Load PSD feature module on-demand (needed for power spectrum computation)
-psd <- load_feature("psd")
+# PSD feature is loaded globally in initialization.R for efficiency
 
 # =============================================================================
 # CONFIGURATION

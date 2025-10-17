@@ -74,8 +74,7 @@ plotOutput("powerSpectrumPlot", height = "auto")
 
 
 ```{r, context="server"}
-# Load PSD feature module on-demand
-psd <- load_feature("psd")
+# PSD feature is loaded globally in initialization.R for efficiency
 
 # Source caching system
 source("source/data_caching_setup.R", local = TRUE)

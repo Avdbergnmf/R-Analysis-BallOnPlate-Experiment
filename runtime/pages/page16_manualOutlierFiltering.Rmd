@@ -1,8 +1,6 @@
 ### Actions
 
 ```{r, context="server"}
-# Load outliers feature module on-demand
-outliers <- load_feature("outliers")
 
 # Load shinyjs for enable/disable functionality
 library(shinyjs)

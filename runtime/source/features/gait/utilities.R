@@ -2,14 +2,6 @@
 #'
 #' Helper functions for gait event detection and processing
 
-# Helper function to load only the outlier processing function we need
-get_outlier_processor <- function() {
-  if (!exists("outlier_processor", envir = .GlobalEnv)) {
-    outliers_feature <- load_feature("outliers")
-    assign("outlier_processor", outliers_feature$apply_outlier_processing, envir = .GlobalEnv)
-  }
-  get("outlier_processor", envir = .GlobalEnv)
-}
 
 #' Check if hip data is stationary
 #' @param hipData Hip position data

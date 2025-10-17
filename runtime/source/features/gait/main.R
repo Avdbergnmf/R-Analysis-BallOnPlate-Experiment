@@ -53,10 +53,8 @@ find_foot_events <- function(participant, trialNum) {
 
   # Apply outlier processing if outlier data is provided
   if (exists("outliers_heel_data", envir = .GlobalEnv) && exists("outliers_steps_data", envir = .GlobalEnv)) {
-    # Get only the specific function we need (cached after first load)
-    apply_outlier_processing <- get_outlier_processor()
-    
-    combinedHeelStrikes <- apply_outlier_processing(
+    # Outliers feature is loaded globally in initialization.R
+    combinedHeelStrikes <- outliers$apply_outlier_processing(
       combinedHeelStrikes,
       heel_outliers = outliers_heel_data,
       step_outliers = outliers_steps_data,
