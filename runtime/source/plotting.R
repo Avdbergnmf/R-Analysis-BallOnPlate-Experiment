@@ -49,7 +49,8 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
   filteredGaitParams <- filteredGaitParams[filteredGaitParams$participant == participant & filteredGaitParams$trialNum == trialNum, ]
 
   if (is.null(preprocessedData)) {
-    preprocessedData <- get_preprocessed_data(participant, trialNum)
+    # Gait feature is loaded globally in initialization
+    preprocessedData <- gait$get_preprocessed_data(participant, trialNum)
   }
 
   rightData <- preprocessedData$rightfoot
@@ -57,11 +58,12 @@ plot_steps <- function(filteredGaitParams, participant, trialNum, x_axis = "time
 
   if (doFilter) {
     numeric_columns <- sapply(rightData, is.numeric) # Identify numeric columns
+    # Gait feature is loaded globally in initialization
     rightData[numeric_columns] <- lapply(rightData[numeric_columns], function(column) {
-      apply_padding_and_filter(column, 4, 90)
+      gait$apply_padding_and_filter(column, 4, 90)
     })
     leftData[numeric_columns] <- lapply(leftData[numeric_columns], function(column) {
-      apply_padding_and_filter(column, 4, 90)
+      gait$apply_padding_and_filter(column, 4, 90)
     })
   }
 
@@ -312,8 +314,9 @@ plot_2d <- function(xtracker, ytracker, participant, trialNum, x_axis = "time", 
   plot_logger("DEBUG", "Input parameters - xtracker:", xtracker, "ytracker:", ytracker, "participant:", participant, "trialNum:", trialNum, "x_axis:", x_axis, "y_axis:", y_axis)
 
   # Load data for both trackers
-  xData <- preprocess_data(participant, trialNum, xtracker)
-  yData <- preprocess_data(participant, trialNum, ytracker)
+  # Gait feature is loaded globally in initialization
+  xData <- gait$preprocess_data(participant, trialNum, xtracker)
+  yData <- gait$preprocess_data(participant, trialNum, ytracker)
 
   # Validate data and columns - return error plot if validation fails
   error_plot <- validate_data_and_columns(xData, yData, xtracker, ytracker, x_axis, y_axis, participant, trialNum, baseSize)

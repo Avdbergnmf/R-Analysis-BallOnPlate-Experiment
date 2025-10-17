@@ -84,30 +84,47 @@ source("source/utils/dynamic_input.R")
 # =============================================================================
 # Note: Feature modules are loaded separately after initialization
 # to avoid circular dependencies.
+#
+# SPECIAL CASE: The 'gait' feature is loaded globally in initialization.R
+# for efficiency in parallel processing and plotting functions.
 
-#' Load all feature modules
-#' This function should be called after initialization is complete
-load_feature_modules <- function() {
-  # Load stats feature module
-  stats_env <<- new.env(parent = emptyenv())
-  for (f in list.files("source/features/stats", "\\.R$", full.names = TRUE)) {
-    sys.source(f, envir = stats_env)
-  }
-  stats <<- as.list(stats_env)  # use as stats$validate_stats_data()
+#' Load a specific feature module by name
+#' @param feature_name Name of the feature to load (e.g., "stats", "psd", "outliers")
+#' @return The loaded feature module as a list
+load_feature <- function(feature_name) {
+  # Check if feature is already loaded
+  env_var_name <- paste0(feature_name, "_env")
+  list_var_name <- feature_name
   
-  # Load PSD feature module
-  psd_env <<- new.env(parent = emptyenv())
-  for (f in list.files("source/features/psd", "\\.R$", full.names = TRUE)) {
-    sys.source(f, envir = psd_env)
+  if (exists(list_var_name, envir = .GlobalEnv)) {
+    return(get(list_var_name, envir = .GlobalEnv))
   }
-  psd <<- as.list(psd_env)  # use as psd$compute_psd()
   
-  # Load outliers feature module
-  outliers_env <<- new.env(parent = emptyenv())
-  for (f in list.files("source/features/outliers", "\\.R$", full.names = TRUE)) {
-    sys.source(f, envir = outliers_env)
+  # Load the feature module
+  feature_path <- file.path("source/features", feature_name)
+  if (!dir.exists(feature_path)) {
+    stop("Feature '", feature_name, "' not found at path: ", feature_path)
   }
-  outliers <<- as.list(outliers_env)  # use as outliers$find_heel_strikes()
+  
+  # Create environment for the feature
+  feature_env <- new.env(parent = emptyenv())
+  
+  # Load all R files in the feature directory
+  r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)
+  if (length(r_files) == 0) {
+    stop("No R files found in feature directory: ", feature_path)
+  }
+  
+  for (f in r_files) {
+    sys.source(f, envir = feature_env)
+  }
+  
+  # Convert to list and store globally
+  feature_list <- as.list(feature_env)
+  assign(list_var_name, feature_list, envir = .GlobalEnv)
+  assign(env_var_name, feature_env, envir = .GlobalEnv)
+  
+  return(feature_list)
 }
 
 # =============================================================================

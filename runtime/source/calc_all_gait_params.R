@@ -81,12 +81,13 @@ add_category_columns <- function(data) {
 #' @param slice_length Optional length of time slices
 #' @return Tibble with gait parameters
 calculate_gait_parameters <- function(participant, trialNum) {
-  gaitData <- find_foot_events(participant, trialNum)
+  # Gait feature is loaded globally in initialization
+  gaitData <- gait$detect_foot_events(participant, trialNum)
 
   heelStrikesData <- gaitData$heelStrikes # should already be sorted based on time
   toeOffsData <- gaitData$toeOffs
 
-  relHeelStrikesData <- gaitData$heelStrikes %>%
+  relHeelStrikesData <- heelStrikesData %>%
     dplyr::arrange(time) %>% # Ensure data is ordered by time across all heel strikes
     dplyr::mutate(across(where(is.numeric), ~ c(0, diff(.x)))) %>%
     dplyr::ungroup()
@@ -104,7 +105,7 @@ calculate_gait_parameters <- function(participant, trialNum) {
   stepLengths <- relHeelStrikesData$actual_pos_z # Calculate step lengths
   speed <- stepLengths / stepTimes # Calculate speed
 
-  # Note: outlierSteps column should already be populated by find_foot_events() from CSV data
+  # Note: outlierSteps column should already be populated by gait$detect_foot_events() from CSV data
   # If outlierSteps column doesn't exist, initialize as FALSE
   if (!"outlierSteps" %in% colnames(heelStrikesData)) {
     warning("outlierSteps column not found in heel strikes data. Initializing as FALSE.")

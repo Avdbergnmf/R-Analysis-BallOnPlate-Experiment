@@ -21,9 +21,8 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # Configuration variables are now centralized in source/initialization.R
 
 source("source/setup.R")
-source("source/pre_processing.R", local = FALSE)
 
-source("source/find_foot_events.R", local = FALSE)
+# Gait event detection is now loaded on-demand via the gait feature module
 
 # =============================================================================
 # FORCE REINITIALIZATION AT STARTUP

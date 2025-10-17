@@ -74,6 +74,9 @@ plotOutput("powerSpectrumPlot", height = "auto")
 
 
 ```{r, context="server"}
+# Load PSD feature module on-demand
+psd <- load_feature("psd")
+
 # Source caching system
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)

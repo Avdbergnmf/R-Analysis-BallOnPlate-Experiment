@@ -136,7 +136,8 @@ output$rotationTable <- renderTable({
 
 output$FeetTraj_15 <- renderPlotly({
   tnum <- as.numeric(input$trialNum_15)
-  preprocessedData <- get_preprocessed_data(input$participant_15, tnum) 
+  # Gait feature is loaded globally in initialization
+  preprocessedData <- gait$get_preprocessed_data(input$participant_15, tnum) 
   rotation <- getRotation(input$participant_15, tnum)
   
   if (input$d_correction_15) {

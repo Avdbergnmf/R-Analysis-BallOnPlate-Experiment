@@ -110,7 +110,7 @@ for (p in participants) {
                     t_next <- times[i + 1]
                     # load trajectory data for this foot
                     data_name <- if (ft == "Left") "leftfoot" else "rightfoot"
-                    foot_data <- get_preprocessed_data(p, tr, data_name)
+                    foot_data <- gait$get_preprocessed_data(p, tr, data_name)
                     if (is.null(foot_data) || nrow(foot_data) == 0) next
                     est <- estimate_step(p, tr, ft, t_prev, t_next, med_periods[i], foot_data)
                     if (!is.null(est)) results[[length(results) + 1]] <- est

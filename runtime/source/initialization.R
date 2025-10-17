@@ -512,8 +512,10 @@ ensure_global_data_initialized <- function() {
         initialize_global_data()
     }
     
-    # Load feature modules after initialization is complete
-    if (!exists("stats", envir = .GlobalEnv) || !exists("psd", envir = .GlobalEnv) || !exists("outliers", envir = .GlobalEnv)) {
-        load_feature_modules()
+    # Load gait feature globally for parallel processing and plotting efficiency
+    if (!exists("gait", envir = .GlobalEnv)) {
+        gait <<- load_feature("gait")
     }
+    
+    # Other features are loaded on-demand using load_feature() function
 }

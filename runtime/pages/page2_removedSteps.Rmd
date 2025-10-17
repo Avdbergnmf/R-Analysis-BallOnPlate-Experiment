@@ -43,7 +43,8 @@ output$step_table <- renderTable({
     data <- allGaitParams
   }
   
-  step_stats <- calculate_step_statistics(data, input$groupStatsCategory)
+  # Gait feature is loaded globally in initialization
+  step_stats <- gait$calculate_step_statistics(data, input$groupStatsCategory)
   
   return(step_stats)
 }, rownames = TRUE, options = list(pageLength = 100, scrollY = "500px"))

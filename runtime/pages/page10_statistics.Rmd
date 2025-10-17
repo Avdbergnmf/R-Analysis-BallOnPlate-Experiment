@@ -192,7 +192,8 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
-# Statistical utility functions are now loaded globally via the stats feature module
+# Load stats feature module on-demand
+stats <- load_feature("stats")
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())
