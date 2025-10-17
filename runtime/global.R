@@ -89,6 +89,8 @@ source("source/utils/get_filtered_data.R")  # Load before filter_manager since i
 cat("[GLOBAL] ✓ get_filtered_data.R loaded\n")
 source("source/utils/filter_manager.R")
 cat("[GLOBAL] ✓ filter_manager.R loaded\n")
+source("source/utils/calculation_wrappers.R")
+cat("[GLOBAL] ✓ calculation_wrappers.R loaded\n")
 cat("[GLOBAL] All utility functions loaded successfully\n")
 
 # =============================================================================
@@ -120,7 +122,16 @@ load_feature <- function(feature_name) {
   # This allows features to access all global functions without manual assignment
   feature_env <- new.env(parent = .GlobalEnv)
   
-  cat(sprintf("[GLOBAL] Created %s feature environment with global access\n", feature_name))
+  # Inject logging utilities into the feature environment
+  # This makes features self-contained while still having access to logging
+  if (exists("create_logger")) {
+    feature_env$create_logger <- create_logger
+  }
+  if (exists("create_module_logger")) {
+    feature_env$create_module_logger <- create_module_logger
+  }
+  
+  cat(sprintf("[GLOBAL] Created %s feature environment with global access and logging utilities\n", feature_name))
   
   # Load all R files in the feature directory
   r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)
@@ -150,6 +161,24 @@ load_feature <- function(feature_name) {
 # =============================================================================
 # INITIALIZATION
 # =============================================================================
+
+# =============================================================================
+# FEATURE MODULES LOADING
+# =============================================================================
+
+# Load all feature modules (now self-contained)
+cat("[GLOBAL] Loading feature modules...\n")
+feature_names <- c("gait", "psd", "stats", "outliers", "questionnaire")
+for (feature_name in feature_names) {
+  if (!exists(feature_name, envir = .GlobalEnv)) {
+    cat(sprintf("[GLOBAL] Loading %s feature module...\n", feature_name))
+    assign(feature_name, load_feature(feature_name), envir = .GlobalEnv)
+    cat(sprintf("[GLOBAL] ✓ %s feature module loaded\n", feature_name))
+  } else {
+    cat(sprintf("[GLOBAL] ✓ %s feature module already loaded\n", feature_name))
+  }
+}
+cat("[GLOBAL] All feature modules loaded\n")
 
 # Print configuration summary on load
 if (interactive()) {

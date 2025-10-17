@@ -1,0 +1,101 @@
+# =============================================================================
+# CALCULATION WRAPPER FUNCTIONS
+# =============================================================================
+# These functions provide wrapper interfaces for the load_or_calculate() system
+# They bridge between the global data loading system and self-contained feature modules
+
+#' Calculate gait parameters for a single participant/trial combination
+#' @param participant Participant ID
+#' @param trial Trial number
+#' @return Tibble with gait parameters
+calculate_gait_parameters <- function(participant, trialNum) {
+  # Use gait feature module for foot event detection
+  gaitData <- gait$detect_foot_events(participant, trialNum)
+
+  heelStrikesData <- gaitData$heelStrikes # should already be sorted based on time
+  toeOffsData <- gaitData$toeOffs
+
+  relHeelStrikesData <- heelStrikesData %>%
+    dplyr::arrange(time) %>% # Ensure data is ordered by time across all heel strikes
+    dplyr::mutate(across(where(is.numeric), ~ c(0, diff(.x)))) %>%
+    dplyr::ungroup()
+
+  diffData <- add_diff_per_foot(relHeelStrikesData)
+
+  # time-based
+  stepTimes <- relHeelStrikesData$time # Calculate step times  >>> NOTE: The first heelstrike is only used as a starting point to the second
+  swingTimes <- heelStrikesData$time - toeOffsData$time # Calculate swing times <<< L = N   (not N-1)
+  stanceTimes <- stepTimes - swingTimes # Calculate stance times
+
+  # position-based
+  stepWidths <- relHeelStrikesData$pos_x # Calculate step width
+  stepWidths <- ifelse(relHeelStrikesData$foot == "Left", stepWidths * -1, stepWidths) # Adjust sign based on which foot is stepping
+  stepLengths <- relHeelStrikesData$actual_pos_z # Calculate step lengths
+  speed <- stepLengths / stepTimes # Calculate speed
+
+  # Note: outlierSteps column should already be populated by gait$detect_foot_events() from CSV data
+  # If outlierSteps column doesn't exist, initialize as FALSE
+  if (!"outlierSteps" %in% colnames(heelStrikesData)) {
+    warning("outlierSteps column not found in heel strikes data. Initializing as FALSE.")
+    heelStrikesData$outlierSteps <- FALSE
+  }
+
+  # Report outlier statistics for this participant/trial
+  num_outliers <- sum(heelStrikesData$outlierSteps, na.rm = TRUE)
+  total_steps <- nrow(heelStrikesData)
+  if (num_outliers > 0) {
+    cat(sprintf(
+      "DEBUG: Participant %s Trial %s - %d/%d steps marked as outliers (%.1f%%)\n",
+      participant, trialNum, num_outliers, total_steps,
+      100 * num_outliers / total_steps
+    ))
+    flush.console()
+  }
+
+  # Remove the first step from all parameters (first step is always wrong)
+  stepTimes <- stepTimes[-1]
+  stepLengths <- stepLengths[-1]
+  stepWidths <- stepWidths[-1]
+  speed <- speed[-1]
+  heelStrikesData <- heelStrikesData[-1, ]
+
+  # Create the main data frame based on heelStrikes data (which contains suspect column)
+  gaitParams <- heelStrikesData
+
+  # Add calculated gait parameters as columns
+  gaitParams$stepTimes <- stepTimes
+  gaitParams$stepLengths <- stepLengths
+  gaitParams$stepWidths <- stepWidths
+  gaitParams$centered_stepLengths <- stepLengths - mean(stepLengths, na.rm = TRUE)
+  gaitParams$centered_stepWidths <- stepWidths - mean(stepWidths, na.rm = TRUE)
+  gaitParams$speed <- speed
+
+  return(gaitParams)
+}
+
+#' Calculate gait parameters for all participants and trials
+#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
+#' @return Tibble with gait parameters for all combinations
+calc_all_gait_params <- function(loop_function) {
+  # Ensure heavy data is initialized in main session
+  return(loop_function(calculate_gait_parameters))
+}
+
+#' Get all questionnaire results using the questionnaire feature module
+#' @param loop_function Function to use for processing (not used for questionnaires)
+#' @return Combined questionnaire results data frame
+get_all_questionnaire_results <- function(loop_function = NULL) {
+  # Note: This function doesn't use loop_function as it processes questionnaire data directly
+  # The parameter is kept for consistency with other calculation functions
+  
+  # Use the questionnaire feature module to get results
+  questionnaire$get_all_questionnaire_results(
+    all_questionnaires = c("IMI", "UserExperience"),
+    participants = participants,
+    get_q_data_func = get_q_data,
+    get_question_info_func = get_question_info,
+    get_question_weights_func = get_question_weights,
+    qAnswers = qAnswers,
+    condition_number_func = condition_number
+  )
+}

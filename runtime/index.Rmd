@@ -35,7 +35,6 @@ initialize_global_data()
 
 ## Get Results - Load data BEFORE feature modules
 source("source/get_data_from_loop.R", local = FALSE)
-source("source/calc_all_gait_params.R", local = FALSE)
 
 ## The simulation source
 source("source/profile_shapes.R", local = FALSE)
@@ -55,6 +54,8 @@ simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
+
+
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
 udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
@@ -65,20 +66,6 @@ allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parall
 allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
-
-# Load all feature modules AFTER data is available
-cat("=== LOADING FEATURE MODULES ===\n")
-feature_names <- c("gait", "psd", "stats", "outliers", "questionnaire")
-for (feature_name in feature_names) {
-  if (!exists(feature_name, envir = .GlobalEnv)) {
-    cat(sprintf("Loading %s feature module...\n", feature_name))
-    assign(feature_name, load_feature(feature_name), envir = .GlobalEnv)
-    cat(sprintf("✓ %s feature module loaded\n", feature_name))
-  } else {
-    cat(sprintf("✓ %s feature module already loaded\n", feature_name))
-  }
-}
-cat("=== ALL FEATURE MODULES LOADED ===\n")
 
 # Load remaining data objects
 cat("=== LOADING REMAINING DATA OBJECTS ===\n")

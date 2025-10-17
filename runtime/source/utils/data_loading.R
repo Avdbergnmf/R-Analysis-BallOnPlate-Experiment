@@ -653,3 +653,96 @@ get_trim_info_from_table <- function(participant, trialNum) {
     num_segments = trim_row$num_segments
   ))
 }
+
+# =============================================================================
+# DATA PROCESSING AND CATEGORIZATION
+# =============================================================================
+
+#' Add identifiers and categories to gait data
+#' @param data Input data frame
+#' @param participant Participant ID
+#' @param trial Trial number
+#' @return Data frame with identifiers and categories added
+add_identifiers_and_categories <- function(data, participant, trial) {
+  data <- add_identifiers(data, participant, trial)
+  data <- add_category_columns(data)
+  return(data)
+}
+
+#' Add participant and trial identifiers to data
+#' @param data Input data frame
+#' @param participant Participant ID
+#' @param trial Trial number
+#' @return Data frame with identifiers added
+add_identifiers <- function(data, participant, trial) {
+  # Handle empty data frames gracefully
+  if (nrow(data) == 0) {
+    return(data)
+  }
+
+  data$participant <- as.factor(participant)
+  data$trialNum <- as.ordered(trial)
+  return(data)
+}
+
+#' Add category columns to gait data
+#' @param data Input data frame
+#' @return Data frame with category columns added
+add_category_columns <- function(data) {
+  # Handle empty data frames gracefully
+  if (nrow(data) == 0) {
+    return(data)
+  }
+
+  # Ensure global data is initialized (this function needs global variables)
+  if (exists("ensure_global_data_initialized")) {
+    ensure_global_data_initialized()
+  }
+
+  # Get unique participant and trial combinations to avoid redundant calculations
+  unique_combinations <- data %>%
+    dplyr::select(participant, trialNum) %>%
+    dplyr::distinct()
+
+  # Pre-calculate all values for unique combinations
+  combination_data <- unique_combinations %>%
+    dplyr::mutate(
+      perturbations = has_perturbations(as.character(participant), as.numeric(as.character(trialNum))),
+      visualizations = has_visualizations(as.character(participant), as.numeric(as.character(trialNum))),
+      task = has_task(as.character(participant), as.numeric(as.character(trialNum))),
+      treadmillSpeed = get_move_speed(as.character(participant), as.numeric(as.character(trialNum))),
+      condition = condition_number(as.character(participant)),
+      phase = get_trial_phase(as.character(participant), as.numeric(as.character(trialNum))),
+      trialNumWithinPhase = ifelse(as.numeric(as.character(trialNum)) == 8, 2, 1),
+      phaseNum = match(phase, allPhases),
+      taskNum = task_num_lookup(as.numeric(as.character(trialNum))),
+      is_training_trial = as.numeric(as.character(trialNum)) %in% c(7, 8),
+
+      # Demographic / questionnaire details
+      gender = get_p_detail(as.character(participant), "gender"),
+      motion = get_p_detail(as.character(participant), "motion"),
+      age = as.numeric(get_p_detail(as.character(participant), "age")),
+      weight = as.numeric(get_p_detail(as.character(participant), "weight")),
+      education = get_p_detail(as.character(participant), "education"),
+      vr_experience = get_p_detail(as.character(participant), "vr_experience"),
+      height_meters = as.numeric(get_p_detail(as.character(participant), "height_scale")) * avatar_height_m
+    )
+
+  # Join the pre-calculated data back to the original data
+  data <- data %>%
+    dplyr::left_join(combination_data, by = c("participant", "trialNum")) %>%
+    # Convert categorical variables to factors
+    dplyr::mutate(
+      perturbations   = as.factor(perturbations),
+      visualizations  = as.factor(visualizations),
+      task            = as.factor(task),
+      condition       = as.factor(condition),
+      phase           = as.factor(phase),
+      gender          = as.factor(gender),
+      motion          = as.factor(motion),
+      education       = as.factor(education),
+      vr_experience   = as.factor(vr_experience)
+    )
+
+  return(data)
+}
