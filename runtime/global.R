@@ -90,6 +90,13 @@ for (f in list.files("source/features/stats", "\\.R$", full.names = TRUE)) {
 }
 stats <- as.list(stats_env)  # use as stats$validate_stats_data()
 
+# Load PSD feature module
+psd_env <- new.env(parent = emptyenv())
+for (f in list.files("source/features/psd", "\\.R$", full.names = TRUE)) {
+  sys.source(f, envir = psd_env)
+}
+psd <- as.list(psd_env)  # use as psd$compute_psd()
+
 # =============================================================================
 # INITIALIZATION
 # =============================================================================

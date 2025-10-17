@@ -73,7 +73,7 @@ data_loaders <<- list(
           }
 
           # Compute PSD
-          psd_df <- compute_single_psd(
+          psd_df <- psd$compute_psd(
             values,
             fs = fs,
             max_freq = input$psMaxFreq,
