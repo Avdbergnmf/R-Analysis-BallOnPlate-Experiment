@@ -49,6 +49,20 @@ get_move_speed <- function(participant, trialNum) { # return move speed in m/s
   return(get_p_results(participant, "move_speed", trialNum))
 }
 
+
+# For changing up the selection inputs - bit costly, but not really needed to optimize this
+get_tracker_options <- function(tracker, trialNum = 5) { # trial 5 is always available - except for haptic...
+  ensure_global_data_initialized()
+  exampleData <- get_t_data(participants[1], tracker, trialNum)
+  # Fail gracefully if exampleData is empty or NULL
+  if (is.null(exampleData) || nrow(exampleData) == 0) {
+    return(c("data not available"))
+  }
+  numericTypes <- sapply(exampleData, is.numeric)
+  numeric_cols <- names(exampleData[numericTypes])
+  return(numeric_cols)
+}
+
 get_trial_phase <- function(participant, trialNum) { # return phase name for trial
   # Use the centralized phase mapping from initialization.R
   ensure_global_data_initialized()
@@ -323,19 +337,6 @@ get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = 
   }
 
   return(data)
-}
-
-# For changing up the selection inputs - bit costly, but not really needed to optimize this
-getOptions <- function(tracker, trialNum = 5) { # trial 5 is always available - except for haptic...
-  ensure_global_data_initialized()
-  exampleData <- get_t_data(participants[1], tracker, trialNum)
-  # Fail gracefully if exampleData is empty or NULL
-  if (is.null(exampleData) || nrow(exampleData) == 0) {
-    return(c("data not available"))
-  }
-  numericTypes <- sapply(exampleData, is.numeric)
-  numeric_cols <- names(exampleData[numericTypes])
-  return(numeric_cols)
 }
 
 get_q_file <- function(participant, qType) { # qType = IMI / SSQ / VEQ

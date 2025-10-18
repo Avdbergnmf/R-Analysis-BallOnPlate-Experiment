@@ -134,7 +134,7 @@ add_grouping_to_psd_data <- function(cached_ps_data, group_by, split_by) {
 observe({
   if (!is.null(input$psTracker)) {
     # Use trial 7, participant 1 to get example data (as suggested)
-    choices <- getOptions(input$psTracker, 7)
+    choices <- get_tracker_options(input$psTracker, 7)
     
     # Get current selection
     current_selection <- isolate(input$psVar)
