@@ -379,9 +379,7 @@ detect_respawn_events <- function(data) {
 #' @return Simulation data with arcDeg column
 assign_arc_degrees <- function(sim_data, level_data) {
     # Ensure global parameters (including arcdeg_lookup_table) are available
-    if (exists("ensure_global_data_initialized", envir = .GlobalEnv)) {
-        get("ensure_global_data_initialized", envir = .GlobalEnv)()
-    }
+    ensure_global_data_initialized()
 
     if (is.null(level_data) || nrow(level_data) == 0) {
         sim_data$arcDeg <- 180
@@ -396,13 +394,8 @@ assign_arc_degrees <- function(sim_data, level_data) {
     levels_at_time <- level_data$level[level_indices]
 
     # Map level → arcDeg using lookup; coerce to character for names indexing
-    if (exists("arcdeg_lookup_table", envir = .GlobalEnv)) {
-        lookup <- get("arcdeg_lookup_table", envir = .GlobalEnv)
-        sim_data$arcDeg <- as.numeric(lookup[as.character(levels_at_time)])
-    } else {
-        # Fallback: compute same mapping on the fly (8 - level/3)
-        sim_data$arcDeg <- as.numeric(8 - as.numeric(levels_at_time) / 3)
-    }
+    lookup <- arcdeg_lookup_table
+    sim_data$arcDeg <- as.numeric(lookup[as.character(levels_at_time)])
 
     # Any NA (e.g., out-of-range/missing levels) default to 180 for safety
     sim_data$arcDeg[!is.finite(sim_data$arcDeg)] <- 180

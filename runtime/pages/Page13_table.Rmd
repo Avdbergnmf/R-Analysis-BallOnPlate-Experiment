@@ -50,27 +50,11 @@ div(
 ```{r, context="server"}
 # Initialize participant and trial choices
 observe({
-  # Try to get participants and trials from global environment
-  tryCatch({
-    # Get participants from global environment
-    if (exists("participants", envir = .GlobalEnv)) {
-      participant_choices <- sort(get("participants", envir = .GlobalEnv))
-      updateSelectizeInput(session, "participant_13", choices = participant_choices)
-    }
-    
-    # Get allTrials from global environment
-    if (exists("allTrials", envir = .GlobalEnv)) {
-      trial_choices <- sort(get("allTrials", envir = .GlobalEnv))
-      updateSelectizeInput(session, "trialNum_13", choices = trial_choices)
-    }
-  }, error = function(e) {
-    # Fallback: use hardcoded values if global variables aren't available
-    participant_choices <- c("101", "102", "103", "104", "105", "106", "107", "108", "109", "110")
-    trial_choices <- c(2, 3, 5, 7, 8, 9, 10, 11)
-    
-    updateSelectizeInput(session, "participant_13", choices = participant_choices)
-    updateSelectizeInput(session, "trialNum_13", choices = trial_choices)
-  })
+  # Get participants and trials from global environment
+  participant_choices <- sort(participants)
+  trial_choices <- sort(allTrials)
+  updateSelectizeInput(session, "participant_13", choices = participant_choices)
+  updateSelectizeInput(session, "trialNum_13", choices = trial_choices)
 })
 
 tableToUse_13 <- reactive({

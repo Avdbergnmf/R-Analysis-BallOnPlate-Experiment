@@ -58,6 +58,7 @@ USE_PARALLEL <- cfg_get("performance", "use_parallel")
 ENABLE_FILE_LOGGING <- cfg_get("performance", "enable_file_logging")
 THRESHOLD_PARALLEL <- cfg_get("performance", "parallel_threshold")
 FORCE_RECALC <- cfg_get("performance", "force_recalc")
+MAX_CORES <- cfg_get("performance", "max_cores")
 
 # Data processing settings
 USE_CONTINUOUS_FILTERING <- cfg_get("data", "use_continuous_filtering")
@@ -93,6 +94,11 @@ source("source/utils/filter_manager.R")
 cat("[GLOBAL] ✓ filter_manager.R loaded\n")
 source("source/utils/calculation_wrappers.R")
 cat("[GLOBAL] ✓ calculation_wrappers.R loaded\n")
+
+# Load data processing utilities
+source("source/utils/data_processing/main.R")
+cat("[GLOBAL] ✓ data_processing/main.R loaded\n")
+
 cat("[GLOBAL] All utility functions loaded successfully\n")
 
 # =============================================================================
@@ -111,7 +117,7 @@ load_feature <- function(feature_name) {
   list_var_name <- feature_name
   
   if (exists(list_var_name, envir = .GlobalEnv)) {
-    return(get(list_var_name, envir = .GlobalEnv))
+    return(.GlobalEnv[[list_var_name]])
   }
   
   # Load the feature module

@@ -70,5 +70,5 @@ library(qs) # caching data faster
 library(config) # configuration management
 library(digest) # for creating cache keys
 
-# Load initialization functions
+# Load initialization functions (but don't call them yet)
 source("source/initialization.R", local = FALSE)

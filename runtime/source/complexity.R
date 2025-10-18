@@ -1248,7 +1248,7 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   }
 
   # Get allGaitParams from global environment
-  allGaitParams <- get("allGaitParams", envir = .GlobalEnv)
+  allGaitParams <- allGaitParams
   complexity_logger("DEBUG", "Retrieved allGaitParams from global environment")
 
   # Use centralized parameters - debug is now supported in parallel mode

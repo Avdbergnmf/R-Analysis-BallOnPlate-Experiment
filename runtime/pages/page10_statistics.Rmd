@@ -219,7 +219,7 @@ get_stats_data <- reactive({
 # Helper that tells whether a dependent variable is selected AND exists in data
 dep_var_valid <- reactive({
   data <- get_stats_data()
-  is_dep_var_valid(input$depVar, data)
+  stats$validate_dependent_variable(input$depVar, data)
 })
 
 # Create dynamic observers for variable selection

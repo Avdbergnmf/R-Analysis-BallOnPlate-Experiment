@@ -137,13 +137,14 @@ apply_reference_levels <- function(data) {
     return(data)
 }
 
-#' Center and scale numeric predictors
+#' Scale numeric predictors
 #' @param data The dataset
 #' @param formula The model formula
 #' @param dep_var The dependent variable name
-#' @param do_scaling Whether to scale (standardize) the variables
-#' @return The dataset with centered/scaled predictors
-center_predictors <- function(data, formula, dep_var, do_scaling) {
+#' @param do_centering Whether to center the variables (subtract mean)
+#' @param do_scaling Whether to scale the variables (divide by standard deviation)
+#' @return The dataset with scaled predictors
+scale_predictors <- function(data, formula, dep_var, do_centering = TRUE, do_scaling = FALSE) {
     numeric_cols <- sapply(data, is.numeric)
     model_vars <- setdiff(all.vars(formula), dep_var)
     numeric_vars <- intersect(names(data)[numeric_cols], model_vars)
@@ -152,8 +153,9 @@ center_predictors <- function(data, formula, dep_var, do_scaling) {
     if (length(numeric_vars) == 0) {
         return(data)
     }
-    data[numeric_vars] <- lapply(data[numeric_vars], function(x) {
-        as.numeric(scale(x, center = TRUE, scale = do_scaling))
-    })
+    
+    for (var in numeric_vars) {
+        data[[var]] <- as.numeric(scale(data[[var]], center = do_centering, scale = do_scaling))
+    }
     data
 }

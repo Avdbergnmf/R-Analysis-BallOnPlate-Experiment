@@ -25,6 +25,14 @@ handle_invalid_data <- function(message = "No data available for statistical ana
     handle_invalid_stats_data(message)
 }
 
+#' Validate dependent variable
+#' @param dep_var The dependent variable name
+#' @param data The dataset to validate against
+#' @return TRUE if dependent variable is valid
+validate_dependent_variable <- function(dep_var, data) {
+    is_dep_var_valid(dep_var, data)
+}
+
 # =============================================================================
 # DATA PREPROCESSING API
 # =============================================================================
@@ -99,9 +107,9 @@ fit_mixed_model <- function(data, formula, dep_var, do_centering = FALSE, do_sca
     # Validate data is ready for LMM
     validate_ready_for_lmm(data)
     
-    # Center and/or scale predictors if requested
+    # Scale predictors if requested
     if (do_centering || do_scaling) {
-        data <- center_predictors(data, formula, dep_var, do_scaling)
+        data <- scale_predictors(data, formula, dep_var, do_centering, do_scaling)
     }
     
     # Fit the model

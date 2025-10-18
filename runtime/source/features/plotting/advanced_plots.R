@@ -368,6 +368,41 @@ make_scatter_plot_steps <- function(data, group, xplot, yplot, show_legend = FAL
   return(p)
 }
 
+#' Create scatter plot for interactive use (without marginal plots)
+#' @param data Data frame to plot
+#' @param group Grouping variable
+#' @param xplot X-axis variable name
+#' @param yplot Y-axis variable name
+#' @param show_legend Whether to show legend
+#' @param baseSize Base font size
+#' @return ggplot object (compatible with ggplotly)
+make_scatter_plot_interactive <- function(data, group, xplot, yplot, show_legend = FALSE, baseSize = 10) {
+  plotting_logger("DEBUG", "Starting make_scatter_plot_interactive function")
+  plotting_logger("DEBUG", sprintf("Input parameters - group: %s, xplot: %s, yplot: %s", group, xplot, yplot))
+  
+  if (group == "None") {
+    aes <- aes_string(x = xplot, y = yplot)
+  } else {
+    aes <- aes_string(x = xplot, y = yplot, col = group)
+  }
+
+  p <- ggplot(data, aes) +
+    geom_point(alpha = 0.5, size = baseSize / 4) + # Set the alpha to make overlapping points more visible
+    theme_minimal(base_size = baseSize)
+
+  if (!show_legend) {
+    p <- p + theme(legend.position = "none")
+  }
+
+  both_contain_pos <- grepl("pos", xplot, ignore.case = TRUE) && grepl("pos", yplot, ignore.case = TRUE)
+  if (both_contain_pos) {
+    p <- p + coord_equal()
+  }
+
+  plotting_logger("DEBUG", "make_scatter_plot_interactive function completed successfully")
+  return(p)
+}
+
 #' Create correlation plot with statistical summary or heatmap
 #' @param data Data frame to plot
 #' @param x_var_name X-axis variable name

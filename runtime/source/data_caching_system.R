@@ -30,10 +30,10 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   
   # Initialize reactive values on first access
   trigger <- function(value = NULL) {
-    if (!exists(trigger_var, envir = .GlobalEnv) || is.null(get(trigger_var, envir = .GlobalEnv))) {
+    if (!exists(trigger_var, envir = .GlobalEnv) || is.null(.GlobalEnv[[trigger_var]])) {
       assign(trigger_var, reactiveVal(0), envir = .GlobalEnv)
     }
-    trigger_val <- get(trigger_var, envir = .GlobalEnv)
+    trigger_val <- .GlobalEnv[[trigger_var]]
     if (is.null(value)) {
       trigger_val()
     } else {
@@ -42,10 +42,10 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   }
   
   cancel <- function(value = NULL) {
-    if (!exists(cancel_var, envir = .GlobalEnv) || is.null(get(cancel_var, envir = .GlobalEnv))) {
+    if (!exists(cancel_var, envir = .GlobalEnv) || is.null(.GlobalEnv[[cancel_var]])) {
       assign(cancel_var, reactiveVal(FALSE), envir = .GlobalEnv)
     }
-    cancel_val <- get(cancel_var, envir = .GlobalEnv)
+    cancel_val <- .GlobalEnv[[cancel_var]]
     if (is.null(value)) {
       cancel_val()
     } else {
@@ -54,10 +54,10 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   }
   
   cache <- function(value = NULL) {
-    if (!exists(cache_var, envir = .GlobalEnv) || is.null(get(cache_var, envir = .GlobalEnv))) {
+    if (!exists(cache_var, envir = .GlobalEnv) || is.null(.GlobalEnv[[cache_var]])) {
       assign(cache_var, reactiveVal(data.frame()), envir = .GlobalEnv)
     }
-    cache_val <- get(cache_var, envir = .GlobalEnv)
+    cache_val <- .GlobalEnv[[cache_var]]
     if (is.null(value)) {
       cache_val()
     } else {
@@ -66,10 +66,10 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   }
   
   filters <- function(value = NULL) {
-    if (!exists(filters_var, envir = .GlobalEnv) || is.null(get(filters_var, envir = .GlobalEnv))) {
+    if (!exists(filters_var, envir = .GlobalEnv) || is.null(.GlobalEnv[[filters_var]])) {
       assign(filters_var, reactiveVal(list()), envir = .GlobalEnv)
     }
-    filters_val <- get(filters_var, envir = .GlobalEnv)
+    filters_val <- .GlobalEnv[[filters_var]]
     if (is.null(value)) {
       filters_val()
     } else {
@@ -78,10 +78,10 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   }
   
   loading <- function(value = NULL) {
-    if (!exists(loading_var, envir = .GlobalEnv) || is.null(get(loading_var, envir = .GlobalEnv))) {
+    if (!exists(loading_var, envir = .GlobalEnv) || is.null(.GlobalEnv[[loading_var]])) {
       assign(loading_var, reactiveVal(FALSE), envir = .GlobalEnv)
     }
-    loading_val <- get(loading_var, envir = .GlobalEnv)
+    loading_val <- .GlobalEnv[[loading_var]]
     if (is.null(value)) {
       loading_val()
     } else {
@@ -146,7 +146,7 @@ create_shiny_cache_manager <- function(cache_name, use_parallel = FALSE) {
   # Notification management
   clear_notifications <- function() {
     if (exists(notification_var, envir = .GlobalEnv)) {
-      notification_id <- get(notification_var, envir = .GlobalEnv)
+      notification_id <- .GlobalEnv[[notification_var]]
       if (!is.null(notification_id)) {
         tryCatch(
           {

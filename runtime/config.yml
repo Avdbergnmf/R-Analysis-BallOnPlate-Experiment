@@ -19,6 +19,7 @@ default:
     enable_file_logging: true
     parallel_threshold: 10
     force_recalc: false
+    max_cores: 5  # -1 = use all cores -1, 0/1 = disable parallel, >1 = limit cores
 
   # Data Processing Settings
   data:
@@ -41,6 +42,7 @@ development:
   performance:
     enable_file_logging: false
     parallel_threshold: 20
+    max_cores: 4  # Limit to 4 cores in development
   logging:
     level: "INFO"
     memory_monitoring: false
@@ -54,6 +56,7 @@ production:
   performance:
     enable_file_logging: true
     parallel_threshold: 5
+    max_cores: -1  # Use all available cores in production
   logging:
     level: "DEBUG"
     memory_monitoring: true

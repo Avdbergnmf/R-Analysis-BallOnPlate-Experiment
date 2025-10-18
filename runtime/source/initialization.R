@@ -6,8 +6,11 @@
 #' 
 #' Uses qs::qsave/qread for efficient caching of loaded data.
 
-# Source global configuration and utilities
-source("global.R")
+# Load global configuration and utilities if not already loaded
+# This allows initialization.R to be run independently (e.g., in code blocks)
+if (!exists("CACHE_FORCE_REWRITE", envir = .GlobalEnv)) {
+    source("global.R")
+}
 
 # Create module-specific logger for initialization
 init_logger <- create_module_logger("GLOBAL")
@@ -511,4 +514,12 @@ ensure_global_data_initialized <- function() {
         !exists("xOptions2D", envir = .GlobalEnv)) {
         initialize_global_data()
     }
+}
+
+# Auto-initialize when this file is sourced (but only if not already initialized)
+if (!exists("dataFolder", envir = .GlobalEnv)) {
+    init_logger("INFO", "Auto-initializing global parameters and data...")
+    initialize_global_parameters()
+    initialize_global_data()
+    init_logger("INFO", "Auto-initialization complete.")
 }

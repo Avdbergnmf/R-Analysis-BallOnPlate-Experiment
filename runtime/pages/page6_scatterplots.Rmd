@@ -23,6 +23,9 @@ selectizeInput("groupScatter", "Group by",
   choices = NULL, selected = NULL, multiple = FALSE
 )
 
+# Interactive plot toggle
+checkboxInput("useInteractivePlot", "Use interactive plot (zoom, pan, hover)", value = FALSE)
+
 # Conditional options for trial data mode
 conditionalPanel(
   condition = "input.dataMode == 'trials'",
@@ -36,14 +39,21 @@ Column
 
 ### Scatterplot  {data-height=1500}
 Create scatterplots of the individual steps or summarized trial data.
+
 ```{r}
-imageOutput("scatter_plot")
+# Show static plot when interactive is not selected
+conditionalPanel(
+  condition = "!input.useInteractivePlot",
+  imageOutput("scatter_plot")
+)
 ```
 
-### Interactive Scatterplot  {data-height=1500}
-Interactive version with zoom, pan, and hover capabilities.
 ```{r}
-plotlyOutput("scatter_plot_interactive")
+# Show interactive plot when interactive is selected
+conditionalPanel(
+  condition = "input.useInteractivePlot",
+  plotlyOutput("scatter_plot_interactive")
+)
 ```
 
 ```{r, context="server"}
@@ -120,9 +130,10 @@ create_dynamic_category_observer(
   input = input
 )
 
-# Render the scatterplot
+# Render the static scatterplot (only when interactive is not selected)
 output$scatter_plot <- renderSVG({ 
-  reactive({
+  # Only render when interactive plot is not selected
+  if (!input$useInteractivePlot) {
     data <- get_scatter_data()
     group_var <- input$groupScatter
     x_var <- input$xscatter
@@ -137,31 +148,34 @@ output$scatter_plot <- renderSVG({
       return(plotting$create_error_plot("Please select variables for plotting"))
     }
     
-    # Create the plot
+    # Create the plot (with marginal plots for static version)
     plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
-  })
+  }
 })
 
-# Render the interactive scatterplot
+# Render the interactive scatterplot (only when interactive is selected)
 output$scatter_plot_interactive <- renderPlotly({
-  data <- get_scatter_data()
-  group_var <- input$groupScatter
-  x_var <- input$xscatter
-  y_var <- input$yscatter
-  
-  # Validate inputs
-  if (is.null(data) || nrow(data) == 0) {
-    return(plot_ly() %>% add_annotations(text = "No data available for plotting", showarrow = FALSE))
+  # Only render when interactive plot is selected
+  if (input$useInteractivePlot) {
+    data <- get_scatter_data()
+    group_var <- input$groupScatter
+    x_var <- input$xscatter
+    y_var <- input$yscatter
+    
+    # Validate inputs
+    if (is.null(data) || nrow(data) == 0) {
+      return(plot_ly() %>% add_annotations(text = "No data available for plotting", showarrow = FALSE))
+    }
+    
+    if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
+      return(plot_ly() %>% add_annotations(text = "Please select variables for plotting", showarrow = FALSE))
+    }
+    
+    # Create the base ggplot (using interactive version without marginal plots)
+    p <- plotting$make_scatter_plot_interactive(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
+    
+    # Convert to plotly
+    ggplotly(p, tooltip = "text")
   }
-  
-  if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
-    return(plot_ly() %>% add_annotations(text = "Please select variables for plotting", showarrow = FALSE))
-  }
-  
-  # Create the base ggplot
-  p <- plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
-  
-  # Convert to plotly
-  ggplotly(p, tooltip = "text")
 })
 ```

@@ -131,7 +131,7 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
       # Use parent environment to modify the messages vector
       parent_env <- parent.frame()
       if (exists("debug_messages", envir = parent_env)) {
-        assign("debug_messages", c(get("debug_messages", envir = parent_env), msg), envir = parent_env)
+        assign("debug_messages", c(parent_env[["debug_messages"]], msg), envir = parent_env)
       }
     }
     
