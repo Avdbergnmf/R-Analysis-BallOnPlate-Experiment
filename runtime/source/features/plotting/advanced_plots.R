@@ -246,3 +246,124 @@ make_histogram <- function(data, mu_data, showMeans, group, split, xinput, binwi
     }
   )
 }
+
+#' Plot questionnaire data across phases
+#' @param data Questionnaire results data frame (already filtered)
+#' @param qType Questionnaire type (e.g., "IMI", "UserExperience")
+#' @param cols_to_include Vector of column names to include in plot
+#' @param baseSize Base font size
+#' @param min_plot Minimum y-axis value (optional)
+#' @param max_plot Maximum y-axis value (optional)
+#' @return ggplot object
+plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize = 10, min_plot = NULL, max_plot = NULL) {
+  plotting_logger("DEBUG", "Starting plot_questionnaire_data function")
+  plotting_logger("DEBUG", "Input parameters - qType:", qType, "cols_to_include:", paste(cols_to_include, collapse = ", "))
+
+  # Only keep the columns to include in the plot
+  if (length(cols_to_include) == 0) {
+    cols_to_include <- setdiff(colnames(data), c("participant", "answer_type", "condition", "none"))
+  }
+  data <- data[, c("participant", "answer_type", "condition", cols_to_include), drop = FALSE]
+
+  # Reshape the data to long format for ggplot
+  data_long <- reshape2::melt(data, id.vars = c("participant", "answer_type", "condition"))
+
+  # Create the plot showing changes across phases, colored by condition
+  p <- ggplot(data_long, aes(x = answer_type, y = value, group = participant, color = factor(condition))) +
+    geom_line(alpha = 0.6, size = 0.4) +
+    geom_point(alpha = 0.8, size = 1) +
+    facet_wrap(~variable, scales = "free", ncol = length(cols_to_include)) +
+    labs(x = "Phase", y = "Score", color = "Condition") +
+    ggtitle(paste0(qType, " Scores Across Phases")) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    get_sized_theme(baseSize) +
+    scale_color_viridis_d()
+
+  # Conditionally add y-axis limits if min_plot and max_plot are provided
+  if (!is.null(min_plot) && !is.null(max_plot)) {
+    p <- p + ylim(min_plot, max_plot)
+  }
+
+  return(p)
+}
+
+#' Create pie chart showing step categories
+#' @param data Data frame with outlierSteps and suspect columns
+#' @param extraTitle Additional title text
+#' @param show_legend Whether to show legend
+#' @param baseSize Base font size
+#' @return ggplot object
+make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize = 10) {
+  plotting_logger("DEBUG", "Starting make_pie_chart function")
+  
+  # Calculate step categories
+  outlierSteps <- sum(data$outlierSteps == TRUE, na.rm = TRUE)
+  suspectSteps <- sum(data$suspect == TRUE & data$outlierSteps == FALSE, na.rm = TRUE)
+  included <- sum(data$outlierSteps == FALSE & data$suspect == FALSE, na.rm = TRUE)
+  total_steps <- nrow(data)
+
+  # Create a data frame for ggplot
+  df_filtered <- data.frame(
+    StepType = factor(c("Outlier", "Suspect", "Included"), levels = c("Outlier", "Suspect", "Included")),
+    TotalCount = c(outlierSteps, suspectSteps, included)
+  )
+
+  # Remove categories with zero counts
+  df_filtered <- df_filtered[df_filtered$TotalCount > 0, ]
+
+  # Calculate label positions for the pie chart
+  df_filtered$label_pos <- cumsum(df_filtered$TotalCount) - df_filtered$TotalCount / 2
+
+  # Generate the pie chart
+  p <- ggplot(df_filtered, aes(x = "", y = TotalCount, fill = StepType)) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar(theta = "y", start = 0) +
+    theme_void() +
+    scale_fill_manual(values = c("Outlier" = "#FF9999", "Suspect" = "#FFD699", "Included" = "#99FF99")) +
+    geom_text(aes(label = TotalCount, y = label_pos), color = "black", size = round(baseSize / 2)) +
+    ggtitle(paste0(extraTitle, "Total steps = ", total_steps)) +
+    theme_minimal(base_size = baseSize)
+
+  p <- p + get_proper_legend(show_legend, "right")
+
+  plotting_logger("DEBUG", "make_pie_chart function completed successfully")
+  return(p)
+}
+
+#' Create scatter plot with marginal density plots
+#' @param data Data frame to plot
+#' @param group Grouping variable
+#' @param xplot X-axis variable name
+#' @param yplot Y-axis variable name
+#' @param show_legend Whether to show legend
+#' @param baseSize Base font size
+#' @return ggplot object with marginal plots
+make_scatter_plot_steps <- function(data, group, xplot, yplot, show_legend = FALSE, baseSize = 10) {
+  plotting_logger("DEBUG", "Starting make_scatter_plot_steps function")
+  plotting_logger("DEBUG", sprintf("Input parameters - group: %s, xplot: %s, yplot: %s", group, xplot, yplot))
+  
+  if (group == "None") {
+    aes <- aes_string(x = xplot, y = yplot)
+  } else {
+    aes <- aes_string(x = xplot, y = yplot, col = group)
+  }
+
+  p <- ggplot(data, aes) +
+    geom_point(alpha = 0.5, size = baseSize / 4) + # Set the alpha to make overlapping points more visible
+    theme_minimal(base_size = baseSize)
+
+  if (!show_legend) {
+    p <- p + theme(legend.position = "none")
+  }
+
+  both_contain_pos <- grepl("pos", xplot, ignore.case = TRUE) && grepl("pos", yplot, ignore.case = TRUE)
+  if (both_contain_pos) {
+    p <- p + coord_equal()
+  }
+
+  # Add marginal density plots
+  p <- ggMarginal(p, type = "density", margins = "both", groupColour = TRUE, groupFill = TRUE)
+
+  plotting_logger("DEBUG", "make_scatter_plot_steps function completed successfully")
+  return(p)
+}

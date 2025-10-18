@@ -5,6 +5,20 @@
 # Create module-specific logger
 plotting_logger <- create_module_logger("PLOTTING")
 
+#' Get sized theme for plots
+#' @param baseSize Base font size
+#' @return ggplot theme object
+get_sized_theme <- function(baseSize) {
+  return(theme(
+    axis.title = element_text(size = baseSize * 2),
+    axis.text = element_text(size = baseSize * 1.5),
+    plot.title = element_text(size = baseSize * 2.5),
+    legend.title = element_text(size = baseSize * 1.8),
+    legend.text = element_text(size = baseSize * 1.5),
+    strip.text = element_text(size = baseSize * 1.5)
+  ))
+}
+
 #' Get proper legend configuration
 #' @param show_legend Whether to show legend
 #' @param position Legend position

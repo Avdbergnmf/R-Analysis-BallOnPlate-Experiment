@@ -32,7 +32,7 @@ output$pie <- renderSVG({ reactive({
       data <- allGaitParams
     }
     
-    return(make_pie_chart(data, baseSize = input$baseSize)) })
+    return(plotting$make_pie_chart(data, baseSize = input$baseSize)) })
   }
 )
 

@@ -1,14 +1,33 @@
 ### Options
 ```{r,echo=FALSE}
-selectizeInput("xscatter", "xscatter",
-  choices = dataTypes, selected = dataTypes[1], multiple = FALSE
-)
-selectizeInput("yscatter", "yscatter",
-  choices = dataTypes, selected = dataTypes[1], multiple = FALSE
+# Data mode selection
+selectizeInput("dataMode", "Data Mode",
+  choices = list(
+    "Steps" = "steps",
+    "Trials" = "trials"
+  ),
+  selected = "steps",
+  multiple = FALSE
 )
 
+# Variable selection inputs
+selectizeInput("xscatter", "xscatter",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+selectizeInput("yscatter", "yscatter",
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+# Grouping input
 selectizeInput("groupScatter", "Group by",
-  choices = categoriesExtraInputs, selected = categoriesExtraInputs[1], multiple = FALSE
+  choices = NULL, selected = NULL, multiple = FALSE
+)
+
+# Conditional options for trial data mode
+conditionalPanel(
+  condition = "input.dataMode == 'trials'",
+  checkboxInput("averageData_trial", "Average data across condition", value = FALSE),
+  checkboxInput("diffData_trial", "Calculate difference + means per participant", value = FALSE)
 )
 ```
 
@@ -16,14 +35,104 @@ Column
 --------------------------------------------
 
 ### Scatterplot  {data-height=1500}
-Create scatterplots of the individual steps in the selected data (1 datapoint per step).
+Create scatterplots of the individual steps or summarized trial data.
 ```{r}
-imageOutput("scatter_steps")
+imageOutput("scatter_plot")
 ```
 
 ```{r, context="server"}
-output$scatter_steps <- renderSVG({ reactive({
-  make_scatter_plot_steps(filteredParams(), input$groupScatter, input$xscatter, input$yscatter, TRUE, baseSize = input$baseSize)
+# Function to get the appropriate data based on mode
+get_scatter_data <- reactive({
+  if (input$dataMode == "trials") {
+    # Use trial data (summarized)
+    data <- get_mu_dyn_long()
+    if (input$averageData_trial) {
+      data <- summarize_across_conditions(data)
+    }
+    return(data)
+  } else {
+    # Use individual step data
+    return(filteredParams())
+  }
+})
+
+# Function to get appropriate column filter based on mode
+get_column_filter <- function() {
+  if (input$dataMode == "trials") {
+    # For trial data, exclude heelStrikes and toeOffs patterns
+    return(function(x) is.numeric(x) && !grepl("heelStrikes\\.|toeOffs\\.", x))
+  } else {
+    # For step data, use all numeric columns
+    return(is.numeric)
+  }
+}
+
+# Function to get default choices based on mode
+get_default_choices <- function(axis) {
+  if (input$dataMode == "trials") {
+    if (axis == "x") {
+      return(list(default = "task_max_q", fallback = c("stepWidths.sd", "stepLengths.sd")))
+    } else {
+      return(list(default = "task_max_e", fallback = c("stepLengths.sd", "stepWidths.sd")))
+    }
+  } else {
+    # For step data, use first available numeric column
+    return(list(default = NULL, fallback = NULL))
+  }
+}
+
+# Create dynamic observers for variable selection
+create_dynamic_variable_observer(
+  data_reactive = get_scatter_data,
+  input_id = "xscatter",
+  column_filter = get_column_filter(),
+  exclude_patterns = if (input$dataMode == "trials") c("heelStrikes\\.", "toeOffs\\.") else NULL,
+  default_choice = get_default_choices("x")$default,
+  fallback_choices = get_default_choices("x")$fallback,
+  multiple = FALSE,
+  input = input
+)
+
+create_dynamic_variable_observer(
+  data_reactive = get_scatter_data,
+  input_id = "yscatter",
+  column_filter = get_column_filter(),
+  exclude_patterns = if (input$dataMode == "trials") c("heelStrikes\\.", "toeOffs\\.") else NULL,
+  default_choice = get_default_choices("y")$default,
+  fallback_choices = get_default_choices("y")$fallback,
+  multiple = FALSE,
+  input = input
+)
+
+# Create dynamic observer for category selection
+create_dynamic_category_observer(
+  data_reactive = get_scatter_data,
+  input_id = "groupScatter",
+  category_choices = categoriesExtraInputs,
+  default_selection = if (input$dataMode == "trials") "participant" else categoriesExtraInputs[1],
+  multiple = FALSE,
+  input = input
+)
+
+# Render the scatterplot
+output$scatter_plot <- renderSVG({ 
+  reactive({
+    data <- get_scatter_data()
+    group_var <- input$groupScatter
+    x_var <- input$xscatter
+    y_var <- input$yscatter
+    
+    # Validate inputs
+    if (is.null(data) || nrow(data) == 0) {
+      return(create_error_plot("No data available for plotting"))
+    }
+    
+    if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
+      return(create_error_plot("Please select variables for plotting"))
+    }
+    
+    # Create the plot
+    plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
   })
 })
 ```

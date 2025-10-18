@@ -3,32 +3,7 @@
 # Create logger for plotting module
 plot_logger <- create_module_logger("PLOT")
 
-#' Convert condition names to prettier labels for plotting
-#' @param conditions Vector of condition names
-#' @return Vector of pretty condition labels
-get_pretty_condition_labels <- function(conditions) {
-  # Use the global condition mapping from initialization.R
-  ensure_global_data_initialized()
-
-  # Apply the mapping, keeping original names if not found in map
-  pretty_labels <- ifelse(conditions %in% names(condition_map),
-    condition_map[conditions],
-    conditions
-  )
-
-  return(pretty_labels)
-}
-
-get_sized_theme <- function(baseSize) {
-  return(theme(
-    axis.title = element_text(size = baseSize * 2),
-    axis.text = element_text(size = baseSize),
-    legend.title = element_text(size = baseSize * 1.5),
-    legend.text = element_text(size = baseSize * 1.5),
-    plot.title = element_text(size = baseSize * 2.5),
-    strip.text = element_text(size = baseSize * 1.5)
-  ))
-}
+# Note: get_pretty_condition_labels and get_sized_theme moved to plotting feature module
 
 get_proper_legend <- function(show_legend, position = "inside") {
   if (!show_legend) {
@@ -286,46 +261,7 @@ apply_factor_ordering <- function(data_long, columns_to_check = NULL) {
 }
 
 
-plot_questionnaire_data <- function(data, qType, cols_to_include = c(), baseSize = 10) {
-  plot_logger("DEBUG", "Starting plot_questionnaire_data function")
-  plot_logger("DEBUG", "Input parameters - qType:", qType, "cols_to_include:", paste(cols_to_include, collapse = ", "))
-
-  data <- filter_questionnaire_results(data, qType)
-
-  # Only keep the columns to include in the plot
-  if (length(cols_to_include) == 0) {
-    cols_to_include <- setdiff(colnames(data), c("participant", "answer_type", "condition", "none"))
-  }
-  data <- data[, c("participant", "answer_type", "condition", cols_to_include), drop = FALSE]
-
-  # Convert condition names to pretty labels
-  data$condition <- get_pretty_condition_labels(data$condition)
-
-  # Reshape the data to long format for ggplot
-  data_long <- reshape2::melt(data, id.vars = c("participant", "answer_type", "condition"))
-
-  qweights <- get_question_weights(qType)
-  min_plot <- if ("min_plot" %in% qweights$category) qweights[qweights$category == "min_plot", "weight"] else NULL
-  max_plot <- if ("max_plot" %in% qweights$category) qweights[qweights$category == "max_plot", "weight"] else NULL
-
-  # Create the plot showing changes across phases, colored by condition
-  p <- ggplot(data_long, aes(x = answer_type, y = value, group = participant, color = factor(condition))) +
-    geom_line(alpha = 0.6, size = 0.4) +
-    geom_point(alpha = 0.8, size = 1) +
-    facet_wrap(~variable, scales = "free", ncol = length(cols_to_include)) +
-    labs(x = "Phase", y = "Score", color = "Condition") +
-    ggtitle(paste0(qType, " Scores Across Phases")) +
-    theme(plot.title = element_text(hjust = 0.5)) +
-    get_sized_theme(baseSize) +
-    scale_color_viridis_d()
-
-  # Conditionally add y-axis limits if min_plot and max_plot are provided
-  if (!is.null(min_plot) && !is.null(max_plot)) {
-    p <- p + ylim(min_plot, max_plot)
-  }
-
-  return(p)
-}
+# Note: plot_questionnaire_data moved to plotting feature module
 
 
 
@@ -731,79 +667,9 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
 
 
-make_pie_chart <- function(data, extraTitle = "", show_legend = TRUE, baseSize = 10) {
-  # Calculate step categories
-  outlierSteps <- sum(data$outlierSteps == TRUE, na.rm = TRUE)
-  suspectSteps <- sum(data$suspect == TRUE & data$outlierSteps == FALSE, na.rm = TRUE)
-  included <- sum(data$outlierSteps == FALSE & data$suspect == FALSE, na.rm = TRUE)
-  total_steps <- nrow(data)
-
-  # Create a data frame for ggplot
-  df_filtered <- data.frame(
-    StepType = factor(c("Outlier", "Suspect", "Included"), levels = c("Outlier", "Suspect", "Included")),
-    TotalCount = c(outlierSteps, suspectSteps, included)
-  )
-
-  # Remove categories with zero counts
-  df_filtered <- df_filtered[df_filtered$TotalCount > 0, ]
-
-  # Calculate label positions for the pie chart
-  df_filtered$label_pos <- cumsum(df_filtered$TotalCount) - df_filtered$TotalCount / 2
-
-  # Generate the pie chart
-  p <- ggplot(df_filtered, aes(x = "", y = TotalCount, fill = StepType)) +
-    geom_bar(stat = "identity", width = 1) +
-    coord_polar(theta = "y", start = 0) +
-    theme_void() +
-    scale_fill_manual(values = c("Outlier" = "#FF9999", "Suspect" = "#FFD699", "Included" = "#99FF99")) +
-    geom_text(aes(label = TotalCount, y = label_pos), color = "black", size = round(baseSize / 2)) +
-    ggtitle(paste0(extraTitle, "Total steps = ", total_steps)) +
-    theme_minimal(base_size = baseSize)
-
-  p <- p + get_proper_legend(show_legend, "right")
-
-  return(p)
-}
 
 
-
-circleFun <- function(center = c(0, 0), r = 1, npoints = 100) {
-  tt <- seq(0, 2 * pi, length.out = npoints)
-  xx <- center[1] + r * cos(tt)
-  yy <- center[2] + r * sin(tt)
-  return(data.frame(x = xx, y = yy))
-}
-
-
-### Scatter plots
-make_scatter_plot_steps <- function(data, group, xplot, yplot, show_legend = FALSE, baseSize = 10) {
-  if (group == "None") {
-    aes <- aes_string(x = xplot, y = yplot)
-  } else {
-    aes <- aes_string(x = xplot, y = yplot, col = group)
-  }
-
-  p <- ggplot(data, aes) +
-    geom_point(alpha = 0.5, size = baseSize / 4) + # Set the alpha to make overlapping points more visible
-    theme_minimal(base_size = baseSize)
-
-  if (!show_legend) {
-    p <- p + theme(legend.position = "none")
-  }
-  # else {
-  #  p <- p + theme(legend.position = "inside", legend.position.inside = c(0.95, 0.15))
-  # }
-
-  both_contain_pos <- grepl("pos", xplot, ignore.case = TRUE) && grepl("pos", yplot, ignore.case = TRUE)
-  if (both_contain_pos) {
-    p <- p + coord_equal()
-  }
-
-  # Add marginal density plots
-  p <- ggMarginal(p, type = "density", margins = "both", groupColour = TRUE, groupFill = TRUE)
-
-  return(p)
-}
+# Note: make_scatter_plot_steps moved to plotting feature module
 
 ###### Extra
 

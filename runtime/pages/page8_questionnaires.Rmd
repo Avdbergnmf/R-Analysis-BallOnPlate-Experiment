@@ -15,7 +15,19 @@ imageOutput("q")
 
 ```{r, context="server"}
 output$q <- renderSVG({ reactive({
-  plot_questionnaire_data(filteredQResults(), input$plotQ, baseSize = input$baseSize)
+  # Get filtered questionnaire data
+  data <- questionnaire$filter_questionnaire_results(filteredQResults(), input$plotQ)
+  
+  # Convert condition names to pretty labels
+  data$condition <- get_pretty_condition_labels(data$condition)
+  
+  # Get question weights for y-axis limits
+  qweights <- get_question_weights(input$plotQ)
+  min_plot <- if ("min_plot" %in% qweights$category) qweights[qweights$category == "min_plot", "weight"] else NULL
+  max_plot <- if ("max_plot" %in% qweights$category) qweights[qweights$category == "max_plot", "weight"] else NULL
+  
+  # Create the plot
+  plotting$plot_questionnaire_data(data, input$plotQ, baseSize = input$baseSize, min_plot = min_plot, max_plot = max_plot)
   })
 })
 ```
