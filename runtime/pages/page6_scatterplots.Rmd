@@ -130,52 +130,89 @@ create_dynamic_category_observer(
   input = input
 )
 
-# Render the static scatterplot (only when interactive is not selected)
+# Create reactive expression for the plot data
+get_plot_data <- reactive({
+  # Wait for inputs to be initialized
+  req(input$dataMode, input$xscatter, input$yscatter, input$groupScatter)
+  
+  data <- get_scatter_data()
+  group_var <- input$groupScatter
+  x_var <- input$xscatter
+  y_var <- input$yscatter
+  
+  # Validate inputs
+  if (is.null(data) || nrow(data) == 0) {
+    return(list(error = "No data available for plotting"))
+  }
+  
+  if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
+    return(list(error = "Please select variables for plotting"))
+  }
+  
+  return(list(
+    data = data,
+    group_var = group_var,
+    x_var = x_var,
+    y_var = y_var
+  ))
+})
+
+# Render the static scatterplot
 output$scatter_plot <- renderSVG({ 
-  # Only render when interactive plot is not selected
-  if (!input$useInteractivePlot) {
-    data <- get_scatter_data()
-    group_var <- input$groupScatter
-    x_var <- input$xscatter
-    y_var <- input$yscatter
+  reactive({
+    plot_data <- get_plot_data()
     
-    # Validate inputs
-    if (is.null(data) || nrow(data) == 0) {
-      return(plotting$create_error_plot("No data available for plotting"))
-    }
-    
-    if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
-      return(plotting$create_error_plot("Please select variables for plotting"))
+    # Check for errors
+    if (!is.null(plot_data$error)) {
+      return(plotting$create_error_plot(plot_data$error))
     }
     
     # Create the plot (with marginal plots for static version)
-    plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
-  }
+    plotting$make_scatter_plot_steps(
+      plot_data$data, 
+      plot_data$group_var, 
+      plot_data$x_var, 
+      plot_data$y_var, 
+      show_legend = TRUE, 
+      baseSize = input$baseSize
+    )
+  })
 })
 
-# Render the interactive scatterplot (only when interactive is selected)
+# Render the interactive scatterplot
 output$scatter_plot_interactive <- renderPlotly({
-  # Only render when interactive plot is selected
-  if (input$useInteractivePlot) {
-    data <- get_scatter_data()
-    group_var <- input$groupScatter
-    x_var <- input$xscatter
-    y_var <- input$yscatter
-    
-    # Validate inputs
-    if (is.null(data) || nrow(data) == 0) {
-      return(plot_ly() %>% add_annotations(text = "No data available for plotting", showarrow = FALSE))
-    }
-    
-    if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
-      return(plot_ly() %>% add_annotations(text = "Please select variables for plotting", showarrow = FALSE))
-    }
-    
-    # Create the base ggplot (using interactive version without marginal plots)
-    p <- plotting$make_scatter_plot_interactive(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
-    
-    # Convert to plotly
-    ggplotly(p, tooltip = "text")
+  plot_data <- get_plot_data()
+  
+  # Check for errors
+  if (!is.null(plot_data$error)) {
+    return(plot_ly() %>% add_annotations(text = plot_data$error, showarrow = FALSE))
   }
+  
+  # Create simple hover text
+  plot_data$data$hover_text <- paste0(
+    plot_data$x_var, ": ", round(plot_data$data[[plot_data$x_var]], 3), "<br>",
+    plot_data$y_var, ": ", round(plot_data$data[[plot_data$y_var]], 3)
+  )
+  
+  # Create the base ggplot with simple hover text
+  if (plot_data$group_var == "None") {
+    p <- ggplot(plot_data$data, aes_string(x = plot_data$x_var, y = plot_data$y_var, text = "hover_text")) +
+      geom_point(alpha = 0.5, size = input$baseSize / 4) +
+      theme_minimal(base_size = input$baseSize)
+  } else {
+    p <- ggplot(plot_data$data, aes_string(x = plot_data$x_var, y = plot_data$y_var, col = plot_data$group_var, text = "hover_text")) +
+      geom_point(alpha = 0.5, size = input$baseSize / 4) +
+      theme_minimal(base_size = input$baseSize)
+  }
+  
+  # Add equal coordinates if both axes contain "pos"
+  x_contains_pos <- grepl("pos", plot_data$x_var, ignore.case = TRUE)
+  y_contains_pos <- grepl("pos", plot_data$y_var, ignore.case = TRUE)
+  if (x_contains_pos && y_contains_pos) {
+    p <- p + coord_equal()
+  }
+  
+  # Convert to plotly
+  ggplotly(p, tooltip = "text")
 })
 ```

@@ -44,7 +44,7 @@ tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
 
 #### Model Settings
 ```{r}
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + taskNum | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + task.taskNum | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)

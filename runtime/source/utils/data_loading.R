@@ -93,6 +93,12 @@ get_trial_phase <- function(participant, trialNum) { # return phase name for tri
 
 task_num_lookup <- function(trialNum) {
   ensure_global_data_initialized()
+  
+  # Handle vectorized input
+  if (length(trialNum) > 1) {
+    return(sapply(trialNum, task_num_lookup))
+  }
+  
   trial_key <- as.character(trialNum)
   if (trial_key %in% names(taskNum)) {
     return(as.numeric(taskNum[[trial_key]]))
