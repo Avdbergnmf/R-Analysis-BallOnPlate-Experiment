@@ -25,16 +25,12 @@ source("source/setup.R")
 # Gait event detection is now loaded on-demand via the gait feature module
 
 # =============================================================================
-# FORCE REINITIALIZATION AT STARTUP
+# ENSURE INITIALIZATION IS COMPLETE
 # =============================================================================
-# Force a complete reinitialization of all global data and parameters
-# This ensures everything is properly loaded before any calculations begin
-cat("=== FORCING COMPLETE REINITIALIZATION AT STARTUP ===\n")
-initialize_global_parameters()
-initialize_global_data()
-
-## Get Results - Load data BEFORE feature modules
-source("source/get_data_from_loop.R", local = FALSE)
+# Ensure all global data and parameters are properly loaded
+# (This is now handled automatically by the loading process)
+cat("=== ENSURING INITIALIZATION IS COMPLETE ===\n")
+ensure_global_data_initialized()
 
 ## The simulation source
 source("source/profile_shapes.R", local = FALSE)
@@ -73,10 +69,6 @@ allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics, para
 allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 cat("=== ALL DATA OBJECTS LOADED ===\n")
 
-# Task and complexity metrics are now loaded above with other data objects
-
-## Plotting code
-source("source/plotting.R", local = FALSE)
 
 cat("=== INITIALIZATION COMPLETE ===\n")
 
