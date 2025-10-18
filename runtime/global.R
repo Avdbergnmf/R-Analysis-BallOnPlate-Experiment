@@ -78,6 +78,10 @@ cat("[GLOBAL] Loading utility functions...\n")
 source("source/utils/logging.R")
 cat("[GLOBAL] ✓ logging.R loaded\n")
 
+# Load dplyr for data manipulation (used by feature modules)
+# Note: dplyr functions will be available to feature modules through the search path
+library(dplyr)
+cat("[GLOBAL] ✓ dplyr loaded\n")
 
 source("source/utils/cache.R")
 cat("[GLOBAL] ✓ cache.R loaded\n")
@@ -85,8 +89,6 @@ source("source/utils/data_loading.R")
 cat("[GLOBAL] ✓ data_loading.R loaded\n")
 source("source/utils/dynamic_input.R")
 cat("[GLOBAL] ✓ dynamic_input.R loaded\n")
-source("source/utils/get_filtered_data.R")  # Load before filter_manager since it defines get_mu_dyn_long_data
-cat("[GLOBAL] ✓ get_filtered_data.R loaded\n")
 source("source/utils/filter_manager.R")
 cat("[GLOBAL] ✓ filter_manager.R loaded\n")
 source("source/utils/calculation_wrappers.R")
@@ -118,9 +120,9 @@ load_feature <- function(feature_name) {
     stop("Feature '", feature_name, "' not found at path: ", feature_path)
   }
   
-  # Create environment for the feature with base environment as parent
-  # This ensures features are truly self-contained and must explicitly receive dependencies
-  feature_env <- new.env(parent = baseenv())
+  # Create environment for the feature with global environment as parent
+  # This allows features to access loaded packages (like dplyr) through the search path
+  feature_env <- new.env(parent = .GlobalEnv)
   
   # Inject logging utilities into the feature environment
   # This makes features self-contained while still having access to logging
@@ -131,7 +133,7 @@ load_feature <- function(feature_name) {
     feature_env$create_module_logger <- create_module_logger
   }
   
-  cat(sprintf("[GLOBAL] Created %s feature environment with base access and logging utilities\n", feature_name))
+  cat(sprintf("[GLOBAL] Created %s feature environment with global access and logging utilities\n", feature_name))
   
   # Load all R files in the feature directory
   r_files <- list.files(feature_path, "\\.R$", full.names = TRUE)

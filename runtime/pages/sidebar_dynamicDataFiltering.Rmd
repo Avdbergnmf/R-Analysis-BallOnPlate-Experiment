@@ -269,4 +269,52 @@ get_universal_filters <- function() {
   
   return(result)
 }
+
+# =============================================================================
+# CREATE REACTIVE DATA ACCESSORS IN SERVER CONTEXT
+# =============================================================================
+
+# Create reactive data accessors in server context where input is available
+filteredParams <- reactive({
+  filter_manager_logger("DEBUG", "filteredParams reactive triggered")
+  # Depend on specific filter inputs to trigger updates
+  input$filterParticipants
+  input$filterTrials
+  input$filterCondition
+  input$filterPhase
+  input$filterOutliers
+  input$filterSuspect
+  input$filterSide
+  
+  update_filter_state(input)  # Update filter state from current inputs
+  get_current_filtered_params()
+})
+
+get_mu_dyn_long <- reactive({
+  filter_manager_logger("DEBUG", "get_mu_dyn_long reactive triggered")
+  # Depend on specific filter inputs that affect mu_dyn_long
+  input$filterParticipants
+  input$filterTrials
+  input$filterCondition
+  input$filterPhase
+  input$filterOutliers
+  input$filterSuspect
+  input$filterSide
+  input$avg_feet
+  input$add_diff
+  
+  update_filter_state(input)  # Update filter state from current inputs
+  get_current_mu_dyn_long()
+})
+
+filteredQResults <- reactive({
+  filter_manager_logger("DEBUG", "filteredQResults reactive triggered")
+  # Depend on specific filter inputs that affect questionnaire results
+  input$filterParticipants
+  input$filterCondition
+  input$filterPhase
+  
+  update_filter_state(input)  # Update filter state from current inputs
+  get_current_filtered_q_results()
+})
 ```

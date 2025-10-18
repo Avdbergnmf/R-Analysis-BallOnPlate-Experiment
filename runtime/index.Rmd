@@ -94,11 +94,6 @@ Sidebar {.sidebar}
 ```
 
 ```{r, context="server", local=FALSE}
-source("source/utils/get_filtered_data.R", local = TRUE)
-```
-
-
-```{r, context="server", local=FALSE}
 session$allowReconnect(TRUE)
 
 refresh_trigger <- reactiveVal(0) # used for refreshing filteredGaitParams after outlier update
