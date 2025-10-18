@@ -784,10 +784,13 @@ preprocess_data <- function(participant, trialNum, dataName) {
 
 #' Get preprocessed data for multiple data types
 #' @param participant Participant identifier
-#' @param trialNum Trial number
+#' @param trialNum Trial number (will be converted to numeric if needed)
 #' @param dataList List of data types to preprocess
 #' @return List of preprocessed dataframes
 get_preprocessed_data <- function(participant, trialNum, dataList = c("leftfoot", "rightfoot", "hip")) {
+  # Convert trialNum to numeric if it's not already
+  trialNum <- as.numeric(trialNum)
+  
   result <- list()
   for (dataName in dataList) {
     # Use a more descriptive name for each element in the list

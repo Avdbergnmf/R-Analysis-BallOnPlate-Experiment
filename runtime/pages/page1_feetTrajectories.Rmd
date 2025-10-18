@@ -28,8 +28,11 @@ plotlyOutput("FeetTraj_interactive")
 ```{r, context="server"}
 output$FeetTraj_interactive <- renderPlotly({
   # Create the base ggplot
-  p <- plot_steps(
-    filteredParams(), input$participant, as.numeric(input$trialNum),
+  # Get preprocessed data for plotting
+  preprocessedData <- get_preprocessed_data(input$participant, input$trialNum)
+  
+  p <- plotting$plot_steps(
+    filteredParams(), preprocessedData, input$participant, input$trialNum,
     input$xplot, input$yplot, input$filter, 
     baseSize=input$baseSize
   )

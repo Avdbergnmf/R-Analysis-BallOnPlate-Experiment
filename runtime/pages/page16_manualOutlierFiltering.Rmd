@@ -1059,8 +1059,11 @@ output$manualOutlierPlot <- renderPlotly({
     
     # Create the base ggplot
     base_plot <- tryCatch({
-      plot_steps(
-        plot_data, current_participant, current_trial,
+      # Get preprocessed data for plotting
+      preprocessedData <- get_preprocessed_data(current_participant, current_trial)
+      
+      plotting$plot_steps(
+        plot_data, preprocessedData, current_participant, current_trial,
         current_xaxis, current_yaxis, input$filter, 
         baseSize = input$baseSize
       )

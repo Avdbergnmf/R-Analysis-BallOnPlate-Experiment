@@ -552,7 +552,7 @@ output$hist <- renderSVG({
       page_logger("DEBUG", "About to call make_histogram...")
       tryCatch(
         {
-          result <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
+          result <- plotting$make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
           page_logger("DEBUG", "make_histogram completed successfully")
           return(result)
         },
@@ -641,7 +641,7 @@ output$hist_plotly <- renderPlotly({
   page_logger("DEBUG", "About to call make_histogram for Plotly...")
   tryCatch(
     {
-      p <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
+      p <- plotting$make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
       page_logger("DEBUG", "make_histogram completed, converting to Plotly...")
 
       plotly_result <- ggplotly(p, tooltip = "all", dynamicTicks = TRUE, height = plotHeight())

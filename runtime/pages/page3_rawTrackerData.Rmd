@@ -66,14 +66,22 @@ observeEvent(
 
 output$TwoD <- renderSVG({
   reactive({
-    plotting$plot_2d(input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
+    # Load data for both trackers
+    xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+    yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+    
+    plotting$plot_2d(xData, yData, input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
   })
 })
 
 
 output$TwoD_interactive <- renderPlotly({
+  # Load data for both trackers
+  xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+  yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+  
   p <- plotting$plot_2d(
-    input$tracker, input$tracker,
+    xData, yData, input$tracker, input$tracker,
     input$participant2d,
     as.numeric(input$trialNum2d),
     input$xplot2d, input$yplot2d,
