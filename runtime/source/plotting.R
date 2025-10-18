@@ -671,48 +671,8 @@ plot_paired <- function(mu, datatype, xPaired, xaxis = NULL, color_var = NULL, s
 
 # Note: make_scatter_plot_steps moved to plotting feature module
 
-###### Extra
 
-# Function to save plot as an image
-save_plot <- function(plot, filename, width = 8, height = 4, pdf = FALSE) {
-  if (!pdf) {
-    ggsave(filename, plot, device = "png", width = width, height = height)
-  } else {
-    pdf(filename, width = width, height = height)
-    print(plot)
-    dev.off()
-  }
-}
-
-plot_correlation_stats <- function(data, x_var_name, y_var_name, type = "parametric", base_size = 12, do_heatmap = FALSE, heatmap_bins = 30) {
-  x_var <- sym(x_var_name)
-  y_var <- sym(y_var_name)
-  # Create the base plot with ggscatterstats or a heatmap based on plot_type
-  if (!do_heatmap) {
-    # Scatter plot with statistical summary
-    p <- ggscatterstats(
-      data = data,
-      x = !!x_var,
-      y = !!y_var,
-      type = type
-    ) +
-      theme_minimal(base_size = base_size)
-  } else {
-    # Heatmap to visualize density of points
-    p <- ggplot(data, aes(x = !!x_var, y = !!y_var)) +
-      stat_bin2d(bins = heatmap_bins) +
-      scale_fill_gradient(low = "blue", high = "red") +
-      theme_minimal(base_size = base_size) +
-      labs(
-        title = paste("Heatmap of", x_var_name, "and", y_var_name),
-        x = x_var_name,
-        y = y_var_name,
-        fill = "Count"
-      )
-  }
-
-  return(p)
-}
+# Note: plot_correlation_stats moved to plotting feature module
 
 #### Simulation Data Plotting Functions ####
 

@@ -241,7 +241,7 @@ currentData <- reactive({
         # Apply additional summarization across conditions if requested
         if (input$summarizeAcrossConditions) {
           page_logger("DEBUG", "Applying additional summarization across conditions")
-          summarized_data <- summarize_across_conditions(summarized_data)
+          summarized_data <- gait$summarize_across_conditions(summarized_data)
           page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
         }
         return(summarized_data)

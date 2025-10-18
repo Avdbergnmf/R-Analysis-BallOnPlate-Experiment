@@ -40,6 +40,12 @@ Create scatterplots of the individual steps or summarized trial data.
 imageOutput("scatter_plot")
 ```
 
+### Interactive Scatterplot  {data-height=1500}
+Interactive version with zoom, pan, and hover capabilities.
+```{r}
+plotlyOutput("scatter_plot_interactive")
+```
+
 ```{r, context="server"}
 # Function to get the appropriate data based on mode
 get_scatter_data <- reactive({
@@ -47,7 +53,7 @@ get_scatter_data <- reactive({
     # Use trial data (summarized)
     data <- get_mu_dyn_long()
     if (input$averageData_trial) {
-      data <- summarize_across_conditions(data)
+      data <- gait$summarize_across_conditions(data)
     }
     return(data)
   } else {
@@ -134,5 +140,28 @@ output$scatter_plot <- renderSVG({
     # Create the plot
     plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
   })
+})
+
+# Render the interactive scatterplot
+output$scatter_plot_interactive <- renderPlotly({
+  data <- get_scatter_data()
+  group_var <- input$groupScatter
+  x_var <- input$xscatter
+  y_var <- input$yscatter
+  
+  # Validate inputs
+  if (is.null(data) || nrow(data) == 0) {
+    return(plot_ly() %>% add_annotations(text = "No data available for plotting", showarrow = FALSE))
+  }
+  
+  if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
+    return(plot_ly() %>% add_annotations(text = "Please select variables for plotting", showarrow = FALSE))
+  }
+  
+  # Create the base ggplot
+  p <- plotting$make_scatter_plot_steps(data, group_var, x_var, y_var, show_legend = TRUE, baseSize = input$baseSize)
+  
+  # Convert to plotly
+  ggplotly(p, tooltip = "text")
 })
 ```

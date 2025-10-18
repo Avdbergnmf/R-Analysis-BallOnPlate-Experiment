@@ -367,3 +367,47 @@ make_scatter_plot_steps <- function(data, group, xplot, yplot, show_legend = FAL
   plotting_logger("DEBUG", "make_scatter_plot_steps function completed successfully")
   return(p)
 }
+
+#' Create correlation plot with statistical summary or heatmap
+#' @param data Data frame to plot
+#' @param x_var_name X-axis variable name
+#' @param y_var_name Y-axis variable name
+#' @param type Statistical test type ("parametric" or "nonparametric")
+#' @param base_size Base font size
+#' @param do_heatmap Whether to create a heatmap instead of scatter plot
+#' @param heatmap_bins Number of bins for heatmap
+#' @return ggplot object
+plot_correlation_stats <- function(data, x_var_name, y_var_name, type = "parametric", base_size = 12, do_heatmap = FALSE, heatmap_bins = 30) {
+  plotting_logger("DEBUG", "Starting plot_correlation_stats function")
+  plotting_logger("DEBUG", sprintf("Input parameters - x_var: %s, y_var: %s, type: %s, do_heatmap: %s", x_var_name, y_var_name, type, do_heatmap))
+  
+  x_var <- sym(x_var_name)
+  y_var <- sym(y_var_name)
+  
+  # Create the base plot with ggscatterstats or a heatmap based on plot_type
+  if (!do_heatmap) {
+    # Scatter plot with statistical summary
+    p <- ggscatterstats(
+      data = data,
+      x = !!x_var,
+      y = !!y_var,
+      type = type
+    ) +
+      theme_minimal(base_size = base_size)
+  } else {
+    # Heatmap to visualize density of points
+    p <- ggplot(data, aes(x = !!x_var, y = !!y_var)) +
+      stat_bin2d(bins = heatmap_bins) +
+      scale_fill_gradient(low = "blue", high = "red") +
+      theme_minimal(base_size = base_size) +
+      labs(
+        title = paste("Heatmap of", x_var_name, "and", y_var_name),
+        x = x_var_name,
+        y = y_var_name,
+        fill = "Count"
+      )
+  }
+
+  plotting_logger("DEBUG", "plot_correlation_stats function completed successfully")
+  return(p)
+}

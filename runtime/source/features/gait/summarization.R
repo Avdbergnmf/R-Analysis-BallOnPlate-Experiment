@@ -6,6 +6,41 @@
 # Create module-specific logger
 summarize_logger <- create_module_logger("GAIT-SUMMARIZE")
 
+#' Optimized helper function to summarize multiple columns at once
+#' @param data Input data frame
+#' @param types Vector of column names to summarize
+#' @param categories Grouping categories
+#' @param operation_name Name for logging purposes
+#' @return List of summarized data frames
+summarize_columns_batch <- function(data, types, categories, operation_name = "batch") {
+  summarize_logger("DEBUG", sprintf("Processing all %d columns in a single operation (%s)", length(types), operation_name))
+  
+  # Process all columns at once
+  data_summarized <- data %>%
+    group_by(across(all_of(categories))) %>%
+    summarise(
+      across(all_of(types), list(
+        mean = ~mean(.x, na.rm = TRUE),
+        sd = ~sd(.x, na.rm = TRUE),
+        cv = ~sd(.x, na.rm = TRUE) / mean(.x, na.rm = TRUE)
+      ), .names = "{.col}.{.fn}"),
+      .groups = "drop"
+    )
+  
+  # Convert to the expected format (list of data frames)
+  result <- list()
+  for (type in types) {
+    result[[type]] <- data_summarized %>%
+      select(all_of(categories), 
+             mean = paste0(type, ".mean"),
+             sd = paste0(type, ".sd"), 
+             cv = paste0(type, ".cv"))
+  }
+  
+  summarize_logger("DEBUG", sprintf("Batch summarization completed for %s", operation_name))
+  return(result)
+}
+
 #' Get summary statistics by foot
 #' @param data Input data frame
 #' @param dataType Column name to summarize
@@ -142,19 +177,15 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
   summarize_logger("DEBUG", "Categories without foot:", paste(categories_no_foot, collapse = ", "))
   
   summarize_logger("INFO", "Calculating averaged summaries for", length(types), "data types")
-  mu_avg <- lapply(types, function(type) get_summ_by_foot(data, type, categories_no_foot, avg_feet = TRUE))
-  mu_avg <- setNames(mu_avg, types)
-  summarize_logger("DEBUG", "Averaged summaries completed")
+  mu_avg <- summarize_columns_batch(data, types, categories_no_foot, "averaged summaries")
 
   if (add_diff) {
     summarize_logger("INFO", "Calculating foot differences")
     # Keep foot in categories for per-foot summaries
     categories_with_foot <- categories
 
-    # Step 1: Get per-foot summaries without averaging over feet
-    summarize_logger("DEBUG", "Getting per-foot summaries")
-    mu_per_foot <- lapply(types, function(type) get_summ_by_foot(data, type, categories_with_foot, avg_feet = FALSE))
-    mu_per_foot <- setNames(mu_per_foot, types)
+    # Step 1: Get per-foot summaries without averaging over feet (optimized)
+    mu_per_foot <- summarize_columns_batch(data, types, categories_with_foot, "per-foot summaries")
 
     # Step 2: Calculate the differences between left and right foot measurements
     summarize_logger("DEBUG", "Calculating left-right foot differences")
@@ -255,9 +286,7 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE,
     summarize_logger("DEBUG", "Categories after removing foot:", paste(categories, collapse = ", "))
   } else {
     summarize_logger("INFO", "Computing summaries without averaging over feet")
-    # If not averaging over feet, compute mu normally
-    mu <- lapply(types, function(type) get_summ_by_foot(data, type, categories, avg_feet = FALSE))
-    mu <- setNames(mu, types)
+    mu <- summarize_columns_batch(data, types, categories, "no foot averaging")
   }
   summarize_logger("DEBUG", "Summary calculations completed for", length(mu), "data types")
 

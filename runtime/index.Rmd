@@ -154,11 +154,6 @@ Scatterplots
 ```{r, child='pages/page6_scatterplots.Rmd'}
 ```
 
-Scatterplots TrialData
-=====================================
-```{r, child='pages/page7_trialScatterplots.Rmd'}
-```
-
 Questionnaires 
 =====================================
 ```{r, child='pages/page8_questionnaires.Rmd'}
