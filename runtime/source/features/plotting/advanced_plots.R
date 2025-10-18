@@ -495,3 +495,170 @@ plot_simulation_timeseries <- function(data, vars, downsampling = 1,
   plotting_logger("DEBUG", "plot_simulation_timeseries function completed successfully")
   return(p)
 }
+
+#' Plot boxplots with jitter
+#' @param mu Data frame with data to plot
+#' @param datatype Column name to plot
+#' @param xaxis Vector of x-axis grouping variables
+#' @param color_var Color variable (optional)
+#' @param shape_var Shape variable (optional)
+#' @param baseSize Base font size
+#' @return ggplot object
+plot_boxplots <- function(mu, datatype, xaxis = c("condition"), color_var = NULL, shape_var = NULL, baseSize = 10) {
+  plotting_logger("DEBUG", "Starting plot_boxplots function")
+  plotting_logger("DEBUG", "Input parameters - datatype:", datatype, "xaxis:", paste(xaxis, collapse = ", "), "color_var:", color_var, "shape_var:", shape_var)
+
+  # Validate inputs
+  if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
+    plotting_logger("ERROR", "Invalid input data: mu is null, not a dataframe, or empty")
+    return(create_error_plot("No data available for plotting", baseSize))
+  }
+
+  if (is.null(datatype) || !datatype %in% colnames(mu)) {
+    plotting_logger("ERROR", "Invalid datatype:", datatype, "- not found in data columns:", paste(colnames(mu), collapse = ", "))
+    return(create_error_plot(paste("Variable", datatype, "not found in data"), baseSize))
+  }
+
+  plotting_logger("DEBUG", "Data validation passed - data has", nrow(mu), "rows and", ncol(mu), "columns")
+
+  # Reshape data to long format for ggplot
+  plotting_logger("DEBUG", "Reshaping data to long format")
+  data_long <- mu %>%
+    pivot_longer(
+      cols = !!datatype,
+      names_to = "variable",
+      values_to = "value"
+    )
+
+  plotting_logger("DEBUG", "Data reshaped - long format has", nrow(data_long), "rows")
+
+  # Apply pretty condition labels
+  if ("condition" %in% colnames(data_long)) {
+    plotting_logger("DEBUG", "Applying pretty condition labels")
+    data_long$condition <- get_pretty_condition_labels(data_long$condition)
+    plotting_logger("DEBUG", "Condition labels applied. Unique conditions:", paste(unique(data_long$condition), collapse = ", "))
+  }
+
+  # Apply proper factor ordering to x-axis variables that have defined orderings
+  plotting_logger("DEBUG", "Applying factor ordering to x-axis variables:", paste(xaxis, collapse = ", "))
+  data_long <- apply_factor_ordering(data_long, columns_to_check = xaxis)
+
+  # Log the factor levels after ordering
+  for (col in xaxis) {
+    if (col %in% colnames(data_long)) {
+      if (is.factor(data_long[[col]])) {
+        plotting_logger("DEBUG", "Factor levels for", col, ":", paste(levels(data_long[[col]]), collapse = ", "))
+      } else {
+        plotting_logger("DEBUG", "Column", col, "is not a factor, unique values:", paste(unique(data_long[[col]]), collapse = ", "))
+      }
+    }
+  }
+
+  # Create a combined x-axis variable with proper ordering
+  plotting_logger("DEBUG", "Creating combined x-axis variable")
+
+  # First, create the combined variable as character
+  data_long$xaxis_combined <- apply(data_long[, xaxis, drop = FALSE], 1, function(row) {
+    paste(row, collapse = "_")
+  })
+
+  plotting_logger("DEBUG", "Combined x-axis variable created. Unique combinations:", length(unique(data_long$xaxis_combined)))
+  plotting_logger("DEBUG", "Combined x-axis combinations:", paste(unique(data_long$xaxis_combined), collapse = ", "))
+
+  # Now create proper ordering for the combined variable
+  # Get all unique combinations
+  unique_combinations <- unique(data_long$xaxis_combined)
+
+  # Sort combinations based on the original factor ordering of individual variables
+  if (length(xaxis) == 1) {
+    # Single variable - use its factor levels directly
+    if (xaxis %in% colnames(data_long) && is.factor(data_long[[xaxis]])) {
+      ordered_combinations <- levels(data_long[[xaxis]])
+      plotting_logger("DEBUG", "Single variable ordering - using factor levels:", paste(ordered_combinations, collapse = ", "))
+    } else {
+      # Not a factor, sort alphabetically
+      ordered_combinations <- sort(unique_combinations)
+      plotting_logger("DEBUG", "Single variable ordering - alphabetical sort:", paste(ordered_combinations, collapse = ", "))
+    }
+  } else {
+    # Multiple variables - create cross-product ordering
+    plotting_logger("DEBUG", "Multiple variables - creating cross-product ordering")
+
+    # Get ordered levels for each variable
+    ordered_levels <- list()
+    for (col in xaxis) {
+      if (col %in% colnames(data_long) && is.factor(data_long[[col]])) {
+        ordered_levels[[col]] <- levels(data_long[[col]])
+        plotting_logger("DEBUG", "Variable", col, "ordered levels:", paste(ordered_levels[[col]], collapse = ", "))
+      } else {
+        ordered_levels[[col]] <- sort(unique(data_long[[col]]))
+        plotting_logger("DEBUG", "Variable", col, "alphabetical levels:", paste(ordered_levels[[col]], collapse = ", "))
+      }
+    }
+
+    # Create cross-product of all ordered levels
+    ordered_combinations <- do.call(expand.grid, ordered_levels)
+    ordered_combinations <- apply(ordered_combinations, 1, function(row) {
+      paste(row, collapse = "_")
+    })
+
+    # Filter to only include combinations that actually exist in the data
+    ordered_combinations <- ordered_combinations[ordered_combinations %in% unique_combinations]
+
+    plotting_logger("DEBUG", "Cross-product ordering created:", paste(ordered_combinations, collapse = ", "))
+  }
+
+  # Convert to factor with proper ordering
+  data_long$xaxis_combined <- factor(data_long$xaxis_combined, levels = ordered_combinations)
+
+  plotting_logger("DEBUG", "Combined x-axis variable converted to factor with", length(levels(data_long$xaxis_combined)), "levels")
+  plotting_logger("DEBUG", "Final factor levels:", paste(levels(data_long$xaxis_combined), collapse = ", "))
+
+  # Create hover text for points
+  plotting_logger("DEBUG", "Creating hover text for plotly")
+  data_long$hover_text <- create_plotly_hover_text(data_long, datatype, data_long$xaxis_combined, "Category")
+
+  # Set up aesthetics
+  plotting_logger("DEBUG", "Setting up plot aesthetics")
+  if (is.null(color_var) || color_var == "None") {
+    aesString <- aes_string()
+    plotting_logger("DEBUG", "No color variable specified")
+  } else {
+    aesString <- aes_string(color = color_var)
+    plotting_logger("DEBUG", "Color variable set to:", color_var)
+  }
+
+  # Dynamically add shape if shape_var is provided
+  if (!(is.null(shape_var) || shape_var == "None")) {
+    aesString <- modifyList(aesString, aes_string(shape = shape_var))
+    plotting_logger("DEBUG", "Shape variable set to:", shape_var)
+  }
+
+  # Create the plot
+  plotting_logger("DEBUG", "Creating ggplot object")
+  p <- ggplot(data_long, aes(x = xaxis_combined, y = value, text = hover_text)) +
+    # Draw one box for every x-axis combination, regardless of colour/shape mappings on the points
+    geom_boxplot(aes(group = xaxis_combined)) +
+    geom_jitter(aesString, width = 0.2, size = baseSize / 4, alpha = 0.7) +
+    labs(x = paste(xaxis, collapse = " + "), y = datatype, title = datatype) +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    scale_color_viridis_d(option = "turbo") +
+    get_sized_theme(baseSize)
+
+  plotting_logger("DEBUG", "Base plot created successfully")
+
+  # Special case for trialNum color and shape
+  if (color_var == "trialNum" && shape_var == "trialNum") {
+    plotting_logger("DEBUG", "Applying special trialNum color and shape mapping")
+    shapes <- c(15, 15, 16, 16) # Square for 1, 2 and Circle for 3, 4
+    colors <- c("darkred", "pink", "darkblue", "lightblue") # Dark/light for 1, 2 and 3, 4
+
+    p <- p +
+      scale_color_manual(name = "Trial Number", values = colors) +
+      scale_shape_manual(name = "Trial Number", values = shapes)
+  }
+
+  plotting_logger("DEBUG", "Boxplot creation completed successfully")
+  return(p)
+}
+

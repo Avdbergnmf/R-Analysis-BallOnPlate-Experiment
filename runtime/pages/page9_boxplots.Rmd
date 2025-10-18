@@ -10,8 +10,6 @@ selectizeInput("plotVarTransform", "Transform variable",
 selectizeInput("varCategory", "Category", choices = NULL, selected = NULL, multiple = TRUE)
 selectizeInput("colorCategory", "Color", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("shapeCategory", "Shape", choices = NULL, selected = NULL, multiple = FALSE)
-checkboxInput("doPaired", "Make it a paired plot", value = FALSE)
-selectizeInput("pairedCategory", "Paired Category", choices = NULL, selected = NULL, multiple = FALSE)
 checkboxInput("useSVG", "Make SVG for saving", value = FALSE)
 ```
 
@@ -113,17 +111,7 @@ generate_boxplot <- function() {
     }
     
     # Generate the plot with the (potentially transformed) data
-    if (!input$doPaired) {
-      plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-    } else {
-      if (is.null(input$pairedCategory) || input$pairedCategory == "None" || 
-          !input$pairedCategory %in% available_cols) {
-        warning("Invalid paired category, switching to regular boxplot")
-        plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-      } else {
-        plot_paired(mu, input$plotVar, input$pairedCategory, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-      }
-    }
+    plotting$plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
   }, error = function(e) {
     # Return a simple error plot instead of crashing
     warning("Error generating boxplot: ", e$message)
