@@ -6,6 +6,16 @@
 # Create shared logger for the gait feature
 gait_logger <- create_module_logger("GAIT")
 
+#' Optimized helper function to summarize multiple columns at once
+#' @param data Input data frame
+#' @param types Vector of column names to summarize
+#' @param categories Grouping categories
+#' @param operation_name Name for logging purposes
+#' @return List of summarized data frames
+summarize_columns_batch <- function(data, types, categories, operation_name = "batch") {
+  summarize_columns_batch(data, types, categories, operation_name)
+}
+
 # =============================================================================
 # MAIN GAIT EVENT DETECTION
 # =============================================================================
