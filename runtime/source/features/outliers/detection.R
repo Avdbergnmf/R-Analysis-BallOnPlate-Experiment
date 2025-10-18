@@ -10,9 +10,13 @@
 #' @param grouping_tolerance Maximum time difference to group steps together (default 0.001s)
 #' @return Data table with all matched rows (including grouped steps)
 find_closest_heel_strikes <- function(outliers, data_source, search_tolerance = 0.03, grouping_tolerance = 0.001) {
+    outlier_logger <- create_module_logger("OUTLIER-DETECTION")
+    
     if (is.null(outliers) || nrow(outliers) == 0) {
         return(NULL)
     }
+
+    outlier_logger("DEBUG", "Starting find_closest_heel_strikes with", nrow(outliers), "outliers and", nrow(data_source), "heel strikes")
 
     # Convert to data.table and ensure consistent types
     dt <- data.table::as.data.table(data_source)
@@ -28,59 +32,76 @@ find_closest_heel_strikes <- function(outliers, data_source, search_tolerance = 
         trialNum = as.numeric(as.character(trialNum))
     )]
 
-    # Find matches using two-stage tolerance system
-    matches <- data.table::rbindlist(lapply(seq_len(nrow(outliers_dt)), function(i) {
-        outlier <- outliers_dt[i]
-
-        # Filter to current participant/trial
-        trial_data <- dt[participant == outlier$participant &
-            trialNum == outlier$trialNum]
-
-        if (nrow(trial_data) == 0) {
-            return(NULL)
-        }
-
-        # STAGE 1: Find ALL potential matches within search tolerance
-        time_diffs <- abs(trial_data$time - outlier$time)
-        within_search_idx <- which(time_diffs <= search_tolerance)
-
-        if (length(within_search_idx) == 0) {
-            return(NULL)
-        }
-
-        # Get the potential matches
-        potential_matches <- trial_data[within_search_idx]
-
-        # STAGE 2: Group steps that are very close together
-        if (nrow(potential_matches) > 1) {
-            # Sort by time to ensure proper grouping
-            potential_matches <- potential_matches[order(time)]
-
+    # Find matches using vectorized approach
+    outlier_logger("DEBUG", "Starting vectorized matching approach")
+    start_time <- Sys.time()
+    
+    # Create a cross join to find all potential matches
+    # This is much more efficient than the lapply loop
+    dt[, row_id := .I]  # Add row ID for tracking
+    outliers_dt[, outlier_id := .I]  # Add outlier ID for tracking
+    
+    # Cross join on participant and trialNum to get all potential matches
+    potential_matches <- dt[outliers_dt, on = .(participant, trialNum), nomatch = 0, allow.cartesian = TRUE]
+    
+    if (nrow(potential_matches) == 0) {
+        outlier_logger("DEBUG", "No potential matches found")
+        return(NULL)
+    }
+    
+    # Calculate time differences for all potential matches at once
+    potential_matches[, time_diff := abs(time - i.time)]
+    
+    # Filter to matches within search tolerance
+    within_tolerance <- potential_matches[time_diff <= search_tolerance]
+    
+    if (nrow(within_tolerance) == 0) {
+        outlier_logger("DEBUG", "No matches within search tolerance")
+        return(NULL)
+    }
+    
+    # Group by outlier_id and apply grouping logic
+    matches_list <- list()
+    unique_outliers <- unique(within_tolerance$outlier_id)
+    
+    for (outlier_id in unique_outliers) {
+        outlier_matches <- within_tolerance[outlier_id == outlier_id]
+        
+        if (nrow(outlier_matches) > 1) {
+            # Sort by time and apply grouping logic
+            outlier_matches <- outlier_matches[order(time)]
+            
             # Find groups of steps that are within grouping_tolerance of each other
             groups <- list()
             current_group <- 1
-            groups[[current_group]] <- 1 # Start with first step
-
-            for (j in 2:nrow(potential_matches)) {
-                time_diff <- potential_matches$time[j] - potential_matches$time[j - 1]
+            groups[[current_group]] <- 1
+            
+            for (j in 2:nrow(outlier_matches)) {
+                time_diff <- outlier_matches$time[j] - outlier_matches$time[j - 1]
                 if (time_diff <= grouping_tolerance) {
-                    # Add to current group
                     groups[[current_group]] <- c(groups[[current_group]], j)
                 } else {
-                    # Start new group
                     current_group <- current_group + 1
                     groups[[current_group]] <- j
                 }
             }
-
-            # Return ALL steps from ALL groups (since they're all close to the outlier)
+            
+            # Return ALL steps from ALL groups
             all_grouped_indices <- unlist(groups)
-            return(potential_matches[all_grouped_indices])
+            matches_list[[length(matches_list) + 1]] <- outlier_matches[all_grouped_indices]
         } else {
-            # Only one match found, return it
-            return(potential_matches)
+            matches_list[[length(matches_list) + 1]] <- outlier_matches
         }
-    }))
+    }
+    
+    matches <- data.table::rbindlist(matches_list, fill = TRUE)
+    end_time <- Sys.time()
+    
+    # Log statistics
+    n_outliers_processed <- length(unique_outliers)
+    n_matches_found <- if (is.null(matches)) 0 else nrow(matches)
+    outlier_logger("INFO", "Outlier matching results:", n_outliers_processed, "outliers processed,", n_matches_found, "matches found")
+    outlier_logger("DEBUG", "Vectorized matching completed in", round(as.numeric(end_time - start_time, units = "secs"), 2), "seconds")
 
     matches
 }
