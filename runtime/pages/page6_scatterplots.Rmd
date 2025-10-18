@@ -130,11 +130,11 @@ output$scatter_plot <- renderSVG({
     
     # Validate inputs
     if (is.null(data) || nrow(data) == 0) {
-      return(create_error_plot("No data available for plotting"))
+      return(plotting$create_error_plot("No data available for plotting"))
     }
     
     if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
-      return(create_error_plot("Please select variables for plotting"))
+      return(plotting$create_error_plot("Please select variables for plotting"))
     }
     
     # Create the plot

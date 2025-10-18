@@ -98,7 +98,7 @@ generate_boxplot <- function() {
     }
     
     # Apply transformation to the plotting variable if selected
-    mu <- apply_depvar_transform(mu, input$plotVar, input$plotVarTransform)
+    mu <- stats$transform_dependent_variable(mu, input$plotVar, input$plotVarTransform)
     if (is.null(mu)) {
       stop("Transformation failed. Check notification for details.")
     }

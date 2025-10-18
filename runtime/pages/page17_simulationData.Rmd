@@ -220,7 +220,7 @@ output$sim_tsPlot <- renderPlotly({
   # Use the plotting function
   tryCatch(
     {
-      plot_simulation_timeseries(
+      plotting$plot_simulation_timeseries(
         data = data,
         vars = vars,
         downsampling = input$sim_downsampling,

@@ -411,3 +411,87 @@ plot_correlation_stats <- function(data, x_var_name, y_var_name, type = "paramet
   plotting_logger("DEBUG", "plot_correlation_stats function completed successfully")
   return(p)
 }
+
+#' Plot simulation time series
+#'
+#' @param data Simulation data from get_simulation_data()
+#' @param vars Vector of variable names to plot
+#' @param downsampling Downsampling factor
+#' @param plot_width Plot width
+#' @param plot_height Plot height
+#' @return plotly object
+plot_simulation_timeseries <- function(data, vars, downsampling = 1,
+                                       plot_width = 800, plot_height = 600) {
+  plotting_logger("DEBUG", "Starting plot_simulation_timeseries function")
+  
+  # Validate inputs
+  if (is.null(data) || nrow(data) == 0) {
+    plotting_logger("WARN", "No simulation data available")
+    return(plot_ly() %>% layout(title = "No simulation data available"))
+  }
+
+  if (length(vars) == 0) {
+    plotting_logger("WARN", "No variables selected")
+    return(plot_ly() %>% layout(title = "No variables selected"))
+  }
+
+  plotting_logger("DEBUG", sprintf("Plotting %d variables with downsampling factor %d", length(vars), downsampling))
+
+  # Apply downsampling
+  if (downsampling > 1) {
+    data <- data[seq(1, nrow(data), by = downsampling), ]
+  }
+
+  # Color palette for different variables
+  colors <- RColorBrewer::brewer.pal(min(8, max(3, length(vars))), "Set1")
+
+  # Get variable name mapping from get_simulation_data.R
+  var_name_map <- get_simulation_variable_names()
+
+  # Create time series plot
+  p <- plot_ly(
+    width = plot_width,
+    height = min(plot_height, 600)
+  )
+
+  for (i in seq_along(vars)) {
+    var <- vars[i]
+    if (var %in% colnames(data)) {
+      # Get pretty name
+      var_name <- var_name_map[var]
+      if (is.na(var_name)) var_name <- var
+
+      # Coerce logical/factor to numeric so they can plot alongside continuous data
+      y_values <- data[[var]]
+      if (is.logical(y_values)) {
+        y_values <- as.integer(y_values) # TRUE->1, FALSE->0
+      } else if (is.factor(y_values)) {
+        y_values <- as.numeric(y_values)
+      }
+
+      p <- p %>% add_trace(
+        x = data$time, # Use trial time instead of simulation time
+        y = y_values,
+        type = "scatter",
+        mode = "lines",
+        name = var_name,
+        line = list(color = colors[i %% length(colors) + 1], width = 2),
+        hovertemplate = paste0(
+          "<b>", var_name, ":</b> %{y:.4f}<br>",
+          "<b>Trial Time:</b> %{x:.2f}s<br>",
+          "<extra></extra>"
+        )
+      )
+    }
+  }
+
+  p <- p %>% layout(
+    title = "Simulation Variables Over Time",
+    xaxis = list(title = "Trial Time (s)"),
+    yaxis = list(title = "Value"),
+    legend = list(orientation = "v", x = 1.02, y = 1)
+  )
+
+  plotting_logger("DEBUG", "plot_simulation_timeseries function completed successfully")
+  return(p)
+}

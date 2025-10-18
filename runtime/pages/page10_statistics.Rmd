@@ -429,7 +429,7 @@ output$fixed_effects_table <- renderTable(
     rownames(fixed_effects_df) <- NULL
 
     # Format numbers and make significant p-values bold
-    fixed_effects_df <- set_digits_with_bold_pvalues(fixed_effects_df, "AdjustedP")
+    fixed_effects_df <- stats$format_with_bold_pvalues(fixed_effects_df, "AdjustedP")
 
     fixed_effects_df
   },
@@ -454,7 +454,7 @@ output$random_effects_table <- renderTable(
     # Optionally rename columns for clarity
     colnames(random_effects_df) <- c("Effect", "Group", "Variance", "Standard Deviation")
 
-    random_effects_df <- set_digits(random_effects_df)
+    random_effects_df <- stats$format_numeric_columns(random_effects_df)
 
     random_effects_df
   },
@@ -517,7 +517,8 @@ output$post_hoc_table <- renderTable(
     }
 
     p_format_names <- c("p_value", "p.value", "corrected_p") # what column names to format based on value < 0.05
-    postprocess_posthoc_results(res, input$filter_posthoc, p_format_names)
+    # Note: postprocess_posthoc_results is called internally by run_posthoc_analysis
+    res
   },
   sanitize.text.function = function(x) x,
   escape = FALSE
@@ -590,13 +591,13 @@ observeEvent(input$show_did_analysis, {
   baseline_used <- did_results$baseline_used
 
   if (!is.null(within_cond_display)) {
-    within_cond_display <- set_digits_with_bold_pvalues(within_cond_display, "p_adjusted", digits = 4)
+    within_cond_display <- stats$format_with_bold_pvalues(within_cond_display, "p_adjusted", digits = 4)
   }
   if (!is.null(within_phase_display)) {
-    within_phase_display <- set_digits_with_bold_pvalues(within_phase_display, "p_adjusted", digits = 4)
+    within_phase_display <- stats$format_with_bold_pvalues(within_phase_display, "p_adjusted", digits = 4)
   }
   if (!is.null(did_display)) {
-    did_display <- set_digits_with_bold_pvalues(did_display, "p_adjusted", digits = 4)
+    did_display <- stats$format_with_bold_pvalues(did_display, "p_adjusted", digits = 4)
   }
 
   # Show modal with results

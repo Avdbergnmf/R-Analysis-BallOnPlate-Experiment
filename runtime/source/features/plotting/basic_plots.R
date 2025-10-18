@@ -105,3 +105,18 @@ plot_2d <- function(xData, yData, xtracker, ytracker, participant, trialNum, x_a
   plotting_logger("DEBUG", "plot_2d function completed successfully")
   return(p)
 }
+
+#' Helper function to create error plots
+#' @param message Error message to display
+#' @param baseSize Base font size for the plot
+#' @return ggplot object with error message
+create_error_plot <- function(message, baseSize = 10) {
+  plotting_logger("ERROR", "Creating error plot with message:", message)
+  ggplot() +
+    annotate("text", x = 0.5, y = 0.5, label = message, size = 4, hjust = 0.5) +
+    xlim(0, 1) +
+    ylim(0, 1) +
+    labs(title = "Error") +
+    theme_minimal(base_size = baseSize) +
+    theme(axis.text = element_blank(), axis.ticks = element_blank())
+}

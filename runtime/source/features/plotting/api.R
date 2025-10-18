@@ -16,7 +16,7 @@ plotting_logger <- create_module_logger("PLOTTING")
 #
 # Available functions:
 # - Basic plotting: create_error_plot, validate_data_and_columns, plot_2d
-# - Advanced plotting: plot_steps, make_histogram, plot_questionnaire_data, make_pie_chart, make_scatter_plot_steps, plot_correlation_stats
+# - Advanced plotting: plot_steps, make_histogram, plot_questionnaire_data, make_pie_chart, make_scatter_plot_steps, plot_correlation_stats, plot_simulation_timeseries
 # - Utilities: get_proper_legend, get_sized_theme
 #
 
