@@ -23,7 +23,7 @@ calculate_gait_parameters <- function(participant, trialNum) {
     dplyr::mutate(across(where(is.numeric), ~ c(0, diff(.x)))) %>%
     dplyr::ungroup()
 
-  diffData <- add_diff_per_foot(relHeelStrikesData)
+  diffData <- gait$add_step_differences(relHeelStrikesData)
 
   # time-based
   stepTimes <- relHeelStrikesData$time # Calculate step times  >>> NOTE: The first heelstrike is only used as a starting point to the second

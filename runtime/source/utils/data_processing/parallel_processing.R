@@ -69,6 +69,15 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     # Export all global objects to workers
     clusterExport(cl, objects_to_export, envir = .GlobalEnv)
     
+    # Export the cluster_logger function to workers
+    clusterExport(cl, "cluster_logger", envir = environment())
+    
+    # Ensure gait module is available in workers
+    if (exists("gait", envir = .GlobalEnv)) {
+        cluster_logger("DEBUG", "Exporting gait module to workers")
+        clusterExport(cl, "gait", envir = .GlobalEnv)
+    }
+    
     # Just load required packages on workers (much lighter than re-sourcing everything)
     clusterEvalQ(cl, {
         # Load only the essential packages
@@ -129,6 +138,7 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"),
                                         cl = NULL, log_to_file = TRUE, log_file = NULL, extra_global_vars = NULL, combinations_df = NULL, ...) {
     parallel_logger <- create_module_logger("PARALLEL")
+    cluster_logger <- create_module_logger("CLUSTER")  # Create cluster_logger for this function
     start_time <- Sys.time()
     
     # Get valid combinations using the helper function
@@ -212,6 +222,15 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     if (length(vars_to_export) > 0) {
         cluster_logger("DEBUG", sprintf("Exporting additional variables: %s", paste(vars_to_export, collapse = ", ")))
         clusterExport(cl, vars_to_export, envir = environment())
+    }
+    
+    # Export cluster_logger to workers
+    clusterExport(cl, "cluster_logger", envir = environment())
+    
+    # Ensure gait module is available in workers
+    if (exists("gait", envir = .GlobalEnv)) {
+        cluster_logger("DEBUG", "Exporting gait module to workers")
+        clusterExport(cl, "gait", envir = .GlobalEnv)
     }
 
     # Start parallel processing

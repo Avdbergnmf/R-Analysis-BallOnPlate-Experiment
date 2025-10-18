@@ -28,10 +28,12 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
   useHip <- !is_hip_stationary(hipData)
   checkAlternation <- TRUE
 
+  gait_detection_logger <- create_module_logger("GAIT-DETECTION")
+  
   if (useHip) {
     relFootPos <- footData$pos_z - hipData$pos_z
   } else {
-    print("Hip data appears stationary (moves less than the threshold). Using absolute foot position instead of relative position.")
+    gait_detection_logger("INFO", "Hip data appears stationary (moves less than the threshold). Using absolute foot position instead of relative position.")
     relFootPos <- footData$pos_z
   }
 
@@ -41,22 +43,14 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
   local_maxima <- extremes$maxima
   local_minima <- extremes$minima
 
-  cat(sprintf(
-    "DEBUG: Initial detection - %d maxima, %d minima\n",
-    length(local_maxima), length(local_minima)
-  ))
-  flush.console()
+  gait_detection_logger("DEBUG", "Initial detection -", length(local_maxima), "maxima,", length(local_minima), "minima")
 
   # Filter extremes based on time and position
   filtered <- filter_extremes(local_maxima, local_minima, footData$time, relFootPos_filtered)
   local_maxima <- filtered$maxima
   local_minima <- filtered$minima
 
-  cat(sprintf(
-    "DEBUG: After time/position filtering - %d maxima, %d minima\n",
-    length(local_maxima), length(local_minima)
-  ))
-  flush.console()
+  gait_detection_logger("DEBUG", "After time/position filtering -", length(local_maxima), "maxima,", length(local_minima), "minima")
 
   # Filter by other foot position, with hip as fallback
   position_filtered <- NULL
@@ -75,11 +69,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
     local_maxima <- position_filtered$maxima
     local_minima <- position_filtered$minima
 
-    cat(sprintf(
-      "DEBUG: After other foot filtering - %d maxima, %d minima\n",
-      length(local_maxima), length(local_minima)
-    ))
-    flush.console()
+    gait_detection_logger("DEBUG", "After other foot filtering -", length(local_maxima), "maxima,", length(local_minima), "minima")
   }
 
   # Always check hip position for suspect marking (if hip data available)
@@ -129,26 +119,22 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
       suspect_unstable_idx <- suspect_unstable_idx[suspect_unstable_idx <= trimLength]
     }
 
-    cat(sprintf(
-      "DEBUG: After length matching - %d maxima, %d minima\n",
-      length(local_maxima), length(local_minima)
-    ))
-    flush.console()
+    gait_detection_logger("DEBUG", "After length matching -", length(local_maxima), "maxima,", length(local_minima), "minima")
   }
 
   # Logging
   if (filtered$N_removed_time > 0) {
-    print(paste("removed", filtered$N_removed_time, "max+min due to time constraint."))
+    gait_detection_logger("INFO", "Removed", filtered$N_removed_time, "max+min due to time constraint.")
   }
   if (filtered$N_removed_pos > 0) {
-    print(paste("removed", filtered$N_removed_pos, "max+min due to pos difference constraint."))
+    gait_detection_logger("INFO", "Removed", filtered$N_removed_pos, "max+min due to pos difference constraint.")
   }
   if (alternation$N_removed_max + alternation$N_removed_min > 0) {
-    print(paste("removed", alternation$N_removed_max, "maxima, and", alternation$N_removed_min, "minima due to wrong alternation."))
+    gait_detection_logger("INFO", "Removed", alternation$N_removed_max, "maxima, and", alternation$N_removed_min, "minima due to wrong alternation.")
   }
 
   if (length(local_maxima) != length(local_minima)) {
-    print(paste("WARNING: Length maxima:", length(local_maxima), "Length minima:", length(local_minima)))
+    gait_detection_logger("WARN", "Length maxima:", length(local_maxima), "Length minima:", length(local_minima))
   }
 
   # Create output dataframes
@@ -189,7 +175,7 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
     }
   }
 
-  print(paste("--- ---totalsteps: ", length(output$heelStrikes$time)))
+  gait_detection_logger("INFO", "Total steps detected:", length(output$heelStrikes$time))
 
   return(output)
 }

@@ -36,6 +36,10 @@ create_output_dataframes <- function(footData, local_maxima, local_minima) {
 #' @param relHeelStrikesData Relative heel strikes data
 #' @return Dataframe with step width and length differences
 add_diff_per_foot <- function(relHeelStrikesData) {
+  gait_util_logger <- create_module_logger("GAIT-UTIL")
+  gait_util_logger("DEBUG", "add_diff_per_foot called")
+  gait_util_logger("DEBUG", "Input data dimensions:", nrow(relHeelStrikesData), "x", ncol(relHeelStrikesData))
+  
   # Group by foot, calculate diffs, and create a new dataframe with just the diffs
   diffData <- relHeelStrikesData %>%
     arrange(time) %>% # Ensure data is ordered by time within each foot
@@ -47,6 +51,7 @@ add_diff_per_foot <- function(relHeelStrikesData) {
     ungroup() %>% # Remove grouping
     select(time, foot, stepWidth, stepLength) # Select only relevant columns for the new dataframe
 
+  gait_util_logger("DEBUG", "add_diff_per_foot completed, result dimensions:", nrow(diffData), "x", ncol(diffData))
   return(diffData)
 }
 

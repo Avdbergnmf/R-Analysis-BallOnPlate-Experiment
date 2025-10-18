@@ -54,12 +54,12 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
-udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
+udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info, stop_cluster = TRUE)
 
 # Load or calculate the data using the global parallel setting
 cat("=== LOADING MAIN DATA OBJECTS ===\n")
 allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params, parallel = FALSE)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
@@ -186,10 +186,6 @@ Manual Outlier Filtering
 ```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
 ```
 
-Simulation Data {data-icon="fa-gamepad"}
-=====================================
-```{r, child='pages/page17_simulationData.Rmd'}
-```
 
 ```{js}
 // Last visited page persistence for flexdashboard

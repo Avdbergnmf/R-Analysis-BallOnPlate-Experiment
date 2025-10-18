@@ -71,7 +71,8 @@ filter_by_hip_position <- function(local_maxima, local_minima, relFootPos) {
 
   # Add logging
   if (count_wrong_side_of_hip > 0) {
-    print(paste("found", count_wrong_side_of_hip, "max+min on wrong side of hip (marked as suspect)."))
+    gait_filtering_logger <- create_module_logger("GAIT-FILTERING")
+    gait_filtering_logger("INFO", "Found", count_wrong_side_of_hip, "max+min on wrong side of hip (marked as suspect).")
   }
 
   return(list(
@@ -105,7 +106,8 @@ filter_by_other_foot_position <- function(local_maxima, local_minima, relFootPos
 
   # Add logging
   if (count_wrong_side_of_foot > 0) {
-    print(paste("removed", count_wrong_side_of_foot, "max+min due to insufficient foot separation."))
+    gait_filtering_logger <- create_module_logger("GAIT-FILTERING")
+    gait_filtering_logger("INFO", "Removed", count_wrong_side_of_foot, "max+min due to insufficient foot separation.")
   }
 
   return(list(

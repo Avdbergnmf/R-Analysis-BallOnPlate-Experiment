@@ -11,7 +11,8 @@ check_alternation <- function(local_maxima, local_minima) {
   N_removed_max <- 0
 
   if (length(local_minima) == 0 || length(local_maxima) == 0) {
-    warning("No local minima or maxima found for alternation checking. Skipping alternation step.")
+    gait_processing_logger <- create_module_logger("GAIT-PROCESSING")
+    gait_processing_logger("WARN", "No local minima or maxima found for alternation checking. Skipping alternation step.")
     return(list(
       maxima = local_maxima, minima = local_minima,
       N_removed_min = 0, N_removed_max = 0
@@ -19,11 +20,8 @@ check_alternation <- function(local_maxima, local_minima) {
   }
 
   # Debug logging
-  cat(sprintf(
-    "DEBUG: Alternation check - Input: %d maxima, %d minima\n",
-    length(local_maxima), length(local_minima)
-  ))
-  flush.console()
+  gait_processing_logger <- create_module_logger("GAIT-PROCESSING")
+  gait_processing_logger("DEBUG", "Alternation check - Input:", length(local_maxima), "maxima,", length(local_minima), "minima")
 
   original_maxima_count <- length(local_maxima)
   original_minima_count <- length(local_minima)
@@ -65,19 +63,13 @@ check_alternation <- function(local_maxima, local_minima) {
 
   # Debug logging for removals
   if (N_removed_min > 0) {
-    cat(sprintf("DEBUG: Removed %d maxima\n", N_removed_min))
-    flush.console()
+  gait_processing_logger("DEBUG", "Removed", N_removed_min, "maxima")
   }
   if (N_removed_max > 0) {
-    cat(sprintf("DEBUG: Removed %d minima\n", N_removed_max))
-    flush.console()
+    gait_processing_logger("DEBUG", "Removed", N_removed_max, "minima")
   }
 
-  cat(sprintf(
-    "DEBUG: Alternation check - Output: %d maxima, %d minima (removed %d max, %d min)\n",
-    length(new_maxima), length(new_minima), N_removed_min, N_removed_max
-  ))
-  flush.console()
+  gait_processing_logger("DEBUG", "Alternation check - Output:", length(new_maxima), "maxima,", length(new_minima), "minima (removed", N_removed_min, "max,", N_removed_max, "min)")
 
   return(list(
     maxima = new_maxima, minima = new_minima,
@@ -171,7 +163,8 @@ refine_heelstrike <- function(footData, local_maxima, local_minima,
     # Mark these as suspect since we couldn't refine them
     remaining_indices <- (length(refined_local_maxima) - length(remaining_heelstrikes) + 1):length(refined_local_maxima)
     unstable_indices <- c(unstable_indices, remaining_indices)
-    message("Marked ", length(remaining_heelstrikes), " heel-strikes as suspect (no corresponding toe-off for refinement)")
+    gait_processing_logger <- create_module_logger("GAIT-PROCESSING")
+    gait_processing_logger("INFO", "Marked", length(remaining_heelstrikes), "heel-strikes as suspect (no corresponding toe-off for refinement)")
   }
 
   return(list(maxima = refined_local_maxima, suspect_unstable = unstable_indices))

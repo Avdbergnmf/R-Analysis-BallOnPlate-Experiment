@@ -122,7 +122,21 @@ create_gait_output_dataframes <- function(footData, local_maxima, local_minima) 
 #' @param relHeelStrikesData Relative heel strikes data
 #' @return Dataframe with step width and length differences
 add_step_differences <- function(relHeelStrikesData) {
-  add_diff_per_foot(relHeelStrikesData)
+  gait_logger <- create_module_logger("GAIT-API")
+  gait_logger("DEBUG", "add_step_differences called")
+  gait_logger("DEBUG", "Input data dimensions:", nrow(relHeelStrikesData), "x", ncol(relHeelStrikesData))
+  
+  # Check if add_diff_per_foot function exists
+  if (exists("add_diff_per_foot")) {
+    gait_logger("DEBUG", "add_diff_per_foot function found, calling it")
+    result <- add_diff_per_foot(relHeelStrikesData)
+    gait_logger("DEBUG", "add_diff_per_foot completed, result dimensions:", nrow(result), "x", ncol(result))
+    return(result)
+  } else {
+    gait_logger("ERROR", "add_diff_per_foot function not found!")
+    gait_logger("DEBUG", "Available functions in current environment:", paste(ls(), collapse = ", "))
+    stop("add_diff_per_foot function not found in gait module")
+  }
 }
 
 #' Safe approximation function that prevents errors in parallel workers
