@@ -72,12 +72,6 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     # Export the cluster_logger function to workers
     clusterExport(cl, "cluster_logger", envir = environment())
     
-    # Ensure gait module is available in workers
-    if (exists("gait", envir = .GlobalEnv)) {
-        cluster_logger("DEBUG", "Exporting gait module to workers")
-        clusterExport(cl, "gait", envir = .GlobalEnv)
-    }
-    
     # Just load required packages on workers (much lighter than re-sourcing everything)
     clusterEvalQ(cl, {
         # Load only the essential packages
@@ -226,12 +220,6 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     
     # Export cluster_logger to workers
     clusterExport(cl, "cluster_logger", envir = environment())
-    
-    # Ensure gait module is available in workers
-    if (exists("gait", envir = .GlobalEnv)) {
-        cluster_logger("DEBUG", "Exporting gait module to workers")
-        clusterExport(cl, "gait", envir = .GlobalEnv)
-    }
 
     # Start parallel processing
     parallel_logger("INFO", "Starting parallel execution...")

@@ -102,3 +102,14 @@ get_all_questionnaire_results <- function(loop_function = NULL) {
     condition_number_func = condition_number
   )
 }
+
+#' Calculate complexity metrics for all participants and trials
+#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
+#' @param include_continuous Logical, whether to include continuous simulation data complexity
+#' @param continuous_vars Vector of continuous variable names to analyze (e.g., "p", "hipPos", "pelvisPos")
+#' @return Data frame with complexity metrics for all valid combinations
+get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
+                                       continuous_vars = c("p", "hipPos", "pelvisPos")) {
+  # Use the complexity feature module
+  return(complexity$get_all_complexity_metrics(loop_function, include_continuous, continuous_vars))
+}
