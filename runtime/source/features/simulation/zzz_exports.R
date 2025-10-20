@@ -14,9 +14,6 @@ simulation <- local({
 
   for (name in export_names) {
     obj <- base::get(name, envir = feature_env, inherits = FALSE)
-    if (is.function(obj)) {
-      environment(obj) <- feature_env
-    }
     exports[[name]] <- obj
   }
 
