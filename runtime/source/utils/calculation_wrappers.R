@@ -116,6 +116,12 @@ get_all_task_metrics <- function(loop_function) {
   simulation_api(loop_function)
 }
 attr(get_all_task_metrics, "log_label") <- "task_metrics"
+attr(get_all_task_metrics, "preload") <- function() {
+  ensure_global_data_initialized()
+  simulation$ensure_global_hazard_samples_available()
+  invisible(NULL)
+}
+attr(get_all_task_metrics, "extra_globals") <- c("GLOBAL_HAZARD_SAMPLES_PREDS")
 
 #' Calculate complexity metrics for all participants and trials
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)

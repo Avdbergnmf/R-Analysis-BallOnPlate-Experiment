@@ -59,6 +59,17 @@ load_or_calculate <- function(filePath,
     logger("DEBUG", "filePath:", filePath)
     logger("DEBUG", "calculate_function type:", typeof(calculate_function))
     logger("DEBUG", "calculate_function class:", class(calculate_function))
+    
+    # Merge any extra globals declared on the calculate function
+    extra_globals_attr <- attr(calculate_function, "extra_globals")
+    if (!is.null(extra_globals_attr)) {
+        logger("DEBUG", "Merging extra global variables:", paste(extra_globals_attr, collapse = ", "))
+        if (is.null(extra_global_vars)) {
+            extra_global_vars <- extra_globals_attr
+        } else {
+            extra_global_vars <- unique(c(extra_global_vars, extra_globals_attr))
+        }
+    }
     logger("DEBUG", "parallel:", parallel)
     logger("DEBUG", "force_recalc:", force_recalc)
     logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
@@ -110,6 +121,16 @@ load_or_calculate <- function(filePath,
         logger("DEBUG", "About to call calculate_data")
         logger("DEBUG", "calculate_function type:", typeof(calculate_function))
         logger("DEBUG", "calculate_function class:", class(calculate_function))
+        
+        # Run preload hook if provided
+        preload_fn <- attr(calculate_function, "preload")
+        if (is.function(preload_fn)) {
+            logger("DEBUG", "Running preload hook for calculate_function")
+            tryCatch(
+                preload_fn(),
+                error = function(e) logger("WARN", "Preload hook failed:", e$message)
+            )
+        }
         
         tryCatch({
             data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
