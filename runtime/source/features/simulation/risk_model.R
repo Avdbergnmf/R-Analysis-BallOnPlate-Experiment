@@ -404,46 +404,88 @@ apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standar
     ref_condition <- if (!is.null(standardized_condition)) standardized_condition else hazard_samples$condition
     ref_phase <- if (!is.null(standardized_phase)) standardized_phase else hazard_samples$phase
     
-    factor_logger("DEBUG", "Using reference condition:", ref_condition, "phase:", ref_phase)
+    unique_conditions <- unique(ref_condition)
+    unique_phases <- unique(ref_phase)
+    summarize_values <- function(values) {
+        values <- unique(as.character(values))
+        if (length(values) == 0) {
+            return("<none>")
+        }
+        display <- values[seq_len(min(length(values), 5))]
+        collapsed <- paste(display, collapse = ", ")
+        if (length(values) > 5) {
+            collapsed <- paste0(collapsed, ", ...")
+        }
+        collapsed
+    }
+    factor_logger(
+        "DEBUG",
+        sprintf(
+            "Using reference condition(s): %s | phase(s): %s",
+            summarize_values(unique_conditions),
+            summarize_values(unique_phases)
+        )
+    )
 
     if ("condition" %in% names(model$model)) {
         model_cond_levels <- levels(model$model$condition)
         factor_logger("DEBUG", "Model condition levels:", paste(model_cond_levels, collapse = ", "))
-        if (ref_condition %in% model_cond_levels) {
-            hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
-            factor_logger("DEBUG", "Applied condition factor:", ref_condition)
-        } else {
-            hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
-            factor_logger("WARN", "Reference condition", ref_condition, "not in model levels, using default:", model_cond_levels[1])
-        }
-    }
+          if (any(ref_condition %in% model_cond_levels)) {
+              hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
+              factor_logger("DEBUG", "Applied condition factor:", summarize_values(hazard_samples$condition))
+          } else {
+              hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
+              factor_logger(
+                  "WARN",
+                  sprintf(
+                      "Reference condition(s) %s not in model levels, using default: %s",
+                      summarize_values(ref_condition),
+                      model_cond_levels[1]
+                  )
+              )
+          }
+      }
 
-    if ("phase" %in% names(model$model)) {
-        model_phase_levels <- levels(model$model$phase)
-        factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
-        if (ref_phase %in% model_phase_levels) {
-            hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
-            factor_logger("DEBUG", "Applied phase factor:", ref_phase)
-        } else {
-            hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
-            factor_logger("WARN", "Reference phase", ref_phase, "not in model levels, using default:", model_phase_levels[1])
-        }
-    }
+      if ("phase" %in% names(model$model)) {
+          model_phase_levels <- levels(model$model$phase)
+          factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
+          if (any(ref_phase %in% model_phase_levels)) {
+              hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
+              factor_logger("DEBUG", "Applied phase factor:", summarize_values(hazard_samples$phase))
+          } else {
+              hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
+              factor_logger(
+                  "WARN",
+                  sprintf(
+                      "Reference phase(s) %s not in model levels, using default: %s",
+                      summarize_values(ref_phase),
+                      model_phase_levels[1]
+                  )
+              )
+          }
+      }
 
-    # Handle cond_phase interaction
-    if ("cond_phase" %in% names(model$model)) {
-        expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
-        model_cond_phase_levels <- levels(model$model$cond_phase)
-        factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
-        factor_logger("DEBUG", "Expected cond_phase:", expected_cond_phase)
-        if (expected_cond_phase %in% model_cond_phase_levels) {
-            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
-            factor_logger("DEBUG", "Applied cond_phase factor:", expected_cond_phase)
-        } else {
-            hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
-            factor_logger("WARN", "Expected cond_phase", expected_cond_phase, "not in model levels, using default:", model_cond_phase_levels[1])
-        }
-    }
+      # Handle cond_phase interaction
+      if ("cond_phase" %in% names(model$model)) {
+          expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
+          model_cond_phase_levels <- levels(model$model$cond_phase)
+          factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
+          factor_logger("DEBUG", "Expected cond_phase:", summarize_values(expected_cond_phase))
+          if (any(expected_cond_phase %in% model_cond_phase_levels)) {
+              hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+              factor_logger("DEBUG", "Applied cond_phase factor:", summarize_values(hazard_samples$cond_phase))
+          } else {
+              hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
+              factor_logger(
+                  "WARN",
+                  sprintf(
+                      "Expected cond_phase %s not in model levels, using default: %s",
+                      summarize_values(expected_cond_phase),
+                      model_cond_phase_levels[1]
+                  )
+              )
+          }
+      }
 
     factor_logger("DEBUG", "Factor application completed successfully")
     return(hazard_samples)

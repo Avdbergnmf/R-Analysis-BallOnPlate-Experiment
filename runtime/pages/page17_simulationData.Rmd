@@ -21,7 +21,7 @@ numericInput("sim_downsampling", "Downsample factor",
 
 # Risk predictions toggle
 checkboxInput("enable_risk_predictions", "Enable Risk Predictions",
-  value = FALSE, width = "100%"
+  value = TRUE, width = "100%"
 )
 
 # Direct model prediction toggle (for dashboard testing)
@@ -31,12 +31,12 @@ checkboxInput("allow_direct_model", "Allow Direct Model Prediction",
 
 # Tau parameter for risk predictions
 numericInput("risk_tau", "Risk Prediction Time Horizon (seconds)",
-  value = 0.0, min = 0, max = 5, step = 0.1, width = "100%"
+  value = 0.15, min = 0, max = 5, step = 0.1, width = "100%"
 )
 
 # Sampling frequency for model training
 numericInput("sampling_freq", "Sampling Frequency for Training (Hz)",
-  value = 20, min = 1, max = 200, step = 1, width = "100%"
+  value = 90, min = 1, max = 200, step = 1, width = "100%"
 )
 
 # Standardized training toggle
@@ -177,7 +177,7 @@ observe({
     prev <- isolate(input$sim_vars)
     keep <- intersect(prev, available_vars)
     if (length(keep) == 0) {
-      keep <- intersect(c("q", "x", "dist_to_escape"), available_vars)
+      keep <- intersect(c("q", "x", "dist_to_escape", "drop_risk_1s"), available_vars)
       if (length(keep) == 0) keep <- available_vars[1]
     }
     updateSelectizeInput(session, "sim_vars",
@@ -383,7 +383,8 @@ observeEvent(input$train_risk_model, {
         trials = valid_combinations$trial,
         tau = input$risk_tau,
         sampling_freq = input$sampling_freq,
-        standardized = input$enable_standardized_training
+        standardized_condition = if (isTRUE(input$enable_standardized_training) && !is.null(input$standardized_condition)) input$standardized_condition else NULL,
+        standardized_phase = if (isTRUE(input$enable_standardized_training) && !is.null(input$standardized_phase)) input$standardized_phase else NULL
       )
 
       if (!is.null(model)) {
