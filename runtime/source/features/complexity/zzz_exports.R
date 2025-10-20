@@ -78,5 +78,11 @@ complexity <- local({
     }
   }
 
+  # Materialize exports back into the feature environment so the loader
+  # publishes the intended API surface (and nothing else).
+  for (name in names(exports)) {
+    base::assign(name, exports[[name]], envir = feature_env)
+  }
+
   exports
 })

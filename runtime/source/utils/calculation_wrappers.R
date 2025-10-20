@@ -111,5 +111,9 @@ get_all_questionnaire_results <- function(loop_function = NULL) {
 get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
   # Use the complexity feature module
-  return(complexity$get_all_complexity_metrics(loop_function, include_continuous, continuous_vars))
+  complexity_api <- complexity$get_all_complexity_metrics
+  if (!is.function(complexity_api)) {
+    stop("Complexity module did not provide get_all_complexity_metrics(). Ensure the feature loaded correctly.")
+  }
+  complexity_api(loop_function, include_continuous, continuous_vars)
 }

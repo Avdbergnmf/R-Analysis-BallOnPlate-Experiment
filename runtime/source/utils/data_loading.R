@@ -753,8 +753,27 @@ add_category_columns <- function(data) {
 
   # Join the pre-calculated data back to the original data
   data <- data %>%
-    dplyr::left_join(combination_data, by = c("participant", "trialNum")) %>%
-    # Convert categorical variables to factors
+    dplyr::left_join(
+      combination_data,
+      by = c("participant", "trialNum"),
+      suffix = c("", "_lookup")
+    )
+
+  lookup_cols <- grep("_lookup$", names(data), value = TRUE)
+  if (length(lookup_cols) > 0) {
+    for (lookup_name in lookup_cols) {
+      base_name <- sub("_lookup$", "", lookup_name)
+      if (!base_name %in% names(data)) {
+        data[[base_name]] <- data[[lookup_name]]
+      } else {
+        data[[base_name]] <- dplyr::coalesce(data[[base_name]], data[[lookup_name]])
+      }
+      data[[lookup_name]] <- NULL
+    }
+  }
+
+  # Convert categorical variables to factors
+  data <- data %>%
     dplyr::mutate(
       perturbations   = as.factor(perturbations),
       visualizations  = as.factor(visualizations),
