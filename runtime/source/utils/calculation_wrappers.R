@@ -4,6 +4,152 @@
 # These functions provide wrapper interfaces for the load_or_calculate() system
 # They bridge between the global data loading system and self-contained feature modules
 
+preload_gait_tracking_data <- function(combinations_df = NULL, force_cache_refresh = FALSE) {
+  preload_logger <- create_module_logger("GAIT-PRELOAD")
+  ensure_global_data_initialized()
+
+  datasets_to_verify <- c("leftfoot", "rightfoot", "hip")
+  valid_combinations <- get_valid_combinations_for_processing(
+    combinations_df,
+    datasets_to_verify,
+    preload_logger
+  )
+
+  if (nrow(valid_combinations) == 0) {
+    preload_logger("INFO", "No combinations found for gait preload")
+    return(invisible(NULL))
+  }
+
+  trackers_to_load <- c("leftfoot", "rightfoot", "hip", "udp")
+  preload_logger(
+    "INFO",
+    sprintf(
+      "Preloading gait trackers (%s) for %d combinations (force_refresh=%s)",
+      paste(trackers_to_load, collapse = ", "),
+      nrow(valid_combinations),
+      force_cache_refresh
+    )
+  )
+
+  for (tracker in trackers_to_load) {
+    successes <- 0
+    preload_logger("DEBUG", sprintf("Preloading tracker '%s'", tracker))
+    for (i in seq_len(nrow(valid_combinations))) {
+      participant <- as.character(valid_combinations$participant[i])
+      trial <- valid_combinations$trial[i]
+
+      if (!check_file_exists(participant, tracker, trial)) {
+        next
+      }
+
+      apply_trimming <- tracker != "udp"
+      tryCatch(
+        {
+          data <- get_t_data(
+            participant,
+            tracker,
+            trial,
+            apply_udp_trimming = apply_trimming,
+            use_cache = TRUE,
+            cache_to_disk = TRUE,
+            force_refresh = force_cache_refresh
+          )
+          if (!is.null(data) && nrow(data) > 0) {
+            successes <- successes + 1
+          }
+        },
+        error = function(e) {
+          preload_logger(
+            "WARN",
+            sprintf(
+              "Failed to preload %s for P%s T%03d: %s",
+              tracker, participant, sanitize_trial_num(trial), e$message
+            )
+          )
+        }
+      )
+    }
+    preload_logger(
+      "DEBUG",
+      sprintf(
+        "Tracker '%s' preload completed: %d/%d successful loads",
+        tracker, successes, nrow(valid_combinations)
+      )
+    )
+  }
+
+  preload_logger("INFO", "Gait tracker preload complete")
+  invisible(NULL)
+}
+
+preload_udp_trim_data <- function(combinations_df = NULL, force_cache_refresh = FALSE) {
+  preload_logger <- create_module_logger("UDP-PRELOAD")
+  ensure_global_data_initialized()
+
+  datasets_to_verify <- c("udp")
+  valid_combinations <- get_valid_combinations_for_processing(
+    combinations_df,
+    datasets_to_verify,
+    preload_logger
+  )
+
+  if (nrow(valid_combinations) == 0) {
+    preload_logger("INFO", "No combinations found for UDP preload")
+    return(invisible(NULL))
+  }
+
+  preload_logger(
+    "INFO",
+    sprintf(
+      "Preloading UDP data for %d combinations (force_refresh=%s)",
+      nrow(valid_combinations),
+      force_cache_refresh
+    )
+  )
+
+  successes <- 0
+  for (i in seq_len(nrow(valid_combinations))) {
+    participant <- as.character(valid_combinations$participant[i])
+    trial <- valid_combinations$trial[i]
+
+    if (!check_file_exists(participant, "udp", trial)) {
+      next
+    }
+
+    tryCatch(
+      {
+        data <- get_t_data(
+          participant,
+          "udp",
+          trial,
+          apply_udp_trimming = FALSE,
+          use_cache = TRUE,
+          cache_to_disk = TRUE,
+          force_refresh = force_cache_refresh
+        )
+        if (!is.null(data) && nrow(data) > 0) {
+          successes <- successes + 1
+        }
+      },
+      error = function(e) {
+        preload_logger(
+          "WARN",
+          sprintf(
+            "Failed to preload UDP for P%s T%03d: %s",
+            participant, sanitize_trial_num(trial), e$message
+          )
+        )
+      }
+    )
+  }
+
+  preload_logger(
+    "INFO",
+    sprintf("UDP preload complete: %d/%d successful loads", successes, nrow(valid_combinations))
+  )
+  invisible(NULL)
+}
+
 #' Calculate gait parameters for a single participant/trial combination
 #' @param participant Participant ID
 #' @param trial Trial number
@@ -84,6 +230,29 @@ calc_all_gait_params <- function(loop_function) {
   return(loop_function(calculate_gait_parameters))
 }
 attr(calc_all_gait_params, "log_label") <- "gait_parameters"
+attr(calc_all_gait_params, "preload") <- function() {
+  combinations_df <- NULL
+  force_cache_refresh <- FALSE
+
+  if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+    ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+    if (!is.null(ctx$combinations_df)) {
+      combinations_df <- ctx$combinations_df
+    }
+    if (!is.null(ctx$args)) {
+      args <- ctx$args
+      if (!is.null(args$force_cache_refresh)) {
+        force_cache_refresh <- isTRUE(args$force_cache_refresh)
+      }
+    }
+  }
+
+  preload_gait_tracking_data(
+    combinations_df = combinations_df,
+    force_cache_refresh = force_cache_refresh
+  )
+  invisible(NULL)
+}
 
 #' Get all questionnaire results using the questionnaire feature module
 #' @param loop_function Function to use for processing (not used for questionnaires)
@@ -198,3 +367,26 @@ load_or_create_udp_time_trim_info <- function(loop_function) {
   loop_function(build_row, datasets_to_verify = c("udp"))
 }
 attr(load_or_create_udp_time_trim_info, "log_label") <- "udp_trim_info"
+attr(load_or_create_udp_time_trim_info, "preload") <- function() {
+  combinations_df <- NULL
+  force_cache_refresh <- FALSE
+
+  if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+    ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+    if (!is.null(ctx$combinations_df)) {
+      combinations_df <- ctx$combinations_df
+    }
+    if (!is.null(ctx$args)) {
+      args <- ctx$args
+      if (!is.null(args$force_cache_refresh)) {
+        force_cache_refresh <- isTRUE(args$force_cache_refresh)
+      }
+    }
+  }
+
+  preload_udp_trim_data(
+    combinations_df = combinations_df,
+    force_cache_refresh = force_cache_refresh
+  )
+  invisible(NULL)
+}

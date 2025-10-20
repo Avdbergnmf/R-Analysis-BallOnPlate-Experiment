@@ -3,6 +3,7 @@ sanitize_trial_num <- function(trialNum) {
 }
 
 tracker_cache_logger <- create_module_logger("TRACKER-CACHE")
+dataset_cache_logger <- create_module_logger("DATASET-CACHE")
 
 get_tracker_cache_key <- function(participant, trialNum, trackerType, apply_udp_trimming = TRUE) {
   sprintf("%s|%03d|%s|trim:%s", participant, sanitize_trial_num(trialNum), trackerType, ifelse(apply_udp_trimming, "1", "0"))
@@ -302,8 +303,51 @@ fetch_simulation_data <- function(participant, trial, use_cache = TRUE,
       data <- load_function()
     }
   
-    data
+  data
+}
+
+get_dataset_cache_key <- function(file_path) {
+  base <- tools::file_path_sans_ext(basename(file_path))
+  gsub("[^A-Za-z0-9]+", "_", base)
+}
+
+get_dataset_cache_dir <- function(subdir = "datasets") {
+  dir <- file.path("cache", subdir)
+  if (!dir.exists(dir)) {
+    dir.create(dir, recursive = TRUE)
   }
+  dir
+}
+
+load_cached_dataset <- function(file_path, force_refresh = FALSE, subdir = "datasets") {
+  cache_key <- get_dataset_cache_key(file_path)
+  cache_dir <- get_dataset_cache_dir(subdir)
+
+  dataset_cache_logger("INFO", sprintf(
+    "Loading dataset cache key=%s (force_refresh=%s)",
+    cache_key, force_refresh
+  ))
+
+  load_with_cache(
+    cache_key = cache_key,
+    load_function = function() {
+      dataset_cache_logger("INFO", sprintf("Reading RDS source: %s", file_path))
+      readRDS(file_path)
+    },
+    cache_dir = cache_dir,
+    force_rewrite = force_refresh
+  )
+}
+
+save_cached_dataset <- function(file_path, data, subdir = "datasets") {
+  cache_key <- get_dataset_cache_key(file_path)
+  cache_dir <- get_dataset_cache_dir(subdir)
+  cache_file <- file.path(cache_dir, paste0(cache_key, ".qs"))
+
+  dataset_cache_logger("INFO", sprintf("Updating dataset cache %s", cache_file))
+  compression_level <- if (exists("CACHE_COMPRESSION_LEVEL")) CACHE_COMPRESSION_LEVEL else 6
+  qs::qsave(data, cache_file, preset = "high", compress_level = compression_level)
+}
 
 # Helper function to check if a file exists for a given participant, tracker type, and trial
 check_file_exists <- function(participant, trackerType, trialNum) {

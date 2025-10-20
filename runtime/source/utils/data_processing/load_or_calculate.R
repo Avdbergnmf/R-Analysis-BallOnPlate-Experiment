@@ -57,6 +57,7 @@ load_or_calculate <- function(filePath,
     # Create logger for this function
     logger <- create_module_logger("LOAD-OR-CALC")
     additional_args <- list(...)
+    force_dataset_cache_refresh <- isTRUE(additional_args$force_cache_refresh)
     
     logger("DEBUG", "=== load_or_calculate called ===")
     logger("DEBUG", "filePath:", filePath)
@@ -76,8 +77,8 @@ load_or_calculate <- function(filePath,
     logger("DEBUG", "parallel:", parallel)
     logger("DEBUG", "force_recalc:", force_recalc)
     logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
-    if (!is.null(additional_args$force_cache_refresh)) {
-        logger("INFO", sprintf("force_cache_refresh flag set to %s", additional_args$force_cache_refresh))
+    if (force_dataset_cache_refresh) {
+        logger("INFO", "force_cache_refresh flag set to TRUE")
     }
     
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
@@ -165,10 +166,26 @@ load_or_calculate <- function(filePath,
         logger("INFO", "Saving data to cache file:", filePath)
         saveRDS(data, filePath)
         logger("INFO", "Cache file saved successfully")
+
+        # Update dataset cache snapshot
+        tryCatch(
+            {
+                save_cached_dataset(filePath, data)
+            },
+            error = function(e) {
+                logger("WARN", sprintf("Failed to update dataset cache for %s: %s", filePath, e$message))
+            }
+        )
     } else {
         # Use existing cache
         logger("INFO", "Loading existing cache file:", filePath)
-        data <- readRDS(filePath)
+        data <- tryCatch(
+            load_cached_dataset(filePath, force_refresh = force_dataset_cache_refresh),
+            error = function(e) {
+                logger("WARN", sprintf("Dataset cache load failed (%s), falling back to readRDS", e$message))
+                readRDS(filePath)
+            }
+        )
         logger("DEBUG", "Loaded", nrow(data), "rows from cache file")
         
         # Check for missing combinations if needed
