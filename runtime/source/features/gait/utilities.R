@@ -68,3 +68,27 @@ safe_approx <- function(x, y, xout, rule = 1) {
   }
   return(approx(x[valid], y[valid], xout = xout, rule = rule)$y)
 }
+
+#' Sample a numeric time series using nearest-neighbour lookups
+#' @param times Numeric vector of timestamps for the source signal
+#' @param values Numeric vector of samples corresponding to `times`
+#' @param query_times Numeric vector of timestamps to sample
+#' @return Numeric vector with the same length as `query_times`
+sample_time_series_nearest <- function(times, values, query_times) {
+  if (length(times) == 0 || length(values) == 0 || length(query_times) == 0) {
+    return(rep(NA_real_, length(query_times)))
+  }
+
+  vapply(query_times, function(target_time) {
+    if (!is.finite(target_time)) {
+      return(NA_real_)
+    }
+
+    idx <- which.min(abs(times - target_time))
+    if (length(idx) == 0 || !is.finite(idx)) {
+      return(NA_real_)
+    }
+
+    values[idx]
+  }, numeric(1))
+}

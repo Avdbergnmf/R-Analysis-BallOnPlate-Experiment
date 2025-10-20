@@ -150,6 +150,55 @@ safe_approximation <- function(x, y, xout, rule = 1) {
 }
 
 # =============================================================================
+# OUTLIER PROCESSING
+# =============================================================================
+
+#' Match recorded outliers to heel strikes
+find_heel_strikes <- function(outliers, data_source, search_tolerance = 0.03, grouping_tolerance = 0.001) {
+  find_closest_heel_strikes(outliers, data_source, search_tolerance, grouping_tolerance)
+}
+
+#' Find the heel strike nearest a clicked timestamp
+find_closest_strike <- function(clicked_time, participant, trial, trial_data, threshold = 0.03) {
+  find_closest_heel_strike(clicked_time, participant, trial, trial_data, threshold)
+}
+
+#' Check whether a heel strike is labelled as an outlier
+is_outlier_strike <- function(participant, trialNum, time, search_tolerance = 0.03, grouping_tolerance = 0.001) {
+  check_outlier_heel_strike(participant, trialNum, time, search_tolerance, grouping_tolerance)
+}
+
+#' Mark step-level outliers in heel strike data
+mark_steps_as_outliers <- function(heel_strikes_data, participant, trialNum, search_tolerance = 0.03, grouping_tolerance = 0.001) {
+  mark_outlier_steps(heel_strikes_data, participant, trialNum, search_tolerance, grouping_tolerance)
+}
+
+#' Apply stored outlier decisions to a heel-strike dataset
+apply_outlier_processing <- function(data,
+                                     heel_outliers = NULL,
+                                     step_outliers = NULL,
+                                     tolerance = 0.03,
+                                     step_tolerance = 0.03,
+                                     grouping_tolerance = 0.001) {
+  apply_outliers(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance)
+}
+
+#' Convenience wrapper mirroring legacy outliers API
+process_outliers <- function(data,
+                             heel_outliers = NULL,
+                             step_outliers = NULL,
+                             tolerance = 0.03,
+                             step_tolerance = 0.03,
+                             grouping_tolerance = 0.001) {
+  apply_outlier_processing(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance)
+}
+
+#' Summarise simple outlier statistics
+get_outlier_stats <- function(data) {
+  outlier_stats(data)
+}
+
+# =============================================================================
 # DATA LOADING AND PREPROCESSING
 # =============================================================================
 

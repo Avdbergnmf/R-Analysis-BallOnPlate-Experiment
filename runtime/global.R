@@ -176,7 +176,7 @@ load_feature <- function(feature_name) {
 
 # Load all feature modules (now self-contained)
 cat("[GLOBAL] Loading feature modules...\n")
-feature_names <- c("gait", "psd", "stats", "outliers", "questionnaire", "plotting", "complexity")
+feature_names <- c("gait", "psd", "stats", "questionnaire", "plotting", "complexity")
 for (feature_name in feature_names) {
   if (!exists(feature_name, envir = .GlobalEnv)) {
     cat(sprintf("[GLOBAL] Loading %s feature module...\n", feature_name))

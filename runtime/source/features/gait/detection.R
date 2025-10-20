@@ -145,9 +145,9 @@ detect_foot_events_coordinates <- function(footData, hipData, otherFootData = NU
   # Add hip position annotations at heel-strike times
   if (!is.null(hipData) && nrow(hipData) > 0) {
     # Sample hip positions at heel-strike times using nearest-neighbor
-    output$heelStrikes$hip_pos_x <- complexity$sample_time_series(hipData$time, hipData$pos_x, output$heelStrikes$time)
-    output$heelStrikes$hip_pos_y <- complexity$sample_time_series(hipData$time, hipData$pos_y, output$heelStrikes$time)
-    output$heelStrikes$hip_pos_z <- complexity$sample_time_series(hipData$time, hipData$pos_z, output$heelStrikes$time)
+    output$heelStrikes$hip_pos_x <- sample_time_series_nearest(hipData$time, hipData$pos_x, output$heelStrikes$time)
+    output$heelStrikes$hip_pos_y <- sample_time_series_nearest(hipData$time, hipData$pos_y, output$heelStrikes$time)
+    output$heelStrikes$hip_pos_z <- sample_time_series_nearest(hipData$time, hipData$pos_z, output$heelStrikes$time)
   } else {
     # No hip data available, add NA columns
     output$heelStrikes$hip_pos_x <- NA_real_
