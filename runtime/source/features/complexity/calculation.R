@@ -10,7 +10,8 @@ COMPLEXITY_SIGNAL_CONFIGS <- list(
 
 preload_complexity_data <- function(combinations_df = NULL,
                                     include_continuous = TRUE,
-                                    continuous_vars = c("p", "hipPos", "pelvisPos")) {
+                                    continuous_vars = c("p", "hipPos", "pelvisPos"),
+                                    force_refresh_cache = FALSE) {
   complexity_logger <- create_module_logger("COMPLEXITY")
   ensure_global_data_initialized()
 
@@ -34,8 +35,11 @@ preload_complexity_data <- function(combinations_df = NULL,
   }
   trackers_needed <- unique(trackers_needed)
 
-  complexity_logger("INFO", "Preloading tracker data for complexity computation:",
-                    paste(trackers_needed, collapse = ", "))
+  complexity_logger("INFO", sprintf(
+    "Preloading data for complexity computation (trackers: %s, force_refresh=%s)",
+    paste(trackers_needed, collapse = ", "),
+    force_refresh_cache
+  ))
 
   for (tracker in trackers_needed) {
     complexity_logger("DEBUG", sprintf("Preloading tracker '%s' for %d combinations",
@@ -46,7 +50,11 @@ preload_complexity_data <- function(combinations_df = NULL,
 
       if (tracker == "sim") {
         tryCatch(
-          fetch_simulation_data(participant, trial, use_cache = TRUE, cache_to_disk = TRUE),
+          fetch_simulation_data(
+            participant, trial,
+            use_cache = TRUE, cache_to_disk = TRUE,
+            force_refresh = force_refresh_cache
+          ),
           error = function(e) {
             complexity_logger("WARN", sprintf(
               "Failed to preload simulation data for P%s T%s: %s",
@@ -60,7 +68,11 @@ preload_complexity_data <- function(combinations_df = NULL,
           next
         }
         tryCatch(
-          get_t_data(participant, tracker, trial, use_cache = TRUE, cache_to_disk = TRUE),
+          get_t_data(
+            participant, tracker, trial,
+            use_cache = TRUE, cache_to_disk = TRUE,
+            force_refresh = force_refresh_cache
+          ),
           error = function(e) {
             complexity_logger("WARN", sprintf(
               "Failed to preload %s tracker for P%s T%s: %s",

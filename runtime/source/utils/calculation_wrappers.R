@@ -142,6 +142,7 @@ attr(get_all_complexity_metrics, "preload") <- function() {
   combinations_df <- NULL
   include_continuous <- TRUE
   continuous_vars <- c("p", "hipPos", "pelvisPos")
+  force_cache_refresh <- FALSE
 
   if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
     ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
@@ -156,13 +157,20 @@ attr(get_all_complexity_metrics, "preload") <- function() {
       if (!is.null(args$continuous_vars)) {
         continuous_vars <- args$continuous_vars
       }
+      if (!is.null(args$force_cache_refresh)) {
+        force_cache_refresh <- isTRUE(args$force_cache_refresh)
+      }
     }
   }
 
-  preload_complexity_data(combinations_df, include_continuous, continuous_vars)
+  preload_complexity_data(
+    combinations_df,
+    include_continuous,
+    continuous_vars,
+    force_refresh_cache = force_cache_refresh
+  )
   invisible(NULL)
 }
-attr(get_all_complexity_metrics, "extra_globals") <- c(".GLOBAL_TRACKER_CACHE", ".GLOBAL_SIMULATION_CACHE")
 #' Load or create UDP trim information for all participant/trial combinations
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
 #' @return Data frame with UDP trim metadata

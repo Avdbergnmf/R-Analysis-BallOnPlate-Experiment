@@ -2,16 +2,6 @@ sanitize_trial_num <- function(trialNum) {
   as.numeric(gsub("[^0-9]", "", as.character(trialNum)))
 }
 
-# -----------------------------------------------------------------------------
-# High-frequency tracker / simulation caching
-# -----------------------------------------------------------------------------
-if (!exists(".GLOBAL_TRACKER_CACHE", envir = .GlobalEnv)) {
-  .GLOBAL_TRACKER_CACHE <<- new.env(parent = emptyenv())
-}
-if (!exists(".GLOBAL_SIMULATION_CACHE", envir = .GlobalEnv)) {
-  .GLOBAL_SIMULATION_CACHE <<- new.env(parent = emptyenv())
-}
-
 tracker_cache_logger <- create_module_logger("TRACKER-CACHE")
 
 get_tracker_cache_key <- function(participant, trialNum, trackerType, apply_udp_trimming = TRUE) {
@@ -20,28 +10,6 @@ get_tracker_cache_key <- function(participant, trialNum, trackerType, apply_udp_
 
 get_simulation_cache_key <- function(participant, trial) {
   sprintf("%s|%03d|sim", participant, sanitize_trial_num(trial))
-}
-
-store_tracker_cache <- function(key, data) {
-  assign(key, data, envir = .GLOBAL_TRACKER_CACHE)
-}
-
-fetch_tracker_cache <- function(key) {
-  if (exists(key, envir = .GLOBAL_TRACKER_CACHE, inherits = FALSE)) {
-    return(get(key, envir = .GLOBAL_TRACKER_CACHE, inherits = FALSE))
-  }
-  NULL
-}
-
-store_simulation_cache <- function(key, data) {
-  assign(key, data, envir = .GLOBAL_SIMULATION_CACHE)
-}
-
-fetch_simulation_cache <- function(key) {
-  if (exists(key, envir = .GLOBAL_SIMULATION_CACHE, inherits = FALSE)) {
-    return(get(key, envir = .GLOBAL_SIMULATION_CACHE, inherits = FALSE))
-  }
-  NULL
 }
 
 #' Convert condition names to prettier labels for plotting
@@ -293,32 +261,45 @@ has_simulation_data <- function(participant, trial) {
 #' @param participant Participant identifier
 #' @param trial Trial number
 #' @return Simulation data frame
-fetch_simulation_data <- function(participant, trial, use_cache = TRUE, cache_to_disk = TRUE) {
+fetch_simulation_data <- function(participant, trial, use_cache = TRUE,
+                                  cache_to_disk = TRUE, force_refresh = FALSE) {
     cache_key <- get_simulation_cache_key(participant, trial)
-    if (use_cache) {
-      cached <- fetch_simulation_cache(cache_key)
-      if (!is.null(cached)) {
-        tracker_cache_logger("DEBUG", "Simulation cache hit for", cache_key)
-        return(cached)
-      }
-    }
+    tracker_cache_logger("DEBUG", sprintf(
+      "Simulation request: participant=%s trial=%03d force_refresh=%s",
+      participant, sanitize_trial_num(trial), force_refresh
+    ))
   
     if (!exists("simulation", envir = .GlobalEnv)) {
       stop("Simulation feature module is not loaded.")
     }
   
-    load_function <- function() simulation$get_simulation_data(participant, trial)
+    load_function <- function() {
+      tracker_cache_logger("INFO", sprintf(
+        "Loading simulation data for P%s T%03d%s",
+        participant, sanitize_trial_num(trial),
+        if (force_refresh) " (forced refresh)" else ""
+      ))
+      simulation$get_simulation_data(participant, trial)
+    }
   
+    force_rewrite <- isTRUE(force_refresh)
     data <- NULL
     if (use_cache && cache_to_disk && exists("load_with_cache")) {
       cache_dir <- file.path("cache", "simulation")
-      data <- load_with_cache(cache_key, load_function, cache_dir = cache_dir)
+      data <- load_with_cache(
+        cache_key,
+        load_function,
+        cache_dir = cache_dir,
+        force_rewrite = force_rewrite
+      )
     } else {
+      if (force_rewrite && (!use_cache || !cache_to_disk)) {
+        tracker_cache_logger("WARN", sprintf(
+          "Force refresh requested for simulation cache %s but caching disabled; loading fresh without persisting",
+          cache_key
+        ))
+      }
       data <- load_function()
-    }
-  
-    if (!is.null(data) && use_cache) {
-      store_simulation_cache(cache_key, data)
     }
   
     data
@@ -394,21 +375,20 @@ shift_trial_time_lookup <- function(data, participant, trialNum, time_column = "
 
 # get any type of data
 get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE,
-                       use_cache = TRUE, cache_to_disk = TRUE) {
+                       use_cache = TRUE, cache_to_disk = TRUE, force_refresh = FALSE) {
     trialNum_numeric <- sanitize_trial_num(trialNum)
     cache_key <- get_tracker_cache_key(participant, trialNum_numeric, trackerType, apply_udp_trimming)
-    
-    if (use_cache) {
-      cached <- fetch_tracker_cache(cache_key)
-      if (!is.null(cached)) {
-        tracker_cache_logger("DEBUG", "Cache hit for", cache_key)
-        return(cached)
-      }
-    }
+    tracker_cache_logger("DEBUG", sprintf(
+      "Tracker request: tracker=%s participant=%s trial=%03d trim=%s force_refresh=%s",
+      trackerType, participant, trialNum_numeric, apply_udp_trimming, force_refresh
+    ))
   
     # Check if file exists
     if (!check_file_exists(participant, trackerType, trialNum)) {
-      message(sprintf("File does not exist for participant %s, tracker %s, trial %s", participant, trackerType, as.character(trialNum)))
+      tracker_cache_logger("WARN", sprintf(
+        "Missing tracker CSV for %s P%s T%03d (cache_key=%s)",
+        trackerType, participant, trialNum_numeric, cache_key
+      ))
       return(NULL)
     }
   
@@ -418,9 +398,14 @@ get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = 
     filePath <- file.path(get_p_dir(participant), "trackers", filename)
   
     load_function <- function() {
+      tracker_cache_logger("INFO", sprintf(
+        "Loading tracker CSV for %s P%s T%03d%s",
+        trackerType, participant, trialNum_numeric,
+        if (force_refresh) " (forced refresh)" else ""
+      ))
       data_local <- tryCatch(
         {
-          as.data.frame(data.table::fread(filePath))
+          data.table::fread(filePath)
         },
         error = function(e) {
           message("Failed to read the file: ", filePath, " - ", e$message)
@@ -431,6 +416,8 @@ get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = 
       if (is.null(data_local)) {
         return(NULL)
       }
+  
+      data_local <- as.data.frame(data_local)
   
       if (apply_udp_trimming) {
         if (trackerType == "udp") {
@@ -449,19 +436,31 @@ get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = 
       data_local
     }
   
+    force_rewrite <- isTRUE(force_refresh)
     data <- NULL
     if (use_cache && cache_to_disk && exists("load_with_cache")) {
       cache_dir <- file.path("cache", "trackers")
-      data <- load_with_cache(cache_key, load_function, cache_dir = cache_dir)
+      data <- load_with_cache(
+        cache_key,
+        load_function,
+        cache_dir = cache_dir,
+        force_rewrite = force_rewrite
+      )
       if (!is.null(data)) {
         data <- as.data.frame(data)
+        tracker_cache_logger("DEBUG", sprintf(
+          "Loaded tracker cache entry %s (%d rows)",
+          cache_key, nrow(data)
+        ))
       }
     } else {
+      if (force_rewrite && (!use_cache || !cache_to_disk)) {
+        tracker_cache_logger("WARN", sprintf(
+          "Force refresh requested for %s but caching disabled; loading fresh without persisting",
+          cache_key
+        ))
+      }
       data <- load_function()
-    }
-  
-    if (!is.null(data) && use_cache) {
-      store_tracker_cache(cache_key, data)
     }
   
     return(data)
