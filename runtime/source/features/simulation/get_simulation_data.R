@@ -706,12 +706,17 @@ assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "un
 
 add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model = FALSE, standardized_condition = NULL, standardized_phase = NULL) {
     sim_logger("INFO", "Starting add_risk_predictions for", nrow(data), "samples, enable_risk=", enable_risk)
+    overall_start <- Sys.time()
 
     # Add velocity towards edge metrics using helper function
+    step_start <- Sys.time()
     data <- add_velocity_towards_edge_metrics(data)
+    sim_logger("DEBUG", sprintf("Velocity metrics computed in %.2fs", as.numeric(difftime(Sys.time(), step_start, units = "secs"))))
 
     # Add edge-pressure metric using helper function
+    step_start <- Sys.time()
     data <- add_edge_pressure_metric(data)
+    sim_logger("DEBUG", sprintf("Edge pressure metrics computed in %.2fs", as.numeric(difftime(Sys.time(), step_start, units = "secs"))))
 
     # Initialize all risk columns
     data$drop_risk_bin <- NA_real_
@@ -776,6 +781,7 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
     }
 
     # Process the results (same for both approaches)
+    scoring_start <- Sys.time()
     tryCatch(
         {
             if (length(risk_scores$individual_predictions) == 0) {
@@ -785,6 +791,25 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
 
             # Get the individual predictions (these are per-bin probabilities)
             p_bin <- risk_scores$individual_predictions
+
+            # Determine tau for rate calculations
+            tau <- NULL
+            if ("tau" %in% names(risk_scores)) {
+                tau <- risk_scores$tau
+            }
+            if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+                if ("hazard_samples" %in% names(risk_scores) && "tau" %in% names(risk_scores$hazard_samples)) {
+                    tau_candidates <- unique(na.omit(as.numeric(risk_scores$hazard_samples$tau)))
+                    if (length(tau_candidates) > 0) {
+                        tau <- tau_candidates[1]
+                        sim_logger("DEBUG", "Derived tau from hazard samples:", tau)
+                    }
+                }
+            }
+            if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+                tau <- 0.2
+                sim_logger("WARN", "Tau not provided; falling back to default tau = 0.2s")
+            }
 
             # Calculate risk metrics using tau (not dt_sample)
             # lambda: instantaneous hazard rate per second
@@ -812,6 +837,7 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
             if (n_valid_1s > 0) {
                 sim_logger("DEBUG", "  - drop_risk_1s range:", sprintf("%.6f to %.6f", min(p_1s, na.rm = TRUE), max(p_1s, na.rm = TRUE)))
             }
+            sim_logger("DEBUG", sprintf("Risk scoring completed in %.2fs", as.numeric(difftime(Sys.time(), scoring_start, units = "secs"))))
         },
         error = function(e) {
             sim_logger("ERROR", "Error during global hazard predictions:", e$message)
@@ -825,6 +851,7 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
     )
 
     sim_logger("INFO", "add_risk_predictions completed")
+    sim_logger("DEBUG", sprintf("add_risk_predictions total duration: %.2fs", as.numeric(difftime(Sys.time(), overall_start, units = "secs"))))
     return(data)
 }
 
@@ -852,12 +879,22 @@ score_trial_with_hazards_predictions <- function(sim_data, hazard_predictions_da
     trial <- unique(sim_data$trial)
     if (length(trial) != 1) trial <- trial[1]
 
-    # Filter hazard predictions data by participant and trial
-    sel <- rep(TRUE, nrow(hazard_predictions_data))
-    if ("participant" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$participant) == as.character(pid))
-    if ("trial" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$trial) == as.character(trial))
+    pid_char <- as.character(pid)
+    trial_char <- as.character(trial)
 
-    haz_trial <- hazard_predictions_data[sel, , drop = FALSE]
+    # Filter hazard predictions data by participant and trial
+    filter_start <- Sys.time()
+    if (data.table::is.data.table(hazard_predictions_data) &&
+        all(c("participant", "trial") %in% names(hazard_predictions_data))) {
+        haz_trial <- hazard_predictions_data[list(pid_char, trial_char)]
+    } else {
+        sel <- rep(TRUE, nrow(hazard_predictions_data))
+        if ("participant" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$participant) == pid_char)
+        if ("trial" %in% names(hazard_predictions_data)) sel <- sel & (as.character(hazard_predictions_data$trial) == trial_char)
+        haz_trial <- hazard_predictions_data[sel, , drop = FALSE]
+    }
+    sim_logger("DEBUG", sprintf("Hazard prediction lookup completed in %.2fs", as.numeric(difftime(Sys.time(), filter_start, units = "secs"))))
+
     sim_logger("DEBUG", "Filtered to", nrow(haz_trial), "rows for participant", pid, "trial", trial)
 
     if (nrow(haz_trial) == 0) {
@@ -866,6 +903,18 @@ score_trial_with_hazards_predictions <- function(sim_data, hazard_predictions_da
             individual_predictions = numeric(0),
             hazard_samples = data.frame()
         ))
+    }
+
+    # Capture tau if present
+    tau_val <- attr(hazard_predictions_data, "tau")
+    if ("tau" %in% names(haz_trial)) {
+        tau_candidates <- unique(na.omit(as.numeric(haz_trial$tau)))
+        if (length(tau_candidates) > 0) {
+            tau_val <- tau_candidates[1]
+        }
+    }
+    if (!is.null(tau_val) && is.finite(tau_val) && tau_val > 0) {
+        attr(haz_trial, "tau") <- tau_val
     }
 
     # Pick preferred prediction column (p_hat_fe for fixed effects)
@@ -889,7 +938,8 @@ score_trial_with_hazards_predictions <- function(sim_data, hazard_predictions_da
 
     return(list(
         individual_predictions = haz_trial[[pred_col]],
-        hazard_samples = haz_trial
+        hazard_samples = haz_trial,
+        tau = tau_val
     ))
 }
 

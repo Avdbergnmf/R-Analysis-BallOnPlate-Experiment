@@ -209,6 +209,8 @@ get_all_task_metrics <- function(loop_function) {
     return(loop_function(get_metrics, datasets_to_verify = c("task", "level")))
 }
 
+attr(get_all_task_metrics, "log_label") <- "task_metrics"
+
 
 #' Process task metrics data with time slicing
 #'

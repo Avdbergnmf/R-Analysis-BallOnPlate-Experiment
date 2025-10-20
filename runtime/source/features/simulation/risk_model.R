@@ -591,6 +591,33 @@ ensure_global_hazard_samples_available <- function() {
         GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(risk_hazard_samples_preds_path)
         global_logger("INFO", "Loaded hazard samples with predictions from:", risk_hazard_samples_preds_path)
         global_logger("DEBUG", "Loaded", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "hazard prediction rows")
+
+        # Ensure efficient structure for lookups
+        if (!data.table::is.data.table(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+            GLOBAL_HAZARD_SAMPLES_PREDS <<- data.table::as.data.table(GLOBAL_HAZARD_SAMPLES_PREDS)
+        }
+        if ("participant" %in% names(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+            GLOBAL_HAZARD_SAMPLES_PREDS[, participant := as.character(participant)]
+        }
+        if ("trial" %in% names(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+            GLOBAL_HAZARD_SAMPLES_PREDS[, trial := as.character(trial)]
+        }
+        if (all(c("participant", "trial") %in% names(GLOBAL_HAZARD_SAMPLES_PREDS))) {
+            data.table::setkey(GLOBAL_HAZARD_SAMPLES_PREDS, participant, trial)
+        }
+
+        # Ensure tau attribute is available for downstream consumers
+        tau_attr <- attr(GLOBAL_HAZARD_SAMPLES_PREDS, "tau")
+        if (is.null(tau_attr) && "tau" %in% names(GLOBAL_HAZARD_SAMPLES_PREDS)) {
+            tau_candidates <- unique(na.omit(as.numeric(GLOBAL_HAZARD_SAMPLES_PREDS$tau)))
+            if (length(tau_candidates) > 0) {
+                tau_attr <- tau_candidates[1]
+            }
+        }
+        if (!is.null(tau_attr) && is.finite(tau_attr) && tau_attr > 0) {
+            attr(GLOBAL_HAZARD_SAMPLES_PREDS, "tau") <<- tau_attr
+            global_logger("DEBUG", "Hazard predictions tau attribute set to", tau_attr, "seconds")
+        }
         return(TRUE)
     } else {
         global_logger("WARN", "No hazard samples with predictions found at:", risk_hazard_samples_preds_path)
@@ -820,19 +847,24 @@ annotate_hazard_predictions <- function(model,
     # Add 1s drop risk calculation using eta and tau
     # Get tau from model attributes
     tau <- attr(model, "tau")
-    if (is.null(tau) || tau <= 0) {
-        # Try to get tau from global variable as fallback
-        if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
-            tau <- GLOBAL_RISK_TAU
-            predict_logger("WARN", "Model missing tau attribute, using global tau =", tau, "seconds for 1s drop risk")
-        } else {
-            # Use default tau as last resort
-            tau <- 0.2
-            predict_logger("WARN", "Model missing tau attribute and no global tau found, using default tau =", tau, "seconds for 1s drop risk")
-        }
-    } else {
-        predict_logger("DEBUG", "Using model tau =", tau, "seconds for 1s drop risk calculation")
+    if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+        tau <- attr(hazard_samples, "tau")
     }
+    if ((is.null(tau) || !is.finite(tau) || tau <= 0) && "tau" %in% names(hazard_samples)) {
+        tau_candidates <- unique(na.omit(as.numeric(hazard_samples$tau)))
+        if (length(tau_candidates) > 0) {
+            tau <- tau_candidates[1]
+        }
+    }
+    if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+        tau <- 0.2
+        predict_logger("WARN", "Tau not provided; using default tau =", tau, "seconds for 1s drop risk")
+    } else {
+        predict_logger("DEBUG", "Using tau =", tau, "seconds for 1s drop risk calculation")
+    }
+
+    # Store tau attribute for downstream consumers
+    attr(hazard_samples, "tau") <- tau
 
     # Calculate 1s drop risk: lambda = exp(eta) / tau, then p_1s = 1 - exp(-lambda * 1)
     lambda_1s <- exp(eta_hat) / tau # per-second hazard rate
@@ -879,19 +911,22 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
 
     # Get tau from model attributes (CRITICAL for rate calculations)
     tau <- attr(model, "tau")
-    if (is.null(tau) || tau <= 0) {
-        # Try to get tau from global variable as fallback
-        if (exists("GLOBAL_RISK_TAU") && !is.null(GLOBAL_RISK_TAU)) {
-            tau <- GLOBAL_RISK_TAU
-            std_logger("WARN", "Model missing tau attribute, using global tau =", tau, "seconds")
-        } else {
-            # Use default tau as last resort
-            tau <- 0.2
-            std_logger("WARN", "Model missing tau attribute and no global tau found, using default tau =", tau, "seconds")
-        }
-    } else {
-        std_logger("DEBUG", "Using model tau =", tau, "seconds for rate calculations")
+    if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+        tau <- attr(hazard_samples, "tau")
     }
+    if ((is.null(tau) || !is.finite(tau) || tau <= 0) && "tau" %in% names(hazard_samples)) {
+        tau_candidates <- unique(na.omit(as.numeric(hazard_samples$tau)))
+        if (length(tau_candidates) > 0) {
+            tau <- tau_candidates[1]
+        }
+    }
+    if (is.null(tau) || !is.finite(tau) || tau <= 0) {
+        tau <- 0.2
+        std_logger("WARN", "Tau not provided; using default tau =", tau, "seconds")
+    } else {
+        std_logger("DEBUG", "Using tau =", tau, "seconds for rate calculations")
+    }
+    attr(hazard_samples, "tau") <- tau
 
     # factor levels to match the model
     hazard_samples$participant <- factor(hazard_samples$participant)

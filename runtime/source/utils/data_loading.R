@@ -638,35 +638,6 @@ apply_udp_time_trimming <- function(data, participant, trialNum, time_column = "
 }
 
 
-#--------------------------------------------------------------------
-# Wrapper used by load_or_calculate
-#--------------------------------------------------------------------
-load_or_create_udp_time_trim_info <- function(loop_function) {
-  ensure_global_data_initialized()
-
-  if (missing(loop_function) || !is.function(loop_function)) {
-    stop("load_or_create_udp_time_trim_info: valid 'loop_function' must be supplied")
-  }
-
-  # Build via provided loop_function (can be parallel or sequential)
-  build_row <- function(p, tr, ...) {
-    rng <- get_udp_time_ranges(p, tr)
-    data.frame(
-      participant           = p,
-      trial                 = as.numeric(tr),
-      has_udp_data          = rng$has_udp_data,
-      trial_duration        = rng$trial_duration,
-      total_valid_duration  = rng$total_valid_duration,
-      num_segments          = rng$num_segments,
-      valid_ranges          = I(list(rng$valid_ranges)),
-      stringsAsFactors      = FALSE
-    )
-  }
-
-  df <- loop_function(build_row, datasets_to_verify = c("udp"))
-  return(df)
-}
-
 # Helper function to get trim info from the global udpTimeTrimInfo table
 get_trim_info_from_table <- function(participant, trialNum) {
   # If global table not yet built or row missing, return NULL silently; caller will compute on-the-fly.

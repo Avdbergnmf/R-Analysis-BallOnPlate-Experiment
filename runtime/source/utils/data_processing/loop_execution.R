@@ -32,7 +32,11 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
 
         cl <- .GlobalEnv$.GLOBAL_PARALLEL_CLUSTER
         main_func_name <- deparse(substitute(calculate_function))
-        log_file_name <- sprintf("parallel_log_%s.txt", main_func_name)
+        log_label <- attr(calculate_function, "log_label")
+        if (is.null(log_label)) {
+            log_label <- gsub("[^A-Za-z0-9_]+", "_", main_func_name)
+        }
+        log_file_name <- sprintf("parallel_log_%s.txt", log_label)
         logger("DEBUG", "Parallel log file:", log_file_name)
 
         loop_function <- function(calc_func, ...) {

@@ -266,3 +266,5 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   log_operation_end(complexity_logger, "get_all_complexity_metrics", success = TRUE)
   return(result)
 }
+
+attr(get_all_complexity_metrics, "log_label") <- "complexity_metrics"

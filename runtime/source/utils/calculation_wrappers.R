@@ -83,6 +83,7 @@ calc_all_gait_params <- function(loop_function) {
   # Ensure heavy data is initialized in main session
   return(loop_function(calculate_gait_parameters))
 }
+attr(calc_all_gait_params, "log_label") <- "gait_parameters"
 
 #' Get all questionnaire results using the questionnaire feature module
 #' @param loop_function Function to use for processing (not used for questionnaires)
@@ -102,6 +103,7 @@ get_all_questionnaire_results <- function(loop_function = NULL) {
     condition_number_func = condition_number
   )
 }
+attr(get_all_questionnaire_results, "log_label") <- "questionnaire_results"
 
 #' Calculate task metrics for all participants and trials
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
@@ -113,6 +115,7 @@ get_all_task_metrics <- function(loop_function) {
   }
   simulation_api(loop_function)
 }
+attr(get_all_task_metrics, "log_label") <- "task_metrics"
 
 #' Calculate complexity metrics for all participants and trials
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
@@ -128,3 +131,31 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
   }
   complexity_api(loop_function, include_continuous, continuous_vars)
 }
+attr(get_all_complexity_metrics, "log_label") <- "complexity_metrics"
+#' Load or create UDP trim information for all participant/trial combinations
+#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
+#' @return Data frame with UDP trim metadata
+load_or_create_udp_time_trim_info <- function(loop_function) {
+  ensure_global_data_initialized()
+
+  if (missing(loop_function) || !is.function(loop_function)) {
+    stop("load_or_create_udp_time_trim_info: valid 'loop_function' must be supplied")
+  }
+
+  build_row <- function(p, tr, ...) {
+    rng <- get_udp_time_ranges(p, tr)
+    data.frame(
+      participant = p,
+      trial = as.numeric(tr),
+      has_udp_data = rng$has_udp_data,
+      trial_duration = rng$trial_duration,
+      total_valid_duration = rng$total_valid_duration,
+      num_segments = rng$num_segments,
+      valid_ranges = I(list(rng$valid_ranges)),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  loop_function(build_row, datasets_to_verify = c("udp"))
+}
+attr(load_or_create_udp_time_trim_info, "log_label") <- "udp_trim_info"
