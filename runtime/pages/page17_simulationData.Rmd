@@ -96,6 +96,78 @@ plotlyOutput("sim_tsPlot")
 ```
 
 ```{r, context="server"}
+risk_analysis_state <- reactiveValues(pending = NULL)
+
+runRiskAnalysis <- function(model_path, hazard_samples_path) {
+  tryCatch(
+    {
+      output$risk_model_status <- renderText("Loading selected model and hazard samples...")
+
+      model <- simulation$load_risk_model(model_path)
+      hazard_samples <- readRDS(hazard_samples_path)
+
+      if (is.null(model)) {
+        output$risk_model_status <- renderText("Failed to load selected risk model")
+        return()
+      }
+
+      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+        output$risk_model_status <- renderText("Failed to load selected hazard samples or samples are empty")
+        return()
+      }
+
+      output$risk_model_status <- renderText("Computing pooled standardized risks...")
+
+      results <- simulation$compute_pooled_standardized_risks(
+        model = model,
+        hazard_samples = hazard_samples
+      )
+
+      n_combinations <- nrow(results$standardized_risks)
+      n_participants <- length(unique(hazard_samples$participant))
+      n_samples <- nrow(hazard_samples)
+
+      showModal(modalDialog(
+        title = "✓ Risk Analysis Completed Successfully!",
+        paste0(
+          "Results: ", n_combinations, " condition × phase combinations from ",
+          n_samples, " samples (", n_participants, " participants)\n\n",
+          "Statistical analysis completed and results saved to files.\n",
+          "Analysis results stored in GLOBAL_HAZARD_ANALYSIS_RESULTS"
+        ),
+        plotOutput("risk_analysis_plot", height = "400px"),
+        easyClose = TRUE,
+        size = "l",
+        footer = modalButton("Close")
+      ))
+
+      output$risk_analysis_plot <- renderPlot({
+        results$analysis_results$plot
+      })
+
+      output$risk_model_status <- renderText("")
+    },
+    error = function(e) {
+      output$risk_model_status <- renderText(paste("Error performing risk analysis:", e$message))
+    }
+  )
+}
+
+needs_prediction_refresh <- function(selected_path) {
+  if (!file.exists(risk_hazard_samples_path) || !file.exists(risk_hazard_samples_preds_path)) {
+    return(FALSE)
+  }
+  same_file <- FALSE
+  try({
+    same_file <- normalizePath(selected_path) == normalizePath(risk_hazard_samples_preds_path)
+  }, silent = TRUE)
+  if (!same_file) {
+    return(FALSE)
+  }
+  raw_info <- file.info(risk_hazard_samples_path)$mtime
+  preds_info <- file.info(risk_hazard_samples_preds_path)$mtime
+  raw_info > preds_info
+}
 # Reactive simulation data
 sim_data <- reactive({
   req(input$sim_participant, input$sim_trialNum)
@@ -118,7 +190,7 @@ sim_data <- reactive({
     enable_risk = input$enable_risk_predictions,
     allow_direct_model = input$allow_direct_model,
     standardized_condition = if (input$enable_standardized_training) input$standardized_condition else NULL,
-    standardized_phase = if (input$enable_standardized_training) input$standardized_phase else NULL
+    standardized_phase = if (input$enable_standardized_training) input$standardized_phase else NULL,
   )
   return(sim_data)
 })
@@ -138,18 +210,18 @@ output$sim_data_status <- renderText({
           n_real <- sum(data$simulating, na.rm = TRUE)
           n_respawns <- length(unique(data$respawn_segment)) - 1
           paste0(
-            "✓ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
+            "Ã¢Å“â€œ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
             paste(unique(data$arcDeg), collapse = ", ")
           )
         } else {
-          "✗ Error loading simulation data"
+          "Ã¢Å“â€” Error loading simulation data"
         }
       } else {
-        "✗ No simulation data available for this participant/trial"
+        "Ã¢Å“â€” No simulation data available for this participant/trial"
       }
     },
     error = function(e) {
-      paste("✗ Error checking simulation data:", e$message)
+      paste("Ã¢Å“â€” Error checking simulation data:", e$message)
     }
   )
 })
@@ -321,16 +393,16 @@ observeEvent(input$load_risk_model, {
         GLOBAL_RISK_MODEL <<- model
         output$risk_model_status <- renderText(
           sprintf(
-            "✓ Risk model loaded successfully: %s (class: %s)",
+            "Ã¢Å“â€œ Risk model loaded successfully: %s (class: %s)",
             input$risk_model_file, class(model)[1]
           )
         )
       } else {
-        output$risk_model_status <- renderText("✗ Failed to load risk model")
+        output$risk_model_status <- renderText("Ã¢Å“â€” Failed to load risk model")
       }
     },
     error = function(e) {
-      output$risk_model_status <- renderText(paste("✗ Error loading risk model:", e$message))
+      output$risk_model_status <- renderText(paste("Ã¢Å“â€” Error loading risk model:", e$message))
     }
   )
 })
@@ -383,8 +455,10 @@ observeEvent(input$train_risk_model, {
         trials = valid_combinations$trial,
         tau = input$risk_tau,
         sampling_freq = input$sampling_freq,
-        standardized_condition = if (isTRUE(input$enable_standardized_training) && !is.null(input$standardized_condition)) input$standardized_condition else NULL,
-        standardized_phase = if (isTRUE(input$enable_standardized_training) && !is.null(input$standardized_phase)) input$standardized_phase else NULL
+        standardized_condition = if (isTRUE(input$enable_standardized_training) && length(input$standardized_condition) > 0) input$standardized_condition[1] else NULL,
+        standardized_phase = if (isTRUE(input$enable_standardized_training) && length(input$standardized_phase) > 0) input$standardized_phase[1] else NULL
+        annotate_predictions = FALSE,
+        compute_standardized = FALSE
       )
 
       if (!is.null(model)) {
@@ -401,12 +475,18 @@ observeEvent(input$train_risk_model, {
         
         output$risk_model_status <- renderText(
           sprintf(
-            "✓ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace.",
+            "âœ“ Risk model trained and loaded successfully! Used %d participants, %d trials, %d observations. Model saved to %s and loaded into global workspace. Use 'Predict' to refresh per-sample predictions before running risk analysis.",
             length(unique(valid_combinations$participant)),
             nrow(valid_combinations),
             n_obs,
             risk_model_path
           )
+        )
+        if (file.exists(risk_hazard_samples_path)) {
+          updateSelectizeInput(session, "hazard_samples_file",
+            selected = basename(risk_hazard_samples_path)
+          )
+        }
         )
       } else {
         output$risk_model_status <- renderText("Failed to train risk model - no valid data found")
@@ -471,7 +551,7 @@ observeEvent(input$predict_hazard_samples, {
       n_samples <- nrow(hazard_samples)
 
       showModal(modalDialog(
-        title = "✓ Model Applied and Predictions Computed Successfully!",
+        title = "Ã¢Å“â€œ Model Applied and Predictions Computed Successfully!",
         paste0(
           "Loaded ", n_samples, " hazard samples from ",
           n_participants, " participants\n\n",
@@ -483,6 +563,12 @@ observeEvent(input$predict_hazard_samples, {
         size = "m",
         footer = modalButton("Close")
       ))
+
+      if (file.exists(risk_hazard_samples_preds_path)) {
+        updateSelectizeInput(session, "hazard_samples_file",
+          selected = basename(risk_hazard_samples_preds_path)
+        )
+      }
 
       # Clear the status text
       output$risk_model_status <- renderText("")
@@ -508,67 +594,50 @@ observeEvent(input$perform_risk_analysis, {
     return()
   }
 
-  tryCatch(
-    {
-      # Load the selected files
-      output$risk_model_status <- renderText("Loading selected model and hazard samples...")
-      
-      model_path <- file.path(dataExtraFolder, input$risk_model_file)
-      model <- simulation$load_risk_model(model_path)
-      
-      hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
-      hazard_samples <- readRDS(hazard_samples_path)
-      
-      if (is.null(model)) {
-        output$risk_model_status <- renderText("Failed to load selected risk model")
-        return()
-      }
-      
-      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
-        output$risk_model_status <- renderText("Failed to load selected hazard samples or samples are empty")
-        return()
-      }
+  model_path <- file.path(dataExtraFolder, input$risk_model_file)
+  hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
 
-      # Perform the risk analysis
-      output$risk_model_status <- renderText("Computing pooled standardized risks...")
+  if (!file.exists(model_path)) {
+    output$risk_model_status <- renderText("Selected risk model file does not exist")
+    return()
+  }
 
-      # Use the compute_pooled_standardized_risks function
-      results <- simulation$compute_pooled_standardized_risks(
-        model = model,
-        hazard_samples = hazard_samples
+  if (!file.exists(hazard_samples_path)) {
+    output$risk_model_status <- renderText("Selected hazard samples file does not exist")
+    return()
+  }
+
+  if (needs_prediction_refresh(hazard_samples_path)) {
+    output$risk_model_status <- renderText("Hazard samples were updated after predictions were generated. Review and confirm before continuing.")
+    risk_analysis_state$pending <- list(
+      model_path = model_path,
+      hazard_samples_path = hazard_samples_path
+    )
+    showModal(modalDialog(
+      title = "Hazard samples may be outdated",
+      paste0(
+        "The base hazard samples were updated after ", basename(risk_hazard_samples_preds_path),
+        " was generated. Do you want to proceed with the older predictions?"
+      ),
+      easyClose = FALSE,
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("confirm_risk_analysis_proceed", "Proceed Anyway", class = "btn-danger")
       )
+    ))
+    return()
+  }
 
-      # Show success popup with plot
-      n_combinations <- nrow(results$standardized_risks)
-      n_participants <- length(unique(hazard_samples$participant))
-      n_samples <- nrow(hazard_samples)
+  risk_analysis_state$pending <- NULL
+  runRiskAnalysis(model_path, hazard_samples_path)
+})
 
-      # Create popup message with plot
-      showModal(modalDialog(
-        title = "✓ Risk Analysis Completed Successfully!",
-        paste0(
-          "Results: ", n_combinations, " condition × phase combinations from ",
-          n_samples, " samples (", n_participants, " participants)\n\n",
-          "Statistical analysis completed and results saved to files.\n",
-          "Analysis results stored in GLOBAL_HAZARD_ANALYSIS_RESULTS"
-        ),
-        plotOutput("risk_analysis_plot", height = "400px"),
-        easyClose = TRUE,
-        size = "l",
-        footer = modalButton("Close")
-      ))
-
-      # Render the plot in the modal
-      output$risk_analysis_plot <- renderPlot({
-        results$analysis_results$plot
-      })
-
-      # Clear the status text
-      output$risk_model_status <- renderText("")
-    },
-    error = function(e) {
-      output$risk_model_status <- renderText(paste("Error performing risk analysis:", e$message))
-    }
-  )
+observeEvent(input$confirm_risk_analysis_proceed, {
+  pending <- risk_analysis_state$pending
+  if (!is.null(pending)) {
+    runRiskAnalysis(pending$model_path, pending$hazard_samples_path)
+    risk_analysis_state$pending <- NULL
+  }
+  removeModal()
 })
 ```

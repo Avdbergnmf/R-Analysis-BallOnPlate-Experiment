@@ -400,12 +400,32 @@ apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standar
     hazard_samples$participant <- factor(hazard_samples$participant)
     factor_logger("DEBUG", "Set participant factor with", nlevels(hazard_samples$participant), "levels")
     
-    # Use standardized values if provided, otherwise use actual values from data
-    ref_condition <- if (!is.null(standardized_condition)) standardized_condition else hazard_samples$condition
-    ref_phase <- if (!is.null(standardized_phase)) standardized_phase else hazard_samples$phase
-    
-    unique_conditions <- unique(ref_condition)
-    unique_phases <- unique(ref_phase)
+    n_rows <- nrow(hazard_samples)
+    clean_input <- function(x, fallback, label) {
+        if (is.null(x) || length(x) == 0) {
+            return(fallback)
+        }
+        if (length(x) == 1 && n_rows > 1) {
+            return(rep(x, length.out = n_rows))
+        }
+        if (length(x) != n_rows) {
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Length of standardized %s (%d) does not match hazard samples (%d); recycling to match.",
+                    label, length(x), n_rows
+                )
+            )
+            return(rep(x, length.out = n_rows))
+        }
+        x
+    }
+
+    ref_condition <- clean_input(standardized_condition, hazard_samples$condition, "condition")
+    ref_phase <- clean_input(standardized_phase, hazard_samples$phase, "phase")
+
+    unique_conditions <- unique(as.character(ref_condition))
+    unique_phases <- unique(as.character(ref_phase))
     summarize_values <- function(values) {
         values <- unique(as.character(values))
         if (length(values) == 0) {
@@ -429,67 +449,97 @@ apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standar
 
     if ("condition" %in% names(model$model)) {
         model_cond_levels <- levels(model$model$condition)
+        if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
+            model_cond_levels <- levels(factor(hazard_samples$condition))
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Model condition levels unavailable; falling back to hazard sample levels: %s",
+                    summarize_values(model_cond_levels)
+                )
+            )
+        }
         factor_logger("DEBUG", "Model condition levels:", paste(model_cond_levels, collapse = ", "))
-          if (any(ref_condition %in% model_cond_levels)) {
-              hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
-              factor_logger("DEBUG", "Applied condition factor:", summarize_values(hazard_samples$condition))
-          } else {
-              hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
-              factor_logger(
-                  "WARN",
-                  sprintf(
-                      "Reference condition(s) %s not in model levels, using default: %s",
-                      summarize_values(ref_condition),
-                      model_cond_levels[1]
-                  )
-              )
-          }
-      }
+        if (any(ref_condition %in% model_cond_levels)) {
+            hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
+            factor_logger("DEBUG", "Applied condition factor:", summarize_values(hazard_samples$condition))
+        } else {
+            hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Reference condition(s) %s not in model levels, using default: %s",
+                    summarize_values(ref_condition),
+                    model_cond_levels[1]
+                )
+            )
+        }
+    }
 
-      if ("phase" %in% names(model$model)) {
-          model_phase_levels <- levels(model$model$phase)
-          factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
-          if (any(ref_phase %in% model_phase_levels)) {
-              hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
-              factor_logger("DEBUG", "Applied phase factor:", summarize_values(hazard_samples$phase))
-          } else {
-              hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
-              factor_logger(
-                  "WARN",
-                  sprintf(
-                      "Reference phase(s) %s not in model levels, using default: %s",
-                      summarize_values(ref_phase),
-                      model_phase_levels[1]
-                  )
-              )
-          }
-      }
+    if ("phase" %in% names(model$model)) {
+        model_phase_levels <- levels(model$model$phase)
+        if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
+            model_phase_levels <- levels(factor(hazard_samples$phase))
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Model phase levels unavailable; falling back to hazard sample levels: %s",
+                    summarize_values(model_phase_levels)
+                )
+            )
+        }
+        factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
+        if (any(ref_phase %in% model_phase_levels)) {
+            hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
+            factor_logger("DEBUG", "Applied phase factor:", summarize_values(hazard_samples$phase))
+        } else {
+            hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Reference phase(s) %s not in model levels, using default: %s",
+                    summarize_values(ref_phase),
+                    model_phase_levels[1]
+                )
+            )
+        }
+    }
 
-      # Handle cond_phase interaction
-      if ("cond_phase" %in% names(model$model)) {
-          expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
-          model_cond_phase_levels <- levels(model$model$cond_phase)
-          factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
-          factor_logger("DEBUG", "Expected cond_phase:", summarize_values(expected_cond_phase))
-          if (any(expected_cond_phase %in% model_cond_phase_levels)) {
-              hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
-              factor_logger("DEBUG", "Applied cond_phase factor:", summarize_values(hazard_samples$cond_phase))
-          } else {
-              hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
-              factor_logger(
-                  "WARN",
-                  sprintf(
-                      "Expected cond_phase %s not in model levels, using default: %s",
-                      summarize_values(expected_cond_phase),
-                      model_cond_phase_levels[1]
-                  )
-              )
-          }
-      }
+    if ("cond_phase" %in% names(model$model)) {
+        expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
+        model_cond_phase_levels <- levels(model$model$cond_phase)
+        if (is.null(model_cond_phase_levels) || length(model_cond_phase_levels) == 0) {
+            model_cond_phase_levels <- unique(paste(hazard_samples$condition, hazard_samples$phase, sep = "."))
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Model cond_phase levels unavailable; falling back to hazard sample combinations: %s",
+                    summarize_values(model_cond_phase_levels)
+                )
+            )
+        }
+        factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
+        factor_logger("DEBUG", "Expected cond_phase:", summarize_values(expected_cond_phase))
+        if (any(expected_cond_phase %in% model_cond_phase_levels)) {
+            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
+            factor_logger("DEBUG", "Applied cond_phase factor:", summarize_values(hazard_samples$cond_phase))
+        } else {
+            hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
+            factor_logger(
+                "WARN",
+                sprintf(
+                    "Expected cond_phase %s not in model levels, using default: %s",
+                    summarize_values(expected_cond_phase),
+                    model_cond_phase_levels[1]
+                )
+            )
+        }
+    }
 
     factor_logger("DEBUG", "Factor application completed successfully")
     return(hazard_samples)
 }
+
 
 #' Score trial with risk model (on-the-fly computation only)
 #'
@@ -679,7 +729,8 @@ ensure_global_hazard_samples_available <- function() {
 #' @export
 train_and_save_risk_model <- function(participants, trials, tau = 0.15,
                                       sampling_freq = 90, file_path = NULL, use_by_interaction = FALSE,
-                                      standardized_condition = NULL, standardized_phase = NULL) {
+                                      standardized_condition = NULL, standardized_phase = NULL,
+                                      annotate_predictions = TRUE, compute_standardized = TRUE) {
     tryCatch({
         # Use global risk model path if not specified
         if (is.null(file_path)) {
@@ -789,32 +840,45 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.15,
             train_logger("ERROR", "Hazard samples file was not created at", risk_hazard_samples_path)
         }
 
-        # ── NEW: Add per-sample predictions to saved hazard samples ──
-        train_logger("INFO", "Step 4/5: Adding per-sample predictions to hazard samples...")
-        ensure_global_data_initialized()
+        std_means <- NULL
 
-        # Add fixed-effects predictions (recommended for comparability across participants)
-        all_hazard_samples <- apply_model_factors_to_hazard_samples(all_hazard_samples, model, standardized_condition, standardized_phase)
-        annotate_hazard_predictions(model, all_hazard_samples,
-            include_re = FALSE,
-            out_path = risk_hazard_samples_preds_path
-        )
+        if (annotate_predictions) {
+            # ── NEW: Add per-sample predictions to saved hazard samples ──
+            train_logger("INFO", "Step 4/5: Adding per-sample predictions to hazard samples...")
+            ensure_global_data_initialized()
 
-        # Conditionally compute standardized risks based on parameter
-        if (nrow(all_hazard_samples) > 0) {
-            # ── NEW: pooled standardized predictions by Condition × Phase ──
-            train_logger("INFO", "Step 5/5: Computing pooled standardized risks by Condition × Phase...")
-            std_means <- compute_pooled_standardized_risks(
-                model,
-                all_hazard_samples
+            # Add fixed-effects predictions (recommended for comparability across participants)
+            all_hazard_samples <- apply_model_factors_to_hazard_samples(all_hazard_samples, model, standardized_condition, standardized_phase)
+            annotate_hazard_predictions(model, all_hazard_samples,
+                include_re = FALSE,
+                out_path = risk_hazard_samples_preds_path
             )
-            
+        } else {
+            train_logger("INFO", "Skipping prediction annotation (annotate_predictions = FALSE)")
+        }
+
+        if (compute_standardized) {
+            if (!annotate_predictions) {
+                train_logger("WARN", "Standardized risk computation requested but predictions were not generated; skipping standardized computation.")
+            } else if (nrow(all_hazard_samples) > 0) {
+                # ── NEW: pooled standardized predictions by Condition × Phase ──
+                train_logger("INFO", "Step 5/5: Computing pooled standardized risks by Condition × Phase...")
+                std_means <- compute_pooled_standardized_risks(
+                    model,
+                    all_hazard_samples
+                )
+            } else {
+                train_logger("INFO", "Step 5/5: Skipping standardized risk computation (no samples found)")
+            }
+        }
+
+        if (!is.null(std_means)) {
             # Return both model and standardized means
             return(list(model = model, standardized_means = std_means))
-        } else {
-            train_logger("INFO", "Step 5/5: Skipping standardized risk computation (no samples found)")
-            # Return just the model
-            return(model)
+        }
+
+        # Return just the model
+        return(model)
         }
     })
 }
