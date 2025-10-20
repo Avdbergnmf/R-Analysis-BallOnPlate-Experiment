@@ -102,15 +102,19 @@ sim_data <- reactive({
   participant <- input$sim_participant
   trial <- as.numeric(input$sim_trialNum)
 
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    stop("Simulation feature module is not available.")
+  }
+
   # Check if simulation data exists
   if (!has_simulation_data(participant, trial)) {
     return(NULL)
   }
 
   # Get the simulation data with UI parameters
-  sim_data <- get_simulation_data(participant,trial)
+  sim_data <- simulation$get_simulation_data(participant, trial)
 
-  sim_data <- add_risk_predictions(sim_data,
+  sim_data <- simulation$add_risk_predictions(sim_data,
     enable_risk = input$enable_risk_predictions,
     allow_direct_model = input$allow_direct_model,
     standardized_condition = if (input$enable_standardized_training) input$standardized_condition else NULL,
@@ -161,8 +165,13 @@ observe({
     return()
   }
 
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    updateSelectizeInput(session, "sim_vars", choices = NULL, selected = NULL)
+    return()
+  }
+
   # Update available variables
-  available_vars <- get_simulation_variable_choices(data)
+  available_vars <- simulation$get_simulation_variable_choices(data)
   if (!is.null(available_vars)) {
     # Preserve previously selected variables if they still exist
     prev <- isolate(input$sim_vars)
@@ -217,6 +226,11 @@ output$sim_tsPlot <- renderPlotly({
     return(plotly::plot_ly() %>% layout(title = "No data/variables selected"))
   }
 
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    return(plotly::plot_ly() %>% layout(title = "Simulation module not available"))
+  }
+  var_name_map <- simulation$get_simulation_variable_names()
+
   # Use the plotting function
   tryCatch(
     {
@@ -225,7 +239,8 @@ output$sim_tsPlot <- renderPlotly({
         vars = vars,
         downsampling = input$sim_downsampling,
         plot_width = input$plotwidth,
-        plot_height = input$plotheight
+        plot_height = input$plotheight,
+        var_name_map = var_name_map
       )
     },
     error = function(e) {
@@ -291,10 +306,15 @@ observeEvent(input$load_risk_model, {
     return()
   }
 
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    output$risk_model_status <- renderText("Simulation feature module is not available")
+    return()
+  }
+
   tryCatch(
     {
       model_path <- file.path(dataExtraFolder, input$risk_model_file)
-      model <- load_risk_model(model_path)
+      model <- simulation$load_risk_model(model_path)
 
       if (!is.null(model)) {
         # Load into global workspace
@@ -358,7 +378,7 @@ observeEvent(input$train_risk_model, {
       # Step 1: Data collection
       output$risk_model_status <- renderText("Step 1/3: Collecting hazard samples from all trials...")
 
-      model <- train_and_save_risk_model(
+      model <- simulation$train_and_save_risk_model(
         participants = valid_combinations$participant,
         trials = valid_combinations$trial,
         tau = input$risk_tau,
@@ -415,7 +435,7 @@ observeEvent(input$predict_hazard_samples, {
     {
       # Load risk model first
       model_path <- file.path(dataExtraFolder, input$risk_model_file)
-      model <- load_risk_model(model_path)
+      model <- simulation$load_risk_model(model_path)
 
       if (is.null(model)) {
         output$risk_model_status <- renderText("Failed to load risk model")
@@ -438,7 +458,7 @@ observeEvent(input$predict_hazard_samples, {
       output$risk_model_status <- renderText("Applying model to hazard samples...")
 
       # Annotate hazard samples with fixed-effects predictions
-      hazard_samples <- annotate_hazard_predictions(
+      hazard_samples <- simulation$annotate_hazard_predictions(
         model = model,
         hazard_samples = hazard_samples,
         include_re = FALSE,
@@ -493,7 +513,7 @@ observeEvent(input$perform_risk_analysis, {
       output$risk_model_status <- renderText("Loading selected model and hazard samples...")
       
       model_path <- file.path(dataExtraFolder, input$risk_model_file)
-      model <- load_risk_model(model_path)
+      model <- simulation$load_risk_model(model_path)
       
       hazard_samples_path <- file.path(dataExtraFolder, input$hazard_samples_file)
       hazard_samples <- readRDS(hazard_samples_path)
@@ -512,7 +532,7 @@ observeEvent(input$perform_risk_analysis, {
       output$risk_model_status <- renderText("Computing pooled standardized risks...")
 
       # Use the compute_pooled_standardized_risks function
-      results <- compute_pooled_standardized_risks(
+      results <- simulation$compute_pooled_standardized_risks(
         model = model,
         hazard_samples = hazard_samples
       )

@@ -27,8 +27,11 @@ data_loaders <<- list(
   "simulation" = list(
     loader = function(participant, trial) {
       # Load simulation data for a specific participant and trial
-      sim_data <- get_simulation_data(participant, trial)
-      sim_data <- add_risk_predictions(sim_data, enable_risk = TRUE, allow_direct_model = FALSE)
+      if (!exists("simulation", envir = .GlobalEnv)) {
+        stop("Simulation feature module is not available")
+      }
+        sim_data <- simulation$get_simulation_data(participant, trial)
+        sim_data <- simulation$add_risk_predictions(sim_data, enable_risk = TRUE, allow_direct_model = FALSE)
       if (!is.null(sim_data) && nrow(sim_data) > 0) {
       }
       return(sim_data)

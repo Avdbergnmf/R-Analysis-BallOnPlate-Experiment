@@ -456,7 +456,8 @@ plot_correlation_stats <- function(data, x_var_name, y_var_name, type = "paramet
 #' @param plot_height Plot height
 #' @return plotly object
 plot_simulation_timeseries <- function(data, vars, downsampling = 1,
-                                       plot_width = 800, plot_height = 600) {
+                                       plot_width = 800, plot_height = 600,
+                                       var_name_map = NULL) {
   plotting_logger("DEBUG", "Starting plot_simulation_timeseries function")
   
   # Validate inputs
@@ -480,8 +481,9 @@ plot_simulation_timeseries <- function(data, vars, downsampling = 1,
   # Color palette for different variables
   colors <- RColorBrewer::brewer.pal(min(8, max(3, length(vars))), "Set1")
 
-  # Get variable name mapping from get_simulation_data.R
-  var_name_map <- get_simulation_variable_names()
+  if (is.null(var_name_map)) {
+    stop("plot_simulation_timeseries requires var_name_map to be provided")
+  }
 
   # Create time series plot
   p <- plot_ly(

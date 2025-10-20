@@ -103,6 +103,17 @@ get_all_questionnaire_results <- function(loop_function = NULL) {
   )
 }
 
+#' Calculate task metrics for all participants and trials
+#' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
+#' @return Tibble with task metrics for all combinations
+get_all_task_metrics <- function(loop_function) {
+  simulation_api <- simulation$get_all_task_metrics
+  if (!is.function(simulation_api)) {
+    stop("Simulation module did not provide get_all_task_metrics(). Ensure the feature loaded correctly.")
+  }
+  simulation_api(loop_function)
+}
+
 #' Calculate complexity metrics for all participants and trials
 #' @param loop_function Function to use for processing (get_data_from_loop or get_data_from_loop_parallel)
 #' @param include_continuous Logical, whether to include continuous simulation data complexity

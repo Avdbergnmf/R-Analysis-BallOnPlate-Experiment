@@ -116,7 +116,6 @@ tableOutput("overallMeanTable")
 
 ```{r, context="server"}
 # Source required files for data loading functions
-source("source/get_simulation_data.R", local = TRUE)
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
 

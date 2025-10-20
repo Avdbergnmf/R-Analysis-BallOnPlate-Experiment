@@ -32,16 +32,6 @@ source("source/setup.R")
 cat("=== ENSURING INITIALIZATION IS COMPLETE ===\n")
 ensure_global_data_initialized()
 
-## The simulation source
-source("source/profile_shapes.R", local = FALSE)
-source("source/simulation_core.R", local = FALSE)
-source("source/get_simulation_data.R", local = FALSE)
-
-
-## Summary tables
-source("source/summarize_simulation.R", local = FALSE)
-source("source/risk_model.R", local = FALSE)
-
 # File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
 aqrFile <- file.path(resultsFolder, "allQResults.rds")
@@ -58,7 +48,7 @@ udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_ti
 # Load or calculate the data using the global parallel setting
 cat("=== LOADING MAIN DATA OBJECTS ===\n")
 allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params, parallel =FALSE)
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
@@ -280,4 +270,3 @@ $(function() {
   setTimeout(saveCurrentPage, 2000);
 });
 ```
-

@@ -247,6 +247,18 @@ has_simulation_data <- function(participant, trial) {
   return(check_file_exists(participant, "sim", trial))
 }
 
+#' Fetch simulation data while handling module availability
+#' @param participant Participant identifier
+#' @param trial Trial number
+#' @return Simulation data frame
+fetch_simulation_data <- function(participant, trial) {
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    stop("Simulation feature module is not loaded.")
+  }
+
+  simulation$get_simulation_data(participant, trial)
+}
+
 # Helper function to check if a file exists for a given participant, tracker type, and trial
 check_file_exists <- function(participant, trackerType, trialNum) {
   ensure_global_data_initialized()

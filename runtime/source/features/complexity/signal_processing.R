@@ -34,7 +34,7 @@ sample_time_series <- function(times, values, query_times, method = "nearest") {
 #' @param column_name Name of the column to extract from simulation data
 #' @return List with values, time, fs, and n_valid
 get_simulation_signal <- function(participant, trial, column_name) {
-  sim_data <- get_simulation_data(participant, trial)
+  sim_data <- fetch_simulation_data(participant, trial)
 
   if (is.null(sim_data) || nrow(sim_data) == 0) {
     return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
