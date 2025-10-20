@@ -2,6 +2,48 @@ sanitize_trial_num <- function(trialNum) {
   as.numeric(gsub("[^0-9]", "", as.character(trialNum)))
 }
 
+# -----------------------------------------------------------------------------
+# High-frequency tracker / simulation caching
+# -----------------------------------------------------------------------------
+if (!exists(".GLOBAL_TRACKER_CACHE", envir = .GlobalEnv)) {
+  .GLOBAL_TRACKER_CACHE <<- new.env(parent = emptyenv())
+}
+if (!exists(".GLOBAL_SIMULATION_CACHE", envir = .GlobalEnv)) {
+  .GLOBAL_SIMULATION_CACHE <<- new.env(parent = emptyenv())
+}
+
+tracker_cache_logger <- create_module_logger("TRACKER-CACHE")
+
+get_tracker_cache_key <- function(participant, trialNum, trackerType, apply_udp_trimming = TRUE) {
+  sprintf("%s|%03d|%s|trim:%s", participant, sanitize_trial_num(trialNum), trackerType, ifelse(apply_udp_trimming, "1", "0"))
+}
+
+get_simulation_cache_key <- function(participant, trial) {
+  sprintf("%s|%03d|sim", participant, sanitize_trial_num(trial))
+}
+
+store_tracker_cache <- function(key, data) {
+  assign(key, data, envir = .GLOBAL_TRACKER_CACHE)
+}
+
+fetch_tracker_cache <- function(key) {
+  if (exists(key, envir = .GLOBAL_TRACKER_CACHE, inherits = FALSE)) {
+    return(get(key, envir = .GLOBAL_TRACKER_CACHE, inherits = FALSE))
+  }
+  NULL
+}
+
+store_simulation_cache <- function(key, data) {
+  assign(key, data, envir = .GLOBAL_SIMULATION_CACHE)
+}
+
+fetch_simulation_cache <- function(key) {
+  if (exists(key, envir = .GLOBAL_SIMULATION_CACHE, inherits = FALSE)) {
+    return(get(key, envir = .GLOBAL_SIMULATION_CACHE, inherits = FALSE))
+  }
+  NULL
+}
+
 #' Convert condition names to prettier labels for plotting
 #' @param conditions Vector of condition names
 #' @return Vector of pretty condition labels
@@ -251,13 +293,36 @@ has_simulation_data <- function(participant, trial) {
 #' @param participant Participant identifier
 #' @param trial Trial number
 #' @return Simulation data frame
-fetch_simulation_data <- function(participant, trial) {
-  if (!exists("simulation", envir = .GlobalEnv)) {
-    stop("Simulation feature module is not loaded.")
+fetch_simulation_data <- function(participant, trial, use_cache = TRUE, cache_to_disk = TRUE) {
+    cache_key <- get_simulation_cache_key(participant, trial)
+    if (use_cache) {
+      cached <- fetch_simulation_cache(cache_key)
+      if (!is.null(cached)) {
+        tracker_cache_logger("DEBUG", "Simulation cache hit for", cache_key)
+        return(cached)
+      }
+    }
+  
+    if (!exists("simulation", envir = .GlobalEnv)) {
+      stop("Simulation feature module is not loaded.")
+    }
+  
+    load_function <- function() simulation$get_simulation_data(participant, trial)
+  
+    data <- NULL
+    if (use_cache && cache_to_disk && exists("load_with_cache")) {
+      cache_dir <- file.path("cache", "simulation")
+      data <- load_with_cache(cache_key, load_function, cache_dir = cache_dir)
+    } else {
+      data <- load_function()
+    }
+  
+    if (!is.null(data) && use_cache) {
+      store_simulation_cache(cache_key, data)
+    }
+  
+    data
   }
-
-  simulation$get_simulation_data(participant, trial)
-}
 
 # Helper function to check if a file exists for a given participant, tracker type, and trial
 check_file_exists <- function(participant, trackerType, trialNum) {
@@ -328,50 +393,79 @@ shift_trial_time_lookup <- function(data, participant, trialNum, time_column = "
 }
 
 # get any type of data
-get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE) {
-  # Check if file exists
-  if (!check_file_exists(participant, trackerType, trialNum)) {
-    message(sprintf("File does not exist for participant %s, tracker %s, trial %s", participant, trackerType, as.character(trialNum)))
-    return(NULL)
-  }
-
-  # Get the file prefix from the dictionary
-  prefix <- filenameDict[[trackerType]]
-  trialNum_numeric <- sanitize_trial_num(trialNum)
-  filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
-  filePath <- file.path(get_p_dir(participant), "trackers", filename)
-
-  # Use tryCatch for more robust error handling
-  data <- tryCatch(
-    {
-      # Optimized CSV reading: use fread instead of read.csv for better performance
-      as.data.frame(data.table::fread(filePath))
-    },
-    error = function(e) {
-      message("Failed to read the file: ", filePath, " - ", e$message)
+get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE,
+                       use_cache = TRUE, cache_to_disk = TRUE) {
+    trialNum_numeric <- sanitize_trial_num(trialNum)
+    cache_key <- get_tracker_cache_key(participant, trialNum_numeric, trackerType, apply_udp_trimming)
+    
+    if (use_cache) {
+      cached <- fetch_tracker_cache(cache_key)
+      if (!is.null(cached)) {
+        tracker_cache_logger("DEBUG", "Cache hit for", cache_key)
+        return(cached)
+      }
+    }
+  
+    # Check if file exists
+    if (!check_file_exists(participant, trackerType, trialNum)) {
+      message(sprintf("File does not exist for participant %s, tracker %s, trial %s", participant, trackerType, as.character(trialNum)))
       return(NULL)
     }
-  )
-
-  # Apply UDP time-based trimming if requested and data is available
-  if (!is.null(data) && apply_udp_trimming) {
-    if (trackerType == "udp") {
-      # For UDP dataset itself, propagate errors
-      data <- apply_udp_time_trimming(data, participant, trialNum, "time")
-    } else {
-      # For other datasets, be tolerant: if UDP info missing, keep data untrimmed
-      data <- tryCatch(
-        apply_udp_time_trimming(data, participant, trialNum, "time"),
+  
+    # Get the file prefix from the dictionary
+    prefix <- filenameDict[[trackerType]]
+    filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
+    filePath <- file.path(get_p_dir(participant), "trackers", filename)
+  
+    load_function <- function() {
+      data_local <- tryCatch(
+        {
+          as.data.frame(data.table::fread(filePath))
+        },
         error = function(e) {
-          message(sprintf("[WARN] Trimming skipped for %s P%s T%s: %s", trackerType, participant, trialNum, e$message))
-          data
+          message("Failed to read the file: ", filePath, " - ", e$message)
+          return(NULL)
         }
       )
+  
+      if (is.null(data_local)) {
+        return(NULL)
+      }
+  
+      if (apply_udp_trimming) {
+        if (trackerType == "udp") {
+          data_local <- apply_udp_time_trimming(data_local, participant, trialNum, "time")
+        } else {
+          data_local <- tryCatch(
+            apply_udp_time_trimming(data_local, participant, trialNum, "time"),
+            error = function(e) {
+              message(sprintf("[WARN] Trimming skipped for %s P%s T%s: %s", trackerType, participant, trialNum, e$message))
+              data_local
+            }
+          )
+        }
+      }
+  
+      data_local
     }
+  
+    data <- NULL
+    if (use_cache && cache_to_disk && exists("load_with_cache")) {
+      cache_dir <- file.path("cache", "trackers")
+      data <- load_with_cache(cache_key, load_function, cache_dir = cache_dir)
+      if (!is.null(data)) {
+        data <- as.data.frame(data)
+      }
+    } else {
+      data <- load_function()
+    }
+  
+    if (!is.null(data) && use_cache) {
+      store_tracker_cache(cache_key, data)
+    }
+  
+    return(data)
   }
-
-  return(data)
-}
 
 get_q_file <- function(participant, qType) { # qType = IMI / SSQ / VEQ
   ensure_global_data_initialized()

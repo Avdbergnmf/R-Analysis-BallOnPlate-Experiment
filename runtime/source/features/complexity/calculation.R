@@ -2,6 +2,81 @@
 #'
 #' Main functions for calculating complexity metrics for participants and trials
 
+COMPLEXITY_SIGNAL_CONFIGS <- list(
+  p = list(tracker = "sim", column = "p", description = "Plate position from simulation"),
+  hipPos = list(tracker = "hip", column = "pos_x", description = "Hip position"),
+  pelvisPos = list(tracker = "udp", column = "PelvisPos", description = "Pelvis position")
+)
+
+preload_complexity_data <- function(combinations_df = NULL,
+                                    include_continuous = TRUE,
+                                    continuous_vars = c("p", "hipPos", "pelvisPos")) {
+  complexity_logger <- create_module_logger("COMPLEXITY")
+  ensure_global_data_initialized()
+
+  datasets_to_verify <- c("udp")
+  valid_combinations <- get_valid_combinations_for_processing(
+    combinations_df, datasets_to_verify, complexity_logger
+  )
+
+  if (nrow(valid_combinations) == 0) {
+    complexity_logger("INFO", "No valid combinations to preload for complexity metrics")
+    return(invisible(NULL))
+  }
+
+  trackers_needed <- datasets_to_verify
+  if (include_continuous) {
+    for (var_name in continuous_vars) {
+      if (var_name %in% names(COMPLEXITY_SIGNAL_CONFIGS)) {
+        trackers_needed <- c(trackers_needed, COMPLEXITY_SIGNAL_CONFIGS[[var_name]]$tracker)
+      }
+    }
+  }
+  trackers_needed <- unique(trackers_needed)
+
+  complexity_logger("INFO", "Preloading tracker data for complexity computation:",
+                    paste(trackers_needed, collapse = ", "))
+
+  for (tracker in trackers_needed) {
+    complexity_logger("DEBUG", sprintf("Preloading tracker '%s' for %d combinations",
+                                       tracker, nrow(valid_combinations)))
+    for (i in seq_len(nrow(valid_combinations))) {
+      participant <- as.character(valid_combinations$participant[i])
+      trial <- valid_combinations$trial[i]
+
+      if (tracker == "sim") {
+        tryCatch(
+          fetch_simulation_data(participant, trial, use_cache = TRUE, cache_to_disk = TRUE),
+          error = function(e) {
+            complexity_logger("WARN", sprintf(
+              "Failed to preload simulation data for P%s T%s: %s",
+              participant, trial, e$message
+            ))
+            invisible(NULL)
+          }
+        )
+      } else {
+        if (!check_file_exists(participant, tracker, trial)) {
+          next
+        }
+        tryCatch(
+          get_t_data(participant, tracker, trial, use_cache = TRUE, cache_to_disk = TRUE),
+          error = function(e) {
+            complexity_logger("WARN", sprintf(
+              "Failed to preload %s tracker for P%s T%s: %s",
+              tracker, participant, trial, e$message
+            ))
+            invisible(NULL)
+          }
+        )
+      }
+    }
+  }
+
+  complexity_logger("INFO", "Complexity preload complete")
+  invisible(NULL)
+}
+
 #' Calculate complexity metrics for a single participant/trial combination
 #' @param participant Participant identifier
 #' @param trial Trial identifier
@@ -144,13 +219,7 @@ calculate_complexity_single <- function(participant, trial, allGaitParams,
   # Process continuous data if requested
   if (include_continuous) {
     log_msg("DEBUG", "  Processing continuous data")
-
-    # Define signal configurations: var_name -> (tracker_type, column_name, description)
-    signal_configs <- list(
-      p = list(tracker = "sim", column = "p", description = "Plate position from simulation"),
-      hipPos = list(tracker = "hip", column = "pos_x", description = "Hip position"),
-      pelvisPos = list(tracker = "udp", column = "PelvisPos", description = "Pelvis position")
-    )
+    signal_configs <- COMPLEXITY_SIGNAL_CONFIGS
 
     # Process each requested continuous variable
     for (var_name in continuous_vars) {

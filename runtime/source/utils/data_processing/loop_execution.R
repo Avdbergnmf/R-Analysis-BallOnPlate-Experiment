@@ -5,7 +5,7 @@
 #' @param extra_global_vars Extra global variables for parallel processing
 #' @param logger Logger function for debugging
 #' @return Calculated data
-calculate_data <- function(calculate_function, parallel, combinations_df, extra_global_vars, logger = NULL) {
+calculate_data <- function(calculate_function, parallel, combinations_df, extra_global_vars, logger = NULL, ...) {
     # Create logger for this function if not provided
     if (is.null(logger)) {
         logger <- create_module_logger("CALC-DATA")
@@ -67,7 +67,7 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
     logger("DEBUG", "calculate_function class:", class(calculate_function))
     
     tryCatch({
-        data <- calculate_function(loop_function)
+        data <- calculate_function(loop_function, ...)
         logger("INFO", "calculate_function returned", nrow(data), "rows")
         return(data)
     }, error = function(e) {

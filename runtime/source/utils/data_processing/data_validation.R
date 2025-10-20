@@ -164,7 +164,7 @@ get_valid_combinations_for_processing <- function(combinations_df = NULL, datase
 #' @param filePath Path to save updated data
 #' @return Updated data with missing combinations loaded
 handle_missing_combinations <- function(data, combinations_df, calculate_function, 
-                                       threshold_parallel, extra_global_vars, filePath) {
+                                       threshold_parallel, extra_global_vars, filePath, ...) {
     # Use global threshold if not provided
     if (is.null(threshold_parallel)) {
         ensure_global_data_initialized()
@@ -205,7 +205,8 @@ handle_missing_combinations <- function(data, combinations_df, calculate_functio
                 datasets_to_verify = loader_info$datasets_to_verify,
                 missing_combinations = missing_combinations,
                 use_parallel = use_parallel_missing,
-                extra_global_vars = extra_global_vars
+                extra_global_vars = extra_global_vars,
+                ...
             )
             
             if (nrow(missing_data) > 0) {
@@ -242,7 +243,7 @@ handle_missing_combinations <- function(data, combinations_df, calculate_functio
 #' @param extra_global_vars Additional global variables to export to parallel workers
 #' @return Data frame with loaded missing combinations data
 load_missing_combinations <- function(data_loader, datasets_to_verify, missing_combinations, 
-                                     use_parallel, extra_global_vars = NULL) {
+                                     use_parallel, extra_global_vars = NULL, ...) {
   missing_logger <- create_module_logger("LOAD-MISSING")
   
   missing_logger("DEBUG", "Loading", nrow(missing_combinations), "missing combinations")
@@ -262,14 +263,16 @@ load_missing_combinations <- function(data_loader, datasets_to_verify, missing_c
       cl = cl,
       log_to_file = FALSE, # Don't create separate log files for missing data
       combinations_df = missing_combinations,
-      extra_global_vars = extra_global_vars
+      extra_global_vars = extra_global_vars,
+      ...
     )
   } else {
     # Use sequential processing for missing combinations
     missing_data <- get_data_from_loop(
       get_data_function = data_loader,
       datasets_to_verify = datasets_to_verify,
-      combinations_df = missing_combinations
+      combinations_df = missing_combinations,
+      ...
     )
   }
   

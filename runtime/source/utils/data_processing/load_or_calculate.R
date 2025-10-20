@@ -50,10 +50,12 @@ load_or_calculate <- function(filePath,
                               extra_global_vars = NULL,
                               combinations_df = NULL,
                               allow_add_missing = FALSE,
-                              threshold_parallel = NULL) {
+                              threshold_parallel = NULL,
+                              ...) {
     
     # Create logger for this function
     logger <- create_module_logger("LOAD-OR-CALC")
+    additional_args <- list(...)
     
     logger("DEBUG", "=== load_or_calculate called ===")
     logger("DEBUG", "filePath:", filePath)
@@ -126,14 +128,39 @@ load_or_calculate <- function(filePath,
         preload_fn <- attr(calculate_function, "preload")
         if (is.function(preload_fn)) {
             logger("DEBUG", "Running preload hook for calculate_function")
+            assign(".LOAD_OR_CALC_CONTEXT", list(
+                combinations_df = combinations_df,
+                args = additional_args
+            ), envir = .GlobalEnv)
+            on.exit(
+                {
+                    if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+                        rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+                    }
+                },
+                add = TRUE
+            )
             tryCatch(
                 preload_fn(),
                 error = function(e) logger("WARN", "Preload hook failed:", e$message)
             )
+            if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+                rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+            }
         }
         
         tryCatch({
-            data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
+            calc_call_args <- c(
+                list(
+                    calculate_function = calculate_function,
+                    parallel = parallel,
+                    combinations_df = combinations_df,
+                    extra_global_vars = extra_global_vars,
+                    logger = logger
+                ),
+                additional_args
+            )
+            data <- do.call(calculate_data, calc_call_args)
             logger("DEBUG", "calculate_data returned successfully with", nrow(data), "rows")
         }, error = function(e) {
             logger("ERROR", "Error in calculate_data:", e$message)
@@ -153,8 +180,18 @@ load_or_calculate <- function(filePath,
         # Check for missing combinations if needed
         if (!is.null(combinations_df) && nrow(data) > 0) {
             logger("DEBUG", "Checking for missing combinations...")
-            data <- handle_missing_combinations(data, combinations_df, calculate_function, 
-                                               threshold_parallel, extra_global_vars, filePath)
+            handle_args <- c(
+                list(
+                    data = data,
+                    combinations_df = combinations_df,
+                    calculate_function = calculate_function,
+                    threshold_parallel = threshold_parallel,
+                    extra_global_vars = extra_global_vars,
+                    filePath = filePath
+                ),
+                additional_args
+            )
+            data <- do.call(handle_missing_combinations, handle_args)
             logger("DEBUG", "After handling missing combinations:", nrow(data), "rows")
         }
     }
@@ -187,7 +224,8 @@ load_or_calc_from_loop <- function(filePath,
                                    stop_cluster = FALSE,
                                    extra_global_vars = NULL,
                                    allow_add_missing = FALSE,
-                                   threshold_parallel = NULL) {
+                                   threshold_parallel = NULL,
+                                   ...) {
   
   # Create logger for this function
   loop_logger <- create_module_logger("LOAD-OR-CALC-FROM-LOOP")
@@ -238,7 +276,8 @@ load_or_calc_from_loop <- function(filePath,
       extra_global_vars = extra_global_vars,
       combinations_df = combinations_df,
       allow_add_missing = allow_add_missing,
-      threshold_parallel = threshold_parallel
+      threshold_parallel = threshold_parallel,
+      ...
     )
     loop_logger("DEBUG", "load_or_calculate returned successfully with", nrow(result), "rows")
     return(result)
