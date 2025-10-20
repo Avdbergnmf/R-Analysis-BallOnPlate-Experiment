@@ -226,7 +226,8 @@ apply_outliers <- function(data,
                            step_outliers = NULL,
                            tolerance = 0.03,
                            step_tolerance = 0.03,
-                           grouping_tolerance = 0.001) {
+                           grouping_tolerance = 0.001,
+                           return_details = FALSE) {
   logger <- create_module_logger("GAIT-OUTLIER-APPLICATION")
 
   n_input_rows <- nrow(data)
@@ -284,14 +285,17 @@ apply_outliers <- function(data,
          "|",
          summarise_for_log(step_outlier_summary, "Step-outlier rows"))
 
+  removed_indices <- integer(0)
+
   if (!is.null(heel_outliers) && nrow(heel_outliers) > 0) {
     logger("DEBUG", "Processing heel strike removals")
     matches <- find_closest_heel_strikes(heel_outliers, dt, tolerance, grouping_tolerance)
     if (!is.null(matches) && nrow(matches) > 0) {
       matches <- data.table::as.data.table(matches)
       rows_to_remove <- dt[matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
-      rows_to_remove <- unique(rows_to_remove)
+      rows_to_remove <- sort(unique(rows_to_remove))
       if (length(rows_to_remove)) {
+        removed_indices <- rows_to_remove
         dt <- dt[-rows_to_remove]
         logger("INFO", "Removed", length(rows_to_remove), "heel strikes")
       } else {
@@ -307,7 +311,7 @@ apply_outliers <- function(data,
     matches <- find_closest_heel_strikes(step_outliers, dt, step_tolerance, grouping_tolerance)
     if (!is.null(matches) && nrow(matches) > 0) {
       rows_to_mark <- dt[matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
-      rows_to_mark <- unique(rows_to_mark)
+      rows_to_mark <- sort(unique(rows_to_mark))
       if (length(rows_to_mark)) {
         dt[rows_to_mark, outlierSteps := TRUE]
         logger("INFO", "Marked", length(rows_to_mark), "steps as outliers")
@@ -322,7 +326,15 @@ apply_outliers <- function(data,
   logger("INFO", "Outlier application finished on", nrow(dt), "rows with",
          sum(dt$outlierSteps, na.rm = TRUE), "marked outliers")
 
-  as.data.frame(dt)
+  result_df <- as.data.frame(dt)
+  if (return_details) {
+    return(list(
+      data = result_df,
+      removed_rows = removed_indices
+    ))
+  }
+
+  result_df
 }
 
 # =============================================================================

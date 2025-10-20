@@ -179,8 +179,10 @@ apply_outlier_processing <- function(data,
                                      step_outliers = NULL,
                                      tolerance = 0.03,
                                      step_tolerance = 0.03,
-                                     grouping_tolerance = 0.001) {
-  apply_outliers(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance)
+                                     grouping_tolerance = 0.001,
+                                     return_details = FALSE) {
+  apply_outliers(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance,
+                 return_details = return_details)
 }
 
 #' Convenience wrapper mirroring legacy outliers API
@@ -189,8 +191,10 @@ process_outliers <- function(data,
                              step_outliers = NULL,
                              tolerance = 0.03,
                              step_tolerance = 0.03,
-                             grouping_tolerance = 0.001) {
-  apply_outlier_processing(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance)
+                             grouping_tolerance = 0.001,
+                             return_details = FALSE) {
+  apply_outlier_processing(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance,
+                           return_details = return_details)
 }
 
 #' Summarise simple outlier statistics

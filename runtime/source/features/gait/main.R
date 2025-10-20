@@ -61,12 +61,34 @@ find_foot_events <- function(participant, trialNum, preprocessedData) {
   # Apply outlier processing if outlier data is provided
   if (exists("outliers_heel_data", envir = .GlobalEnv) && exists("outliers_steps_data", envir = .GlobalEnv)) {
     gait_main_logger("DEBUG", "Starting outlier processing")
-    combinedHeelStrikes <- apply_outlier_processing(
+    outlier_result <- apply_outlier_processing(
       combinedHeelStrikes,
       heel_outliers = outliers_heel_data,
       step_outliers = outliers_steps_data,
-      tolerance = 0.03
+      tolerance = 0.03,
+      return_details = TRUE
     )
+    combinedHeelStrikes <- outlier_result$data
+
+    removed_rows <- outlier_result$removed_rows
+    if (length(removed_rows) > 0) {
+      # Keep heel/toe arrays aligned by removing the same rows from toe-off data
+      valid_indices <- removed_rows[removed_rows >= 1 & removed_rows <= nrow(combinedToeOffs)]
+      if (length(valid_indices) > 0) {
+        combinedToeOffs <- combinedToeOffs[-valid_indices, , drop = FALSE]
+      }
+    }
+
+    if (nrow(combinedHeelStrikes) != nrow(combinedToeOffs)) {
+      gait_main_logger("WARN",
+                       "Heel/toe count mismatch after outlier removal:",
+                       nrow(combinedHeelStrikes), "heel strikes vs",
+                       nrow(combinedToeOffs), "toe-offs. Aligning to minimum length.")
+      min_len <- min(nrow(combinedHeelStrikes), nrow(combinedToeOffs))
+      combinedHeelStrikes <- combinedHeelStrikes[seq_len(min_len), , drop = FALSE]
+      combinedToeOffs <- combinedToeOffs[seq_len(min_len), , drop = FALSE]
+    }
+
     gait_main_logger("DEBUG", "Outlier processing completed")
   } else {
     gait_main_logger("DEBUG", "No outlier data available, initializing outlierSteps column")

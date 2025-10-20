@@ -239,8 +239,9 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
 
   # Create a wrapper function that matches get_data_from_loop expectations
   complexity_function <- function(participant, trial) {
+    outlier_cols <- c("outlierSteps")
     return(calculate_complexity_single(
-      participant, trial, allGaitParams, outlier_col_names,
+      participant, trial, allGaitParams, outlier_cols,
       include_continuous, continuous_vars, debug
     ))
   }
