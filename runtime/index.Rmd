@@ -43,18 +43,21 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
-udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info, stop_cluster = TRUE)
+cacheRefreshRequested <- isTRUE(CACHE_FORCE_REWRITE)
+udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info,
+                                      force_cache_refresh = cacheRefreshRequested)
 
 # Load or calculate the data using the global parallel setting
 cat("=== LOADING MAIN DATA OBJECTS ===\n")
 allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params,
+                                    force_cache_refresh = cacheRefreshRequested)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
 # Load remaining data objects
 cat("=== LOADING REMAINING DATA OBJECTS ===\n")
-allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE)
+allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics)
 allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
 cat("=== ALL DATA OBJECTS LOADED ===\n")
 
