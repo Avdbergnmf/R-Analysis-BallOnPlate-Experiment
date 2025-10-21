@@ -292,8 +292,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     }
 
     delta <- std_means |>
-        dplyr::select(condition, phase, mean_hazard) |>
-        tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard) |>
+        dplyr::select(condition, phase, risk_1s) |>
+        tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = risk_1s) |>
         dplyr::mutate(
             d_retention = retention - baseline_task,
             d_transfer  = transfer - baseline_task
@@ -302,7 +302,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     extract_mean <- function(data, cond, ph) {
         v <- data |>
             dplyr::filter(condition == cond, phase == ph) |>
-            dplyr::pull(mean_hazard)
+            dplyr::pull(risk_1s)
         if (length(v) == 0 || all(is.na(v))) {
             return(NA_real_)
         }
@@ -579,7 +579,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                     KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE
                 )
 
-                grid$mean_hazard <- sapply(seq_len(nrow(grid)), function(i) {
+                grid$risk_1s <- sapply(seq_len(nrow(grid)), function(i) {
                     key <- paste(grid$condition[i], grid$phase[i], sep = "|")
                     if (key %in% names(combo_results)) {
                         combo_results[[key]][b] # Direct access to 1-second risk vector
