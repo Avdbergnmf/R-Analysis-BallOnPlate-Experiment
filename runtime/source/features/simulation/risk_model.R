@@ -19,7 +19,15 @@ get_mgcv_thread_count <- function(default = 1L) {
             allow_detect <- max_cfg <= 0
         }
         cores <- get_configured_core_count(default = default, allow_autodetect = allow_detect)
-        return(max(1L, as.integer(cores)))
+        cores <- as.integer(cores)
+        if (is.na(cores) || cores < 1L) {
+            cores <- default
+        }
+        # Always leave one core free for the system when possible
+        if (cores > 1L) {
+            cores <- cores - 1L
+        }
+        return(max(1L, cores))
     }
     default
 }
@@ -1372,6 +1380,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 
     # 1) Condition x Phase interaction (hazard model) - Wald test only
     # ML-based likelihood ratio tests were repeatedly unstable/failing, so we skip them and rely on the Wald test.
+    analysis_logger("DEBUG", "Computing condition x phase interaction via Wald test")
     interaction_test <- NULL
 
     wald_interaction <- NULL
@@ -1474,10 +1483,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         ~contrast, ~condA, ~condB, ~phase,
         "PV vs Control (Retention)", "perturbation_visualization", "control", "retention",
         "PV vs Control (Transfer)", "perturbation_visualization", "control", "transfer",
-        "P  vs Control (Retention)", "perturbation", "control", "retention",
-        "P  vs Control (Transfer)", "perturbation", "control", "transfer",
-        "P  vs PV (Retention)", "perturbation", "perturbation_visualization", "retention",
-        "P  vs PV (Transfer)", "perturbation", "perturbation_visualization", "transfer"
+        "P vs Control (Retention)", "perturbation", "control", "retention",
+        "P vs Control (Transfer)", "perturbation", "control", "transfer",
+        "P vs PV (Retention)", "perturbation", "perturbation_visualization", "retention",
+        "P vs PV (Transfer)", "perturbation", "perturbation_visualization", "transfer"
     )
 
     available_contrasts <- contrast_defs |>
@@ -2306,3 +2315,4 @@ print_analysis_summary <- function(results) {
 
     cat("\n")
 }
+

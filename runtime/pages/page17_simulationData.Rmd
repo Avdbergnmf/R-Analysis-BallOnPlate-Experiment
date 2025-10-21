@@ -155,35 +155,35 @@ formatOperationDetails <- function(context, extras = NULL, error = NULL) {
 }
 
 runRiskAnalysis <- function(model_path, hazard_samples_path) {
+  progress <- shiny::Progress$new(session = shiny::getDefaultReactiveDomain())
+  progress$set(message = "Running risk analysis", detail = "Loading risk model", value = 0.05)
+  progress_closed <- FALSE
+  on.exit({
+    if (!progress_closed) {
+      progress$close()
+    }
+  }, add = TRUE)
+
   tryCatch(
     {
-      analysis <- withProgress(message = "Running risk analysis", value = 0, {
-        incProgress(0.2, detail = "Loading risk model")
-        model <- simulation$load_risk_model(model_path)
-        if (is.null(model)) {
-          stop(sprintf("Risk model could not be loaded from %s", model_path), call. = FALSE)
-        }
+      model <- simulation$load_risk_model(model_path)
+      if (is.null(model)) {
+        stop(sprintf("Risk model could not be loaded from %s", model_path), call. = FALSE)
+      }
 
-        incProgress(0.4, detail = "Loading hazard samples")
-        hazard_samples <- readRDS(hazard_samples_path)
-        if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
-          stop(sprintf("Hazard samples are missing or empty at %s", hazard_samples_path), call. = FALSE)
-        }
+      progress$set(detail = "Loading hazard samples", value = 0.25)
+      hazard_samples <- readRDS(hazard_samples_path)
+      if (is.null(hazard_samples) || nrow(hazard_samples) == 0) {
+        stop(sprintf("Hazard samples are missing or empty at %s", hazard_samples_path), call. = FALSE)
+      }
 
-        incProgress(0.75, detail = "Computing standardized risks")
-        results <- simulation$compute_pooled_standardized_risks(
-          model = model,
-          hazard_samples = hazard_samples
-        )
+      progress$set(detail = "Computing standardized risks", value = 0.7)
+      results <- simulation$compute_pooled_standardized_risks(
+        model = model,
+        hazard_samples = hazard_samples
+      )
 
-        list(
-          hazard_samples = hazard_samples,
-          results = results
-        )
-      })
-
-      hazard_samples <- analysis$hazard_samples
-      results <- analysis$results
+      progress$set(detail = "Preparing results", value = 0.9)
 
       n_combinations <- nrow(results$standardized_risks)
       n_participants <- length(unique(hazard_samples$participant))
@@ -208,7 +208,6 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
         std_table <- data.frame(Message = "No standardized risk rows available")
       }
 
-
       within_table <- results$analysis_results$within_condition_CI
       if (!is.null(within_table) && nrow(within_table) > 0) {
         within_table <- within_table |>
@@ -228,18 +227,14 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       }
 
       interaction_info <- NULL
-      interaction_test <- results$analysis_results$interaction_test
-      if (!is.null(interaction_test) && "Pr(>Chi)" %in% colnames(interaction_test) && nrow(interaction_test) >= 2) {
-        interaction_info <- sprintf("LRT (ML) p = %.4f", interaction_test[2, "Pr(>Chi)"])
-      } else {
-        wald_test <- results$analysis_results$wald_interaction
-        if (!is.null(wald_test) && !is.null(wald_test$p.value)) {
-          interaction_info <- sprintf("Wald p = %.4f", wald_test$p.value)
-        }
+      wald_test <- results$analysis_results$wald_interaction
+      if (!is.null(wald_test) && !is.null(wald_test$p.value)) {
+        interaction_info <- sprintf("Wald p = %.4f", wald_test$p.value)
       }
       if (!is.null(interaction_info)) {
         summary_table <- rbind(summary_table, data.frame(Item = "Condition x Phase interaction", Value = interaction_info, stringsAsFactors = FALSE))
       }
+
       output$risk_analysis_summary_table <- renderTable({
         summary_table
       }, rownames = FALSE, align = "ll")
@@ -266,6 +261,10 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
         }
       })
 
+      progress$set(detail = "Completed", value = 1)
+      progress$close()
+      progress_closed <- TRUE
+
       showRiskModal(
         title = "Risk Analysis Complete",
         body = tagList(
@@ -288,6 +287,10 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       TRUE
     },
     error = function(e) {
+      if (!progress_closed) {
+        progress$close()
+        progress_closed <- TRUE
+      }
       showRiskErrorModal(
         title = "Risk Analysis Failed",
         message = "Risk analysis could not be completed.",
