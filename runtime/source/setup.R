@@ -19,6 +19,7 @@ library(MuMIn) # Model selection and averaging
 library(rstatix) # Statistical tests
 library(car) # Companion to Applied Regression
 library(pwr) # Power analysis
+library(mgcv) # Generalized additive models (GAMs) for risk modeling
 
 # Data visualization
 library(ggplot2) # Grammar of graphics plotting

@@ -29,6 +29,37 @@ The system now includes sophisticated outlier detection and processing:
 
 To reproduce results, outliers are automatically processed during data loading, but manual corrections can be applied through the interface.
 
+## **Risk Data Workflow for Simulation Data**
+
+The simulation data initially does not include risk predictions. To add risk metrics to your simulation data, follow this workflow:
+
+**Step 1: Train a Risk Model**
+1. Go to **Page 17: Simulation Data** (`page17_simulationData.Rmd`)
+2. Select participants and trials with simulation data
+3. Configure risk model parameters (tau, sampling frequency)
+4. Click **"Train New Model"** to create a risk model
+
+**Step 2: Generate Risk Predictions**
+1. After training, click **"Predict"** to apply the model to hazard samples
+2. This creates hazard samples with risk predictions
+3. The predictions are saved to `data_extra/hazard_samples_with_preds.rds`
+
+**Step 3: Regenerate Simulation Data with Risk Metrics**
+1. **Delete existing task data**: Remove the task metrics RDS file to force regeneration
+2. **Restart the session**: Clear workspace or restart R to reset the flag
+3. **Run initialization again**: The system will regenerate task data with risk metrics included
+
+**Optional: Risk Analysis**
+- Click **"Perform Risk Analysis"** to run Difference-in-Differences (DiD) analysis
+- This compares risk changes across conditions using standardized comparisons
+- Provides statistical insights into behavioral changes across experimental conditions
+
+**Important Notes:**
+- Risk predictions are only added during data generation, not retroactively
+- You must regenerate task data after creating risk predictions
+- The `.TASK_DATA_JUST_CALCULATED` flag prevents complexity calculation after task data generation
+- Clear the workspace between task data generation and complexity calculation
+
 ---
 
 ## **1. Participant and Trial Information**
