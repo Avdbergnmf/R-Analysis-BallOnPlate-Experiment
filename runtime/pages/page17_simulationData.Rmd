@@ -158,11 +158,14 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
   progress <- shiny::Progress$new(session = shiny::getDefaultReactiveDomain())
   progress$set(message = "Running risk analysis", detail = "Loading risk model", value = 0.05)
   progress_closed <- FALSE
-  on.exit({
-    if (!progress_closed) {
-      progress$close()
-    }
-  }, add = TRUE)
+  on.exit(
+    {
+      if (!progress_closed) {
+        progress$close()
+      }
+    },
+    add = TRUE
+  )
 
   tryCatch(
     {
@@ -203,7 +206,7 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       if (!is.null(std_table) && nrow(std_table) > 0) {
         std_table <- std_table |>
           dplyr::arrange(condition, phase) |>
-          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 6)))
       } else {
         std_table <- data.frame(Message = "No standardized risk rows available")
       }
@@ -212,7 +215,7 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       if (!is.null(within_table) && nrow(within_table) > 0) {
         within_table <- within_table |>
           dplyr::select(dplyr::any_of(c("condition", "delta", "point", "lo", "hi", "p_boot", "p_boot_holm"))) |>
-          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 6)))
       } else {
         within_table <- data.frame(Message = "No within-condition bootstrap results available")
       }
@@ -221,7 +224,7 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       if (!is.null(did_table) && nrow(did_table) > 0) {
         did_table <- did_table |>
           dplyr::select(dplyr::any_of(c("contrast", "point", "lo", "hi", "p_boot", "p_boot_holm"))) |>
-          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ round(.x, 6)))
       } else {
         did_table <- data.frame(Message = "No difference-in-differences results available for the current dataset")
       }
@@ -235,21 +238,37 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
         summary_table <- rbind(summary_table, data.frame(Item = "Condition x Phase interaction", Value = interaction_info, stringsAsFactors = FALSE))
       }
 
-      output$risk_analysis_summary_table <- renderTable({
-        summary_table
-      }, rownames = FALSE, align = "ll")
+      output$risk_analysis_summary_table <- renderTable(
+        {
+          summary_table
+        },
+        rownames = FALSE,
+        align = "ll"
+      )
 
-      output$risk_analysis_std_table <- renderTable({
-        std_table
-      }, rownames = FALSE, digits = 6)
+      output$risk_analysis_std_table <- renderTable(
+        {
+          std_table
+        },
+        rownames = FALSE,
+        digits = 6
+      )
 
-      output$risk_analysis_within_table <- renderTable({
-        within_table
-      }, rownames = FALSE, digits = 6)
+      output$risk_analysis_within_table <- renderTable(
+        {
+          within_table
+        },
+        rownames = FALSE,
+        digits = 6
+      )
 
-      output$risk_analysis_did_table <- renderTable({
-        did_table
-      }, rownames = FALSE, digits = 6)
+      output$risk_analysis_did_table <- renderTable(
+        {
+          did_table
+        },
+        rownames = FALSE,
+        digits = 6
+      )
 
       output$risk_analysis_plot <- renderPlot({
         if (!is.null(results$analysis_results$plot)) {
@@ -445,9 +464,12 @@ needs_prediction_refresh <- function(selected_path) {
     return(FALSE)
   }
   same_file <- FALSE
-  try({
-    same_file <- normalizePath(selected_path) == normalizePath(risk_hazard_samples_preds_path)
-  }, silent = TRUE)
+  try(
+    {
+      same_file <- normalizePath(selected_path) == normalizePath(risk_hazard_samples_preds_path)
+    },
+    silent = TRUE
+  )
   if (!same_file) {
     return(FALSE)
   }
@@ -549,7 +571,7 @@ observe({
 # Update standardized condition and phase choices when data changes
 observe({
   req(input$sim_participant, input$sim_trialNum)
-  
+
   # Use the reactive sim_data to get available conditions and phases
   data <- sim_data()
   if (is.null(data) || nrow(data) == 0) {
@@ -557,7 +579,7 @@ observe({
     updateSelectizeInput(session, "standardized_phase", choices = NULL, selected = NULL)
     return()
   }
-  
+
   # Update available conditions
   if ("condition" %in% names(data)) {
     available_conditions <- unique(data$condition)
@@ -566,7 +588,7 @@ observe({
       selected = if (length(available_conditions) > 0) available_conditions[1] else NULL
     )
   }
-  
+
   # Update available phases
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)
@@ -729,7 +751,7 @@ observeEvent(input$train_risk_model, {
   selected_trials <- input$filterTrials
 
   if (is.null(selected_participants) || is.null(selected_trials) ||
-      length(selected_participants) == 0 || length(selected_trials) == 0) {
+    length(selected_participants) == 0 || length(selected_trials) == 0) {
     showRiskErrorModal(
       title = "Train Risk Model",
       message = "Select at least one participant and one trial before training the model."
@@ -915,7 +937,7 @@ observeEvent(input$risk_continue_to_analysis, {
   }
 
   if (is.null(model_path) || !file.exists(model_path) ||
-      is.null(hazard_path) || !file.exists(hazard_path)) {
+    is.null(hazard_path) || !file.exists(hazard_path)) {
     showRiskErrorModal(
       title = "Perform Risk Analysis",
       message = "Required files could not be found. Please verify selections before continuing.",
