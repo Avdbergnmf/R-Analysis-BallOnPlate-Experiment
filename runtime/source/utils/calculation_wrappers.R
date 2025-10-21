@@ -300,32 +300,10 @@ attr(get_all_task_metrics, "extra_globals") <- c("GLOBAL_HAZARD_SAMPLES_PREDS")
 #' @return Data frame with complexity metrics for all valid combinations
 get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
-  # Check if task data was just calculated in this session
-  if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv) &&
-    isTRUE(.GlobalEnv$.TASK_DATA_JUST_CALCULATED)) {
-    complexity_logger <- create_module_logger("COMPLEXITY")
-    complexity_logger("INFO", "=== COMPLEXITY CALCULATION SKIPPED ===")
-    complexity_logger("INFO", "Task data was calculated in this session, which causes a known bug")
-    complexity_logger("INFO", "when running complexity calculation immediately after.")
-    complexity_logger("INFO", "")
-    complexity_logger("INFO", "SOLUTION: Please run the complexity calculation again in a fresh init-run session.")
-    complexity_logger("INFO", "")
-    complexity_logger("INFO", "This is a technical limitation we haven't been able to resolve yet.")
-    complexity_logger("INFO", "=== END SKIP MESSAGE ===")
-
-    # Return NULL to prevent dataset creation and avoid manual cleanup
-    return(NULL)
-  }
-
   # Use the complexity feature module
   complexity_api <- complexity$get_all_complexity_metrics
   if (!is.function(complexity_api)) {
     stop("Complexity module did not provide get_all_complexity_metrics(). Ensure the feature loaded correctly.")
-  }
-
-  # Clear the flag since we're proceeding with complexity calculation
-  if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv)) {
-    rm(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv)
   }
 
   complexity_api(loop_function, include_continuous, continuous_vars)

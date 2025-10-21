@@ -33,6 +33,24 @@ The analysis pipeline uses a configuration system defined in `config.yml` that a
 
 To modify settings, edit the `config.yml` file and restart the analysis. The system will automatically detect your configuration and adjust behavior accordingly.
 
+## Known Issues and Workarounds
+
+### Complexity Calculation Bug
+
+There is a known issue where running complexity calculations immediately after task data calculations can cause errors. The system automatically detects this condition and skips the complexity calculation with a clear message.
+
+**What happens:**
+- When task data is calculated, a flag (`.TASK_DATA_JUST_CALCULATED`) is set
+- If complexity calculation is attempted while this flag is set, it will be skipped
+- You'll see a message explaining why the calculation was skipped
+
+**How to resolve:**
+1. **Clear the workspace**: Click the broom icon in RStudio (Clear Workspace)
+2. **OR restart R session**: Go to Session -> Restart R
+3. **Then run again**: The complexity calculation will proceed normally
+
+This is a technical limitation that we haven't been able to resolve yet, but the workaround is simple and reliable.
+
 ## Data Processing Pipeline
 
 The analysis pipeline has been completely restructured with the following key features:
@@ -83,6 +101,8 @@ Click through the different tabs to get a preview and a brief explanation of wha
   - [Configuration](#configuration)
     - [**Environment Profiles**](#environment-profiles)
     - [**Key Configuration Options**](#key-configuration-options)
+  - [Known Issues and Workarounds](#known-issues-and-workarounds)
+    - [Complexity Calculation Bug](#complexity-calculation-bug)
   - [Data Processing Pipeline](#data-processing-pipeline)
     - [**Modular Architecture**](#modular-architecture)
     - [**Performance Optimizations**](#performance-optimizations)
