@@ -112,15 +112,25 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL, extra_globa
     if (is.null(numCores) || (is.numeric(numCores) && length(numCores) == 1 && numCores <= 0)) {
         # Apply max cores configuration
         if (max_cores_config <= 0) {
-            # -1 or missing: use all cores -1 (leave 1 for system)
-            numCores <- if (available_cores > 1) available_cores - 1 else 1
+            # -1 or missing: use all cores, but leave 1 for system only if we would use all cores
+            if (available_cores > 1) {
+                numCores <- available_cores - 1
+            } else {
+                numCores <- 1
+            }
         } else if (max_cores_config == 1) {
             # 1: disable parallel processing
             cluster_logger("INFO", "Parallel processing disabled by max_cores=1")
             return(NULL)
         } else {
-            # >1: limit to specified number of cores
-            numCores <- min(max_cores_config, if (available_cores > 1) available_cores - 1 else 1)
+            # >1: limit to specified number of cores, but only subtract 1 if we would use all available cores
+            if (max_cores_config >= available_cores && available_cores > 1) {
+                # We would use all cores, so leave 1 for system
+                numCores <- available_cores - 1
+            } else {
+                # We're not using all cores, so use the specified limit
+                numCores <- max_cores_config
+            }
         }
         cluster_logger(
             "INFO",
@@ -318,6 +328,7 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL, extra_globa
 
     return(cl)
 }
+
 
 #' Parallel processing with optimized comprehensive logging
 #'
