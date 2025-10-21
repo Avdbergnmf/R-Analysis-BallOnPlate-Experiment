@@ -416,7 +416,7 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
         model_logger("WARN", "condition or phase columns not found. Using simple smooths only.")
     }
 
-# Remove any rows with missing values
+    # Remove any rows with missing values
     required_cols <- c("e", "v", "participant", "drop_within_tau")
     if ("condition" %in% names(hazard_samples)) {
         required_cols <- c(required_cols, "condition")
@@ -522,11 +522,11 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
 apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standardized_condition = NULL, standardized_phase = NULL) {
     factor_logger <- create_module_logger("APPLY_FACTORS")
     factor_logger("DEBUG", "Applying model factors to", nrow(hazard_samples), "hazard samples...")
-    
+
     # Set participant factor
     hazard_samples$participant <- factor(hazard_samples$participant)
     factor_logger("DEBUG", "Set participant factor with", nlevels(hazard_samples$participant), "levels")
-    
+
     n_rows <- nrow(hazard_samples)
     clean_input <- function(x, fallback, label) {
         if (is.null(x) || length(x) == 0) {
@@ -801,12 +801,12 @@ ensure_global_hazard_samples_available <- function() {
         global_logger("DEBUG", "Global hazard samples already available with", nrow(GLOBAL_HAZARD_SAMPLES_PREDS), "rows")
         return(TRUE)
     }
-    
+
     # Ensure global data is initialized to access paths
     ensure_global_data_initialized()
-    
+
     global_logger <- create_module_logger("GLOBAL")
-    
+
     # Try to load hazard samples from default path
     if (file.exists(risk_hazard_samples_preds_path)) {
         GLOBAL_HAZARD_SAMPLES_PREDS <<- readRDS(risk_hazard_samples_preds_path)
@@ -1040,7 +1040,7 @@ annotate_hazard_predictions <- function(model,
 
     predict_logger <- create_module_logger("PREDICT")
     predict_logger("INFO", "Annotating hazard samples with", if (include_re) "subject-specific" else "fixed-effects", "predictions...")
-    
+
     # Choose whether to include random effect smooth
     pred_args <- list(type = "response")
     if (!include_re) pred_args$exclude <- "s(participant)" # fixed-effects only
@@ -1298,8 +1298,10 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
         for (i in seq_len(nrow(out))) {
             std_logger(
                 "DEBUG",
-                sprintf("  - %s x %s : risk_1s = %.6f , mean_hazard = %.6f",
-                    out$condition[i], out$phase[i], out$risk_1s[i], out$mean_hazard[i])
+                sprintf(
+                    "  - %s x %s : risk_1s = %.6f , mean_hazard = %.6f",
+                    out$condition[i], out$phase[i], out$risk_1s[i], out$mean_hazard[i]
+                )
             )
         }
     }
@@ -1362,7 +1364,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     analysis_logger("DEBUG", "Condition levels for analysis:", paste(condition_levels, collapse = ", "))
     analysis_logger("DEBUG", "Phase levels for analysis:", paste(phase_levels, collapse = ", "))
 
-# Use levels from std_means (robust)
+    # Use levels from std_means (robust)
     cond_levels <- unique(normalize_factor_labels(std_means$condition))
     phase_levels <- unique(normalize_factor_labels(std_means$phase))
     analysis_logger("DEBUG", "cond_levels =", cond_levels)
@@ -1514,7 +1516,6 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             analysis_logger("INFO", "Starting optimized parametric bootstrap with", B, "iterations...")
             analysis_logger("DEBUG", "OPTIMIZATIONS: Vectorized bootstrap + rowsum aggregation + outer combo loop")
             analysis_logger("DEBUG", "METRIC: Computing 1-second risk only (risk_1s)")
-            analysis_logger("DEBUG", "EXPECTED BENEFITS: Memory efficient + 10-50x faster + full condition×phase coverage")
             flush.console()
 
             # Get tau from model attributes for rate calculations
@@ -2305,8 +2306,3 @@ print_analysis_summary <- function(results) {
 
     cat("\n")
 }
-
-
-
-
-
