@@ -12,7 +12,8 @@
 
 # Global logging configuration
 GLOBAL_LOGGING_ENABLED <- TRUE
-GLOBAL_LOG_LEVEL <- "DEBUG"  # DEBUG, INFO, WARN, ERROR
+GLOBAL_LOG_LEVEL <- "DEBUG" # DEBUG, INFO, WARN, ERROR
+GLOBAL_COLORED_LOGGING <- TRUE # Enable colored output
 
 # Log level priority mapping (higher number = higher priority)
 LOG_LEVEL_PRIORITIES <- list(
@@ -62,7 +63,7 @@ MODULE_LOG_LEVELS <- list(
   # "TRAIN" = "DEBUG",
   # "UNIVERSAL-FILTER" = "WARN",
   # "VERIFICATION" = "DEBUG"
-  
+
   # Active overrides (uncomment to enable):
   "UNIVERSAL-FILTER" = "WARN",
   "SUMMARIZE-GAITPARAMS" = "INFO"
@@ -83,49 +84,67 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
     if (!GLOBAL_LOGGING_ENABLED || !enabled) {
       return(invisible(NULL))
     }
-    
+
     # Check log level priority using the global mapping
     level_priority <- LOG_LEVEL_PRIORITIES[[level]]
     if (is.null(level_priority)) {
-      level_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]]  # default to DEBUG
+      level_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]] # default to DEBUG
     }
-    
+
     # Determine the effective log level (module-specific override or global)
     effective_log_level <- GLOBAL_LOG_LEVEL
     if (!is.null(module_name) && module_name %in% names(MODULE_LOG_LEVELS)) {
       effective_log_level <- MODULE_LOG_LEVELS[[module_name]]
     }
-    
+
     effective_priority <- LOG_LEVEL_PRIORITIES[[effective_log_level]]
     if (is.null(effective_priority)) {
-      effective_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]]  # default to DEBUG
+      effective_priority <- LOG_LEVEL_PRIORITIES[["DEBUG"]] # default to DEBUG
     }
-    
+
     # Only log if current level is >= effective level (higher or equal priority)
     if (level_priority < effective_priority) {
       return(invisible(NULL))
     }
-    
-    # Create message prefix
-    prefix <- switch(level,
-      "DEBUG" = "[DEBUG]",
-      "INFO" = "[INFO]",
-      "WARN" = "[WARN]",
-      "ERROR" = "[ERROR]",
-      "[DEBUG]" # default
-    )
-    
-    # Add module name if provided
-    if (!is.null(module_name)) {
-      prefix <- paste0(prefix, " [", module_name, "]")
+
+    # Create message prefix with or without colors
+    if (GLOBAL_COLORED_LOGGING) {
+      prefix <- switch(level,
+        "DEBUG" = "\033[90m[DEBUG]\033[0m", # Gray
+        "INFO" = "\033[32m[INFO]\033[0m", # Green
+        "WARN" = "\033[33m[WARN]\033[0m", # Yellow
+        "ERROR" = "\033[31m[ERROR]\033[0m", # Red
+        "\033[90m[DEBUG]\033[0m" # default (gray)
+      )
+
+      # Add module name if provided (with color)
+      if (!is.null(module_name)) {
+        module_color <- "\033[36m" # Cyan for module names
+        module_reset <- "\033[0m"
+        prefix <- paste0(prefix, " ", module_color, "[", module_name, "]", module_reset)
+      }
+    } else {
+      # No colors - plain text
+      prefix <- switch(level,
+        "DEBUG" = "[DEBUG]",
+        "INFO" = "[INFO]",
+        "WARN" = "[WARN]",
+        "ERROR" = "[ERROR]",
+        "[DEBUG]" # default
+      )
+
+      # Add module name if provided (without color)
+      if (!is.null(module_name)) {
+        prefix <- paste0(prefix, " [", module_name, "]")
+      }
     }
-    
+
     # Create timestamp
     timestamp <- format(Sys.time(), "%H:%M:%S")
-    
+
     # Create the full message with timestamp
     msg <- paste(timestamp, prefix, paste(..., collapse = " "))
-    
+
     # Collect messages if messages vector is provided (for parallel processing)
     if (!is.null(messages)) {
       # Use parent environment to modify the messages vector
@@ -134,7 +153,7 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
         assign("debug_messages", c(parent_env[["debug_messages"]], msg), envir = parent_env)
       }
     }
-    
+
     # Always output immediately for capture.output() to catch it
     cat(msg, "\n")
     flush.console()
@@ -177,6 +196,17 @@ set_global_log_level <- function(level = "DEBUG") {
   cat(sprintf("[LOGGING] Global log level set to: %s (priority: %d)\n", level, LOG_LEVEL_PRIORITIES[[level]]))
 }
 
+#' Enable or disable colored logging
+#' @param enabled Whether to enable colored output
+set_colored_logging <- function(enabled = TRUE) {
+  GLOBAL_COLORED_LOGGING <<- enabled
+  if (enabled) {
+    cat("[LOGGING] Colored logging enabled\n")
+  } else {
+    cat("[LOGGING] Colored logging disabled\n")
+  }
+}
+
 #' Get current logging configuration
 #' @return List with current logging settings
 get_logging_config <- function() {
@@ -184,6 +214,7 @@ get_logging_config <- function() {
     enabled = GLOBAL_LOGGING_ENABLED,
     level = GLOBAL_LOG_LEVEL,
     level_priority = LOG_LEVEL_PRIORITIES[[GLOBAL_LOG_LEVEL]],
+    colored = GLOBAL_COLORED_LOGGING,
     available_levels = names(LOG_LEVEL_PRIORITIES),
     module_overrides = MODULE_LOG_LEVELS
   )
@@ -203,10 +234,10 @@ show_log_levels <- function() {
     ),
     stringsAsFactors = FALSE
   )
-  
+
   # Mark current level
   levels_df$Current <- levels_df$Level == GLOBAL_LOG_LEVEL
-  
+
   return(levels_df)
 }
 
@@ -220,8 +251,10 @@ set_module_log_level <- function(module_name, level = "DEBUG") {
     level <- "DEBUG"
   }
   MODULE_LOG_LEVELS[[module_name]] <<- level
-  cat(sprintf("[LOGGING] Module '%s' log level set to: %s (priority: %d)\n", 
-              module_name, level, LOG_LEVEL_PRIORITIES[[level]]))
+  cat(sprintf(
+    "[LOGGING] Module '%s' log level set to: %s (priority: %d)\n",
+    module_name, level, LOG_LEVEL_PRIORITIES[[level]]
+  ))
 }
 
 #' Remove module-specific log level override
@@ -229,8 +262,10 @@ set_module_log_level <- function(module_name, level = "DEBUG") {
 remove_module_log_level <- function(module_name) {
   if (module_name %in% names(MODULE_LOG_LEVELS)) {
     MODULE_LOG_LEVELS[[module_name]] <<- NULL
-    cat(sprintf("[LOGGING] Module '%s' log level override removed (will use global level: %s)\n", 
-                module_name, GLOBAL_LOG_LEVEL))
+    cat(sprintf(
+      "[LOGGING] Module '%s' log level override removed (will use global level: %s)\n",
+      module_name, GLOBAL_LOG_LEVEL
+    ))
   } else {
     cat(sprintf("[LOGGING] Module '%s' had no log level override\n", module_name))
   }
@@ -243,14 +278,14 @@ show_module_log_levels <- function() {
     cat("[LOGGING] No module-specific log level overrides set\n")
     return(data.frame())
   }
-  
+
   modules_df <- data.frame(
     Module = names(MODULE_LOG_LEVELS),
     Level = unlist(MODULE_LOG_LEVELS),
     Priority = sapply(MODULE_LOG_LEVELS, function(x) LOG_LEVEL_PRIORITIES[[x]]),
     stringsAsFactors = FALSE
   )
-  
+
   cat("[LOGGING] Module-specific log level overrides:\n")
   print(modules_df)
   return(modules_df)
@@ -259,38 +294,75 @@ show_module_log_levels <- function() {
 #' Test logging levels by outputting a message at each level
 test_logging_levels <- function() {
   test_logger <- create_module_logger("TEST")
-  
+
   cat("Testing logging levels (current level:", GLOBAL_LOG_LEVEL, "):\n")
   cat("==========================================\n")
-  
+
   test_logger("DEBUG", "This is a DEBUG message")
   test_logger("INFO", "This is an INFO message")
   test_logger("WARN", "This is a WARN message")
   test_logger("ERROR", "This is an ERROR message")
-  
+
   cat("==========================================\n")
   cat("Only messages at or above the current level (", GLOBAL_LOG_LEVEL, ") should be visible above.\n")
+}
+
+#' Test colored logging output
+test_colored_logging <- function() {
+  test_logger <- create_module_logger("COLOR-TEST")
+
+  cat("Testing colored logging output:\n")
+  cat("==============================\n")
+
+  test_logger("DEBUG", "This is a DEBUG message (should be gray)")
+  test_logger("INFO", "This is an INFO message (should be green)")
+  test_logger("WARN", "This is a WARN message (should be yellow)")
+  test_logger("ERROR", "This is an ERROR message (should be red)")
+
+  cat("==============================\n")
+  cat("Module names should appear in cyan.\n")
+}
+
+#' Demonstrate colored logging with different modules
+demo_colored_logging <- function() {
+  # Create loggers for different modules
+  analysis_logger <- create_module_logger("ANALYSIS")
+  cache_logger <- create_module_logger("CACHE")
+  risk_logger <- create_module_logger("RISK-MODEL")
+
+  cat("Demonstrating colored logging across different modules:\n")
+  cat("====================================================\n")
+
+  analysis_logger("INFO", "Starting risk analysis...")
+  cache_logger("DEBUG", "Loading cached data from disk")
+  risk_logger("WARN", "Large memory requirement detected")
+  analysis_logger("ERROR", "Bootstrap processing failed")
+  cache_logger("INFO", "Cache updated successfully")
+  risk_logger("DEBUG", "Model coefficients computed")
+
+  cat("====================================================\n")
+  cat("Each log level and module should have distinct colors.\n")
 }
 
 #' Test module-specific logging levels
 #' @param module_name Name of the module to test
 test_module_logging <- function(module_name) {
   test_logger <- create_module_logger(module_name)
-  
+
   # Get effective log level for this module
   effective_level <- GLOBAL_LOG_LEVEL
   if (module_name %in% names(MODULE_LOG_LEVELS)) {
     effective_level <- MODULE_LOG_LEVELS[[module_name]]
   }
-  
+
   cat(sprintf("Testing module '%s' logging (effective level: %s):\n", module_name, effective_level))
   cat("==========================================\n")
-  
+
   test_logger("DEBUG", "This is a DEBUG message")
   test_logger("INFO", "This is an INFO message")
   test_logger("WARN", "This is a WARN message")
   test_logger("ERROR", "This is an ERROR message")
-  
+
   cat("==========================================\n")
   cat(sprintf("Only messages at or above the effective level (%s) should be visible above.\n", effective_level))
 }
