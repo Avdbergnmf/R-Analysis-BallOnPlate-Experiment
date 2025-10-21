@@ -168,14 +168,143 @@ These variables represent the positions of the heel strikes and offset (VFD size
 | `relHeelStrikes.pos_x/y/z.mean/sd/cv`    | Relative position of heel strikes.                            |
 | `relHeelStrikes.offset_x/y/z.mean/sd/cv` | Relative offset of foot positions.                            |
 
-### **Target Stepping Performance**
-Performance metrics related to stepping onto targets. All these metrics were calculated based on the final position of the virtual foot, after summing with the VFD offsets:
+### **Current Experiment Variables**
 
-| Variable Name                    | Description                                                   |
-|----------------------------------|---------------------------------------------------------------|
-| `target.score.mean/sd/cv`         | Mean, standard deviation, and coefficient of variation of target scores. |
-| `target.targetDist.mean/sd/cv`    | Distance from foot placement to target.                       |
-| `target.rel_x/z.mean/sd/cv`       | Distance from foot placement to target along X and Z axes.        |
+The experiment now focuses on **Ball-on-Plate simulation** rather than target stepping. The main datasets contain:
+
+#### **`allComplexityMetrics` (111 variables)**
+Nonlinear dynamics analysis of movement patterns to quantify movement complexity and variability:
+
+**Complexity Metrics Explained:**
+- **`sampen`**: Sample Entropy - measures irregularity/randomness in time series (higher = more complex/irregular)
+- **`mse_index`**: Multiscale Entropy complexity index - sum of entropy across multiple time scales (higher = more complex across scales)
+- **`dfa_alpha`**: Detrended Fluctuation Analysis scaling exponent - quantifies long-range correlations (0.5 = random, >0.5 = persistent, <0.5 = anti-persistent)
+- **`lyapunov`**: Largest Lyapunov exponent - measures sensitivity to initial conditions/chaos (positive = chaotic, negative = stable)
+- **`sd_ratio`**: Standard deviation ratio - ratio of first-difference variance to total variance (measures local vs global variability)
+
+**Frequency Domain Analysis:**
+- **`peak_freq`**: Frequency with maximum power in the spectrum (Hz)
+- **`mean_freq`**: Weighted average frequency of the power spectrum (Hz)
+- **`spectral_entropy`**: Entropy of the power spectrum (measures spectral complexity)
+- **`spectral_centroid`**: Center of mass of the power spectrum (Hz)
+- **`spectral_bandwidth`**: Spread of frequencies around the centroid (Hz)
+- **`power_low/mid/high`**: Power in different frequency bands (adaptive based on step frequency)
+
+**Step Timing & Width Analysis:**
+- **`stepTimes_mean/sd/cv/n`**: Basic statistics of time between consecutive heel strikes
+- **`stepWidths_mean/sd/cv/n`**: Basic statistics of step width (lateral distance between feet)
+- **Complexity metrics**: `sampen/mse_index/dfa_alpha/lyapunov` applied to step timing and width patterns
+
+**Foot Placement Control Analysis:**
+- **`step_pos_x_residual_rmse`**: Root mean square error of foot placement prediction model (lower = better control)
+- **`step_pos_x_beta0/beta1`**: Intercept and slope of foot placement control model (FP = β₀ + β₁ × hip position)
+- **`step_pos_x_r2`**: R-squared of foot placement control model (higher = better prediction)
+- **`step_pos_x_n`**: Number of valid foot placement observations used in model
+- **Per-foot analysis**: `_left`, `_right`, and `_mean` versions for each foot and averaged metrics
+
+**Body Position Complexity:**
+- **`hipPos_raw/filt`**: Hip position time series (raw and filtered) with complexity metrics
+- **`pelvisPos_raw/filt`**: Pelvis position time series (raw and filtered) with complexity metrics  
+- **`p_raw/filt`**: Plate position time series (raw and filtered) with complexity metrics
+- **Each includes**: `mean/sd/cv/n` (basic stats), `sampen/mse_index/dfa_alpha/lyapunov` (complexity), `sd_ratio` (variability ratio), and full frequency domain analysis
+
+**Experimental Design & Demographics:**
+- **Design**: `participant/condition/trialNum/perturbations/visualizations/task/treadmillSpeed/phase/trialNumWithinPhase/phaseNum/taskNum/is_training_trial`
+- **Demographics**: `gender/motion/age/weight/education/vr_experience/height_meters`
+
+#### **`allGaitParams` (42 variables)**
+Basic gait parameters and participant info:
+- **Temporal data**: `time/stepTimes/stepLengths/stepWidths/centered_stepLengths/centered_stepWidths/speed`
+- **Position data**: `pos_x/y/z/actual_pos_z/centered_pos_x/z/hip_pos_x/y/z`
+- **Rotation data**: `rot_x/y/z`
+- **Step tracking**: `foot/participant/trialNum/outlierSteps/step`
+- **Experimental design**: `perturbations/visualizations/task/treadmillSpeed/condition/phase/trialNumWithinPhase/phaseNum/taskNum/is_training_trial`
+- **Demographics**: `gender/motion/age/weight/education/vr_experience/height_meters`
+
+#### **`allQResults` (12 variables)**
+Questionnaire responses:
+- **IMI (Intrinsic Motivation Inventory)**: `IMI.effort_importance/interest_enjoyment/perceived_competence/total`
+- **User Experience**: `UserExperience.agency/comfort/resistance/safety/total`
+- **Metadata**: `participant/answer_type/condition`
+
+#### **`allTaskMetrics` (186 variables)**
+Ball-on-Plate simulation performance metrics quantifying control, energy, and risk:
+
+**Simulation Performance:**
+- **`sim_duration`**: Total simulation time (seconds)
+- **`n_samples`**: Number of data points recorded
+- **`mean_arcDeg`**: Average arc degrees (ball position on circular plate)
+- **`n_arcDeg_changes`**: Number of times ball crossed plate boundaries
+- **`n_ball_falls`**: Number of times ball fell off the plate
+- **`final_work`**: Total work done by the plate (J/kg)
+- **`final_work_plate/world`**: Work in plate-relative vs world coordinates
+
+**Ball Dynamics (Arc-length Coordinates):**
+- **`q_mean/sd/cv`**: Arc-length position (distance along plate edge) - basic statistics
+- **`qd_mean/sd/cv`**: Arc-length velocity (rate of change along edge)
+- **`p_mean/sd/cv`**: Plate position (actual plate movement)
+- **`pInput_mean/sd/cv`**: Input plate position (commanded movement)
+- **`pVel/pAcc_mean/sd/cv`**: Plate velocity and acceleration
+- **`pVelAbsolute/pAccAbsolute_mean/sd/cv`**: Absolute plate velocity and acceleration
+
+**World Coordinate System:**
+- **`vx/vy_mean/sd/cv`**: Ball velocity in X (horizontal) and Y (vertical) directions
+- **`ax/ay_mean/sd/cv`**: Ball acceleration in X and Y directions  
+- **`vx_world/ax_world_mean/sd/cv`**: World-frame velocity and acceleration (includes plate motion)
+- **`x/y_mean/sd/cv`**: Ball position in X and Y coordinates
+- **`x_world_mean/sd/cv`**: World-frame X position
+
+**Energy Analysis:**
+- **`ke_mean/sd/cv`**: Kinetic energy (plate-relative frame)
+- **`ke_world_mean/sd/cv`**: Kinetic energy (world frame, includes plate motion)
+- **`pe_mean/sd/cv`**: Potential energy (gravitational)
+- **`e_mean/sd/cv`**: Total energy (plate-relative frame)
+- **`e_world_mean/sd/cv`**: Total energy (world frame)
+
+**Power and Work:**
+- **`power_mean/sd/cv`**: Power (plate-relative frame, W/kg)
+- **`power_world_mean/sd/cv`**: Power (world frame, W/kg)
+- **`power_plate_mean/sd/cv`**: Plate power (plate motor work, W/kg)
+- **`work_mean/sd/cv`**: Cumulative work (plate-relative frame, J/kg)
+- **`work_world_mean/sd/cv`**: Cumulative work (world frame, J/kg)
+- **`work_plate_mean/sd/cv`**: Cumulative plate work (J/kg)
+
+**Safety and Risk Analysis:**
+- **`margin_E_mean/sd/cv`**: Energy margin (energy available for escape)
+- **`danger_mean/sd/cv`**: Danger level (inverse of safety margin)
+- **`dist_to_escape_mean/sd/cv`**: Distance to escape (arc-length to plate edge)
+- **`dist_to_escape_ratio_mean/sd/cv`**: Distance to escape as ratio of total circumference
+- **`dist_to_escape_arcdeg6_mean/sd/cv`**: Distance to escape in arc degrees (6-degree resolution)
+- **`e_total_needed_mean/sd/cv`**: Total energy needed to escape from current position
+- **`time_to_escape_mean/sd/cv`**: Time required to escape from current position
+
+**Risk Prediction Variables (from trained models):**
+- **`drop_risk_bin_mean/sd/cv`**: Drop risk per time bin (tau seconds)
+- **`drop_lambda_mean/sd/cv`**: Drop rate per second (hazard rate)
+- **`drop_risk_1s_mean/sd/cv`**: Drop risk over 1-second window
+- **`velocity_towards_edge_mean/sd/cv`**: Velocity component toward plate edge
+- **`approach_pressure_mean/sd/cv`**: Pressure to approach edge (risk-seeking behavior)
+- **`retreat_pressure_mean/sd/cv`**: Pressure to retreat from edge (risk-avoiding behavior)
+- **`retreat_share_mean/sd/cv`**: Proportion of time spent retreating
+- **`retreat_speed_cond_mean/sd/cv`**: Retreat speed (conditional on retreating)
+- **`approach_speed_cond_mean/sd/cv`**: Approach speed (conditional on approaching)
+- **`absqd_mean/sd/cv`**: Absolute arc-length velocity (speed along edge)
+- **`v_e_mean/sd/cv`**: Escape distance velocity (rate of change in distance to escape)
+- **`edge_pressure_mean/sd/cv`**: Edge pressure (force toward edge)
+- **`edge_pressure_clamped_mean/sd/cv`**: Clamped edge pressure (bounded values)
+- **`log_v_to_edge_mean/sd/cv`**: Log-transformed velocity toward edge
+- **`post_log_v_to_edge`**: Log-transformed mean velocity toward edge
+- **`post_log_edge_pressure`**: Log-transformed mean edge pressure
+
+**Performance Metrics:**
+- **`score_mean/sd/cv`**: Running score during simulation
+- **`total_score`**: Total performance score
+- **`simulating_mean/sd/cv`**: Ball-on-plate status (1 = on plate, 0 = off)
+- **`is_training_trial_mean/sd/cv`**: Training trial indicator
+
+**Experimental Design & Demographics:**
+- **Design**: `participant/trialNum/perturbations/visualizations/task/treadmillSpeed/condition/phase/trialNumWithinPhase/phaseNum/taskNum/is_training_trial`
+- **Demographics**: `gender/motion/age/weight/education/vr_experience/height_meters`
 
 ---
 
