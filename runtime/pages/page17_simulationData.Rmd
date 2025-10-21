@@ -192,26 +192,93 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
       risk_analysis_state$latest_model_path <- model_path
       risk_analysis_state$latest_hazard_path <- hazard_samples_path
 
-      detail_text <- formatOperationDetails(
-        context = "Risk analysis completed",
-        extras = c(
-          paste0("Risk model: ", basename(model_path)),
-          paste0("Hazard samples: ", basename(hazard_samples_path)),
-          paste0("Combinations analysed: ", n_combinations),
-          paste0("Total samples: ", n_samples),
-          paste0("Participants: ", n_participants)
-        )
+      summary_table <- data.frame(
+        Item = c("Risk model", "Hazard samples", "Combinations analysed", "Total samples", "Participants"),
+        Value = c(basename(model_path), basename(hazard_samples_path), n_combinations, n_samples, n_participants),
+        stringsAsFactors = FALSE
       )
+      summary_table$Value <- as.character(summary_table$Value)
+
+      std_table <- results$standardized_risks
+      if (!is.null(std_table) && nrow(std_table) > 0) {
+        std_table <- std_table |>
+          dplyr::arrange(condition, phase) |>
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+      } else {
+        std_table <- data.frame(Message = "No standardized risk rows available")
+      }
+
+
+      within_table <- results$analysis_results$within_condition_CI
+      if (!is.null(within_table) && nrow(within_table) > 0) {
+        within_table <- within_table |>
+          dplyr::select(dplyr::any_of(c("condition", "delta", "point", "lo", "hi", "p_boot", "p_boot_holm"))) |>
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+      } else {
+        within_table <- data.frame(Message = "No within-condition bootstrap results available")
+      }
+
+      did_table <- results$analysis_results$bootstrap_DiD_CI
+      if (!is.null(did_table) && nrow(did_table) > 0) {
+        did_table <- did_table |>
+          dplyr::select(dplyr::any_of(c("contrast", "point", "lo", "hi", "p_boot", "p_boot_holm"))) |>
+          dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~round(.x, 6)))
+      } else {
+        did_table <- data.frame(Message = "No difference-in-differences results available for the current dataset")
+      }
+
+      interaction_info <- NULL
+      interaction_test <- results$analysis_results$interaction_test
+      if (!is.null(interaction_test) && "Pr(>Chi)" %in% colnames(interaction_test) && nrow(interaction_test) >= 2) {
+        interaction_info <- sprintf("LRT (ML) p = %.4f", interaction_test[2, "Pr(>Chi)"])
+      } else {
+        wald_test <- results$analysis_results$wald_interaction
+        if (!is.null(wald_test) && !is.null(wald_test$p.value)) {
+          interaction_info <- sprintf("Wald p = %.4f", wald_test$p.value)
+        }
+      }
+      if (!is.null(interaction_info)) {
+        summary_table <- rbind(summary_table, data.frame(Item = "Condition x Phase interaction", Value = interaction_info, stringsAsFactors = FALSE))
+      }
+      output$risk_analysis_summary_table <- renderTable({
+        summary_table
+      }, rownames = FALSE, align = "ll")
+
+      output$risk_analysis_std_table <- renderTable({
+        std_table
+      }, rownames = FALSE)
+
+      output$risk_analysis_within_table <- renderTable({
+        within_table
+      }, rownames = FALSE)
+
+      output$risk_analysis_did_table <- renderTable({
+        did_table
+      }, rownames = FALSE)
 
       output$risk_analysis_plot <- renderPlot({
-        results$analysis_results$plot
+        if (!is.null(results$analysis_results$plot)) {
+          results$analysis_results$plot
+        } else {
+          ggplot2::ggplot() +
+            ggplot2::theme_void() +
+            ggplot2::labs(title = "No bootstrap diagnostics available")
+        }
       })
 
       showRiskModal(
         title = "Risk Analysis Complete",
         body = tagList(
           tags$p("Risk analysis finished successfully. Results have been saved and are available for review."),
-          tags$pre(detail_text),
+          tags$h4("Summary"),
+          tableOutput("risk_analysis_summary_table"),
+          tags$h4("Standardized Risks"),
+          tableOutput("risk_analysis_std_table"),
+          tags$h4("Within-Condition Changes"),
+          tableOutput("risk_analysis_within_table"),
+          tags$h4("Difference-in-Differences"),
+          tableOutput("risk_analysis_did_table"),
+          tags$h4("Bootstrap Diagnostics"),
           plotOutput("risk_analysis_plot", height = "400px")
         ),
         footer = modalButton("Close"),

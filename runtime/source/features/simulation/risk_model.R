@@ -1474,8 +1474,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         "P  vs PV (Transfer)", "perturbation", "perturbation_visualization", "transfer"
     )
 
-    available_contrasts <- contrast_defs |
-        dplyr::filter(condA %in% cond_levels, condB %in% cond_levels, phase %in% needed_phases)
+    available_contrasts <- contrast_defs |>
+        dplyr::filter(.data$condA %in% cond_levels, .data$condB %in% cond_levels, .data$phase %in% needed_phases)
 
     if (nrow(available_contrasts) > 0) {
         DiD <- available_contrasts
