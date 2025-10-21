@@ -115,10 +115,6 @@ tableOutput("overallMeanTable")
 
 
 ```{r, context="server"}
-# Source required files for data loading functions
-source("source/data_caching_setup.R", local = TRUE)
-source("source/data_caching_system.R", local = TRUE)
-
 # Create logger for this page
 page_logger <- create_module_logger("PAGE5-HISTOGRAMS")
 
@@ -218,7 +214,7 @@ get_empty_data_structure <- function(data_type) {
 currentData <- reactive({
   page_logger("DEBUG", "currentData reactive triggered")
   page_logger("DEBUG", "dataType:", input$dataType)
-  
+
   # Early return if histogram plotting is disabled to avoid unnecessary data processing
   if (!input$enableHistograms) {
     page_logger("DEBUG", "Histogram plotting disabled, returning empty data structure")

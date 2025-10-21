@@ -96,6 +96,8 @@ source("source/utils/calculation_wrappers.R")
 cat("[GLOBAL] ✓ calculation_wrappers.R loaded\n")
 
 # Load data processing utilities
+source("source/utils/data_caching/main.R")
+cat("[GLOBAL] data_caching/main.R loaded\n")
 source("source/utils/data_processing/main.R")
 cat("[GLOBAL] ✓ data_processing/main.R loaded\n")
 

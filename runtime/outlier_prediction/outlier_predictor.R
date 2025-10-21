@@ -81,7 +81,12 @@ debug_msg <- function(msg, level = 1) {
 
 # Configuration for parallel training
 ENABLE_PARALLEL <- TRUE # Set to FALSE to disable parallel processing
-PARALLEL_CORES <- max(1, parallel::detectCores() - 1) # Leave one core free
+safe_core_count <- if (exists("get_configured_core_count", mode = "function")) {
+    get_configured_core_count(default = 2L, allow_autodetect = TRUE)
+} else {
+    2L
+}
+PARALLEL_CORES <- max(1L, safe_core_count - 1L) # Leave one core free
 
 # Generic model configuration
 create_model_config <- function(model_type) {

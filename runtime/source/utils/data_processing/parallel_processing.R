@@ -1,38 +1,144 @@
+#' Safely derive the number of CPU cores available without relying on
+#' external system commands that might be restricted in sandboxed environments.
+#' Tries configuration, then environment hints, and finally (optionally) the
+#' standard parallel::detectCores().
+#'
+#' @param default Fallback core count when no information is available.
+#' @param allow_autodetect Whether to attempt parallel::detectCores().
+#'                         This can also be enabled via the ALLOW_PARALLEL_DETECT
+#'                         environment variable (set to "1", "true", or "yes")
+#'                         or the `allow.parallel.detect` option.
+#' @return Integer core count (>= 1).
+get_configured_core_count <- function(default = 1L, allow_autodetect = FALSE) {
+    default <- max(1L, as.integer(default))
+
+    # Helper to coerce environment variable to integer
+    read_env_int <- function(var) {
+        val <- suppressWarnings(as.integer(Sys.getenv(var, NA_character_)))
+        if (is.na(val) || !is.finite(val) || val <= 0) {
+            return(NA_integer_)
+        }
+        val
+    }
+
+    # 1) Explicit configuration takes precedence
+    if (base::exists("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)) {
+        max_cfg <- base::get("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)
+        if (is.numeric(max_cfg) && length(max_cfg) == 1) {
+            if (is.na(max_cfg)) {
+                max_cfg <- default
+            }
+            max_cfg <- as.integer(max_cfg)
+            if (max_cfg > 0) {
+                return(max(1L, max_cfg))
+            }
+            if (max_cfg == 0) {
+                return(1L)
+            }
+            # max_cfg < 0 means "use all available" – fall through to env hints
+        }
+    }
+
+    # 2) Environment hints commonly provided by schedulers / OS
+    env_vars <- c(
+        "R_PARALLEL_NUM_THREADS",
+        "MC_CORES",
+        "OMP_NUM_THREADS",
+        "SLURM_CPUS_ON_NODE",
+        "PBS_NUM_PPN",
+        "PBS_NP",
+        "NSLOTS",
+        "NUMBER_OF_PROCESSORS"
+    )
+    for (var in env_vars) {
+        env_val <- read_env_int(var)
+        if (!is.na(env_val)) {
+            return(max(1L, env_val))
+        }
+    }
+
+    # 3) Optional auto-detection (disabled by default for stability)
+    flag_env <- tolower(Sys.getenv("ALLOW_PARALLEL_DETECT", ""))
+    allow_autodetect <- allow_autodetect ||
+        identical(flag_env, "1") ||
+        identical(flag_env, "true") ||
+        identical(flag_env, "yes") ||
+        isTRUE(getOption("allow.parallel.detect", FALSE))
+
+    if (allow_autodetect) {
+        detected <- tryCatch(
+            parallel::detectCores(),
+            error = function(e) NA_integer_,
+            warning = function(w) NA_integer_
+        )
+        if (!is.na(detected) && is.finite(detected) && detected > 0) {
+            return(max(1L, as.integer(detected)))
+        }
+    }
+
+    default
+}
+
 #' Create and configure a parallel cluster optimized for efficiency
 #' This function creates a cluster with efficient data handling and
 #' minimal data copying to reduce overhead.
 #'
-#' @param numCores Number of cores to use. If NULL, will auto-detect (detectCores() - 1)
+#' @param numCores Number of cores to use. If NULL, relies on MAX_CORES config
+#'                 (or environment hints) while leaving at least one core free.
 #' @param maxJobs Maximum number of jobs that will be processed. Cores will not exceed this number.
 #' @return A configured cluster object so it can be reused across multiple calls.
 create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
     cluster_logger <- create_module_logger("CLUSTER")
     
     # Get max cores from configuration
-    max_cores_config <- if (exists("MAX_CORES", envir = .GlobalEnv)) MAX_CORES else -1
+    max_cores_config <- if (base::exists("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)) base::get("MAX_CORES", envir = .GlobalEnv, inherits = FALSE) else -1
     
-    # Use standard core detection if not specified
-    available_cores <- detectCores()
+    # Determine whether we should auto-detect cores (config <= 0 or explicit request)
+    auto_detect <- FALSE
     if (is.null(numCores)) {
+        auto_detect <- max_cores_config <= 0
+    } else if (is.numeric(numCores) && length(numCores) == 1 && numCores <= 0) {
+        auto_detect <- TRUE
+    }
+
+    # Estimate available cores (allow auto-detection only when requested)
+    available_cores <- get_configured_core_count(
+        default = 1L,
+        allow_autodetect = auto_detect
+    )
+
+    if (is.null(numCores) || (is.numeric(numCores) && length(numCores) == 1 && numCores <= 0)) {
         # Apply max cores configuration
         if (max_cores_config <= 0) {
             # -1 or missing: use all cores -1 (leave 1 for system)
-            numCores <- max(1, available_cores - 1)
+            numCores <- if (available_cores > 1) available_cores - 1 else 1
         } else if (max_cores_config == 1) {
             # 1: disable parallel processing
             cluster_logger("INFO", "Parallel processing disabled by max_cores=1")
             return(NULL)
         } else {
             # >1: limit to specified number of cores
-            numCores <- min(max_cores_config, available_cores - 1)
+            numCores <- min(max_cores_config, if (available_cores > 1) available_cores - 1 else 1)
         }
-        cluster_logger("INFO", sprintf("Auto-detected %d cores (using %d of %d available, max_cores=%d)", available_cores, numCores, available_cores, max_cores_config))
+        cluster_logger(
+            "INFO",
+            sprintf(
+                "Configured %d worker cores (available estimate: %d, max_cores=%d)",
+                numCores, available_cores, max_cores_config
+            )
+        )
     } else {
         # If numCores is explicitly specified, still respect max_cores limit
         if (max_cores_config > 1) {
             numCores <- min(numCores, max_cores_config)
         }
-        cluster_logger("INFO", sprintf("Using %d cores (requested: %d, available: %d, max_cores=%d)", numCores, numCores, available_cores, max_cores_config))
+        cluster_logger(
+            "INFO",
+            sprintf(
+                "Using %d cores (requested: %d, available estimate: %d, max_cores=%d)",
+                numCores, numCores, available_cores, max_cores_config
+            )
+        )
     }
 
     # Ensure we have at least 1 core

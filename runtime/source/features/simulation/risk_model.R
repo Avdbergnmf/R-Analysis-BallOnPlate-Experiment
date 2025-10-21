@@ -10,6 +10,20 @@ library(tibble)
 library(mvtnorm)
 library(ggplot2)
 
+get_mgcv_thread_count <- function(default = 1L) {
+    default <- max(1L, as.integer(default))
+    if (exists("get_configured_core_count", mode = "function")) {
+        allow_detect <- TRUE
+        if (base::exists("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)) {
+            max_cfg <- base::get("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)
+            allow_detect <- max_cfg <= 0
+        }
+        cores <- get_configured_core_count(default = default, allow_autodetect = allow_detect)
+        return(max(1L, as.integer(cores)))
+    }
+    default
+}
+
 normalize_factor_labels <- function(x) {
     if (is.null(x)) {
         return(x)
@@ -430,6 +444,9 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
         model_logger("DEBUG", "Model formula: drop_within_tau ~ s(e) + s(v) + condition*phase + s(participant, bs='re')")
     }
 
+    bam_threads <- get_mgcv_thread_count(default = 1L)
+    model_logger("DEBUG", sprintf("Using %d thread(s) for bam() fit", bam_threads))
+
     tryCatch(
         {
             if (use_by_interaction && "cond_phase" %in% names(hazard_samples)) {
@@ -446,7 +463,7 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
                     method = "fREML",
                     discrete = TRUE, # big speed win
                     select = TRUE, # shrink unnecessary by-smooths toward 0
-                    nthreads = parallel::detectCores() # use all cores
+                    nthreads = bam_threads # controlled thread count
                 )
             } else {
                 # Simple smooths (either disabled or no condition×phase data)
@@ -461,7 +478,7 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
                     method = "fREML",
                     discrete = TRUE,
                     select = TRUE, # shrink unnecessary terms toward 0
-                    nthreads = parallel::detectCores()
+                    nthreads = bam_threads
                 )
             }
             model_logger("INFO", "Model fitting completed successfully!")
@@ -1206,10 +1223,7 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
     total_targets <- length(condition_levels) * length(phase_levels)
     res_list <- list()
 
-    n_cores_default <- parallel::detectCores()
-    if (is.null(n_cores_default) || !is.finite(n_cores_default) || n_cores_default < 1) {
-        n_cores_default <- 1L
-    }
+    n_cores_default <- get_mgcv_thread_count(default = 1L)
 
     for (cn in condition_levels) {
         for (ph in phase_levels) {
@@ -1354,20 +1368,10 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
     analysis_logger("DEBUG", "cond_levels =", cond_levels)
     analysis_logger("DEBUG", "phase_levels =", phase_levels)
 
-    # 1) Condition × Phase interaction (hazard model) - try ML LRT, else Wald
-    analysis_logger("DEBUG", "Testing condition × phase interaction...")
-    m_full_ml <- tryCatch(update(model, method = "ML"), error = function(e) NULL)
-    m_noint_ml <- tryCatch(update(model, . ~ . - condition:phase, method = "ML"), error = function(e) NULL)
+    # 1) Condition x Phase interaction (hazard model) - Wald test only
+    # ML-based likelihood ratio tests were repeatedly unstable/failing, so we skip them and rely on the Wald test.
+    interaction_test <- NULL
 
-    interaction_test <- if (!is.null(m_full_ml) && !is.null(m_noint_ml)) {
-        analysis_logger("DEBUG", "Using LRT (ML) for interaction test...")
-        anova(m_noint_ml, m_full_ml, test = "Chisq")
-    } else {
-        warning("[ANALYSIS] Could not refit models with ML for LRT. Will use Wald test.")
-        NULL
-    }
-
-    # Fallback: Wald test
     wald_interaction <- NULL
     if (is.null(interaction_test)) {
         analysis_logger("DEBUG", "Using Wald test for interaction...")
@@ -1973,7 +1977,17 @@ save_analysis_to_txt <- function(results, std_means, txt_path) {
 
     cat("3. DIFFERENCE-IN-DIFFERENCES\n")
     cat("============================\n")
-    print(results$difference_in_differences)
+    used_bootstrap_for_did <- !is.null(results$bootstrap_DiD_CI) && nrow(results$bootstrap_DiD_CI) > 0
+    did_table <- if (used_bootstrap_for_did) {
+        results$bootstrap_DiD_CI
+    } else {
+        results$difference_in_differences
+    }
+    if (!is.null(did_table) && nrow(did_table) > 0) {
+        print(did_table)
+    } else {
+        cat("No difference-in-differences results available (skipped or failed).\n")
+    }
     cat("\n")
 
     cat("4. BOOTSTRAP CONFIDENCE INTERVALS - STANDARDIZED MEANS\n")
@@ -1987,10 +2001,14 @@ save_analysis_to_txt <- function(results, std_means, txt_path) {
 
     cat("5. BOOTSTRAP CONFIDENCE INTERVALS - DIFFERENCE-IN-DIFFERENCES\n")
     cat("=============================================================\n")
-    if (!is.null(results$bootstrap_DiD_CI) && nrow(results$bootstrap_DiD_CI) > 0) {
-        print(results$bootstrap_DiD_CI)
+    if (!isTRUE(used_bootstrap_for_did)) {
+        if (!is.null(results$bootstrap_DiD_CI) && nrow(results$bootstrap_DiD_CI) > 0) {
+            print(results$bootstrap_DiD_CI)
+        } else {
+            cat("No bootstrap DiD CIs available (skipped or failed).\n")
+        }
     } else {
-        cat("No bootstrap DiD CIs available (skipped or failed).\n")
+        cat("Bootstrap difference-in-differences reported above.\n")
     }
     cat("\n")
 
@@ -2287,3 +2305,8 @@ print_analysis_summary <- function(results) {
 
     cat("\n")
 }
+
+
+
+
+

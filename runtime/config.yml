@@ -19,7 +19,7 @@ default:
     enable_file_logging: true
     parallel_threshold: 10
     force_recalc: false
-    max_cores: 5  # -1 = use all cores -1, 0/1 = disable parallel, >1 = limit cores
+    max_cores: -1  # -1 = use all cores -1, 0/1 = disable parallel, >1 = limit cores
 
   # Data Processing Settings
   data:

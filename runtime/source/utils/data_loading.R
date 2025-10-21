@@ -331,8 +331,8 @@ load_cached_dataset <- function(file_path, force_refresh = FALSE, subdir = "data
   load_with_cache(
     cache_key = cache_key,
     load_function = function() {
-      dataset_cache_logger("INFO", sprintf("Reading RDS source: %s", file_path))
-      readRDS(file_path)
+      dataset_cache_logger("INFO", sprintf("Reading cache source: %s", file_path))
+      read_cache_file(file_path)
     },
     cache_dir = cache_dir,
     force_rewrite = force_refresh

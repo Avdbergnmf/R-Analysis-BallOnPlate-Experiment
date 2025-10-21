@@ -37,7 +37,6 @@ checkboxInput("psStack", "Stack power spectra",
 checkboxInput("psEnablePlotting", "Enable power spectrum plotting",
   value = FALSE
 )
-
 ```
 
 ```{r}
@@ -74,12 +73,6 @@ plotOutput("powerSpectrumPlot", height = "auto")
 
 
 ```{r, context="server"}
-# PSD feature is loaded globally in initialization.R for efficiency
-
-# Source caching system
-source("source/data_caching_setup.R", local = TRUE)
-source("source/data_caching_system.R", local = TRUE)
-
 # Create power spectrum data cache manager (with parallel processing disabled by default)
 ps_cache_manager <- create_shiny_cache_manager("power_spectrum", use_parallel = FALSE)
 
@@ -94,17 +87,17 @@ add_grouping_to_psd_data <- function(cached_ps_data, group_by, split_by) {
   if (is.null(cached_ps_data) || nrow(cached_ps_data) == 0) {
     return(NULL)
   }
-  
+
   # Get grouping information from get_mu_dyn_long
   mu_data <- get_mu_dyn_long()
   if (is.null(mu_data) || nrow(mu_data) == 0) {
     return(NULL)
   }
-  
+
   # Ensure both datasets have compatible trialNum types
   cached_ps_data$trialNum <- as.numeric(as.character(cached_ps_data$trialNum))
   mu_data$trialNum <- as.numeric(as.character(mu_data$trialNum))
-  
+
   # Add grouping information to power spectrum data
   grouping_vars <- c("participant", "trialNum")
   if (!is.null(group_by) && group_by != "None") {
@@ -113,20 +106,20 @@ add_grouping_to_psd_data <- function(cached_ps_data, group_by, split_by) {
   if (!is.null(split_by) && split_by != "None") {
     grouping_vars <- c(grouping_vars, split_by)
   }
-  
+
   ps_data <- cached_ps_data %>%
     dplyr::left_join(
       mu_data %>% dplyr::select(dplyr::all_of(grouping_vars)),
       by = c("participant", "trialNum")
     )
-  
+
   # Check if join worked - if all grouping columns are NA, something went wrong
   if (!is.null(group_by) && group_by != "None" && group_by %in% names(ps_data)) {
     if (all(is.na(ps_data[[group_by]]))) {
       warning(sprintf("No matching data found for grouping variable '%s'. Check if participant/trial combinations exist in both datasets.", group_by))
     }
   }
-  
+
   return(ps_data)
 }
 
@@ -135,10 +128,10 @@ observe({
   if (!is.null(input$psTracker)) {
     # Use trial 7, participant 1 to get example data (as suggested)
     choices <- get_tracker_options(input$psTracker, 7)
-    
+
     # Get current selection
     current_selection <- isolate(input$psVar)
-    
+
     # Default to "PelvisPos" if available, otherwise first available choice
     default_var <- if (length(choices) > 0 && !"data not available" %in% choices) {
       if ("PelvisPos" %in% choices) {
@@ -149,7 +142,7 @@ observe({
     } else {
       NULL
     }
-    
+
     updateSelectizeInput(session, "psVar",
       choices = choices,
       selected = if (!is.null(current_selection) && current_selection %in% choices) {
@@ -189,14 +182,19 @@ observeEvent(input$psUpdateTrackerData, {
 
 
 # Reset cache when switching trackers, variables, or computation parameters
-observeEvent({
-  input$psTracker
-  input$psVar
-  input$psMaxFreq
-}, {
-  # Reset cache when computation parameters change
-  ps_cache_manager$reset_data()
-}, ignoreNULL = TRUE, ignoreInit = TRUE)
+observeEvent(
+  {
+    input$psTracker
+    input$psVar
+    input$psMaxFreq
+  },
+  {
+    # Reset cache when computation parameters change
+    ps_cache_manager$reset_data()
+  },
+  ignoreNULL = TRUE,
+  ignoreInit = TRUE
+)
 
 # Status display for power spectrum data
 output$psTrackerStatus <- renderText({
@@ -237,140 +235,144 @@ psPlotHeight <- reactive({
 })
 
 # Main power spectrum plot
-output$powerSpectrumPlot <- renderPlot({
-  # Check if plotting is enabled
-  if (!input$psEnablePlotting) {
-    return(ggplot() +
-      annotate("text",
-        x = 0.5, y = 0.5,
-        label = "Enable power spectrum plotting using the checkbox above",
-        hjust = 0.5, vjust = 0.5, size = 4, color = "blue"
-      ) +
-      xlim(0, 1) +
-      ylim(0, 1) +
-      theme_void() +
-      ggtitle("Power Spectrum Plotting Disabled"))
-  }
-  
-  req(input$psTracker, input$psVar, input$psGroup)
-  
-  # Use cached power spectrum data
-  cached_ps_data <- cachedPowerSpectrumData()
-  
-  # Check if we have cached power spectrum data
-  if (nrow(cached_ps_data) == 0) {
-    return(ggplot() +
-      annotate("text",
-        x = 0.5, y = 0.5,
-        label = "No power spectrum data loaded. Please click 'Update Tracker Data' to compute power spectra for the selected participants/trials.",
-        hjust = 0.5, vjust = 0.5, size = 4, color = "red"
-      ) +
-      xlim(0, 1) +
-      ylim(0, 1) +
-      theme_void() +
-      ggtitle("No Power Spectrum Data Loaded"))
-  }
-  
-  # Process cached power spectrum data for plotting
-  tryCatch({
-    # Add grouping variables to cached PSD data
-    ps_data <- add_grouping_to_psd_data(
-      cached_ps_data, 
-      input$psGroup, 
-      if (input$psSplit == "None") NULL else input$psSplit
-    )
-    
-    if (is.null(ps_data) || nrow(ps_data) == 0) {
+output$powerSpectrumPlot <- renderPlot(
+  {
+    # Check if plotting is enabled
+    if (!input$psEnablePlotting) {
       return(ggplot() +
         annotate("text",
           x = 0.5, y = 0.5,
-          label = "Could not add grouping variables to power spectrum data.",
-          hjust = 0.5, vjust = 0.5, size = 3, color = "red"
+          label = "Enable power spectrum plotting using the checkbox above",
+          hjust = 0.5, vjust = 0.5, size = 4, color = "blue"
         ) +
         xlim(0, 1) +
         ylim(0, 1) +
         theme_void() +
-        ggtitle("Grouping Failed"))
+        ggtitle("Power Spectrum Plotting Disabled"))
     }
-    
-    
-    # Sum across participant/trial to get group-level spectra for plotting
-    # Don't group by frequency - instead interpolate to a common frequency grid first
-    group_vars <- c()
-    if (!is.null(input$psGroup) && input$psGroup != "None" && input$psGroup %in% names(ps_data)) {
-      group_vars <- c(group_vars, input$psGroup)
-    }
-    if (!is.null(input$psSplit) && input$psSplit != "None" && input$psSplit %in% names(ps_data)) {
-      group_vars <- c(group_vars, input$psSplit)
-    }
-    
-    if (length(group_vars) > 0) {
-      # Create a common frequency grid
-      freq_range <- range(ps_data$frequency)
-      common_freqs <- seq(freq_range[1], freq_range[2], length.out = 500)  # Smooth frequency grid
-      
-      # Interpolate each participant-trial to common grid, then sum
-      ps_data <- ps_data %>%
-        dplyr::group_by(participant, trialNum, dplyr::across(dplyr::all_of(group_vars))) %>%
-        dplyr::group_modify(~ {
-          if (nrow(.x) > 1) {
-            # Interpolate to common frequency grid
-            interp_power <- approx(.x$frequency, .x$power, xout = common_freqs, rule = 2)$y
-            data.frame(frequency = common_freqs, power = interp_power)
-          } else {
-            .x
-          }
-        }) %>%
-        dplyr::ungroup() %>%
-        dplyr::group_by(frequency, dplyr::across(dplyr::all_of(group_vars))) %>%
-        dplyr::summarize(
-          power = sum(power, na.rm = TRUE),
-          .groups = "drop"
-        )
-    } else {
-      # No grouping - just interpolate to common grid and sum
-      freq_range <- range(ps_data$frequency)
-      common_freqs <- seq(freq_range[1], freq_range[2], length.out = 200)
-      
-      ps_data <- ps_data %>%
-        dplyr::group_by(participant, trialNum) %>%
-        dplyr::group_modify(~ {
-          if (nrow(.x) > 1) {
-            interp_power <- approx(.x$frequency, .x$power, xout = common_freqs, rule = 2)$y
-            data.frame(frequency = common_freqs, power = interp_power)
-          } else {
-            .x
-          }
-        }) %>%
-        dplyr::ungroup() %>%
-        dplyr::group_by(frequency) %>%
-        dplyr::summarize(
-          power = sum(power, na.rm = TRUE),
-          .groups = "drop"
-        )
-    }
-    
-    # Create the power spectrum plot
-    psd$plot_psd(
-      ps_data = ps_data,
-      plot_type = if (input$psStack) "area" else "line",
-      split_by = if (input$psSplit == "None") NULL else input$psSplit,
-      base_size = input$baseSize*2
-    )
-    
-  }, error = function(e) {
-    ggplot() +
-      annotate("text",
-        x = 0.5, y = 0.5,
-        label = paste("Error computing power spectrum:", e$message),
-        hjust = 0.5, vjust = 0.5, size = 3, color = "red"
-      ) +
-      xlim(0, 1) +
-      ylim(0, 1) +
-      theme_void() +
-      ggtitle("Error")
-  })
-}, height = psPlotHeight)
 
+    req(input$psTracker, input$psVar, input$psGroup)
+
+    # Use cached power spectrum data
+    cached_ps_data <- cachedPowerSpectrumData()
+
+    # Check if we have cached power spectrum data
+    if (nrow(cached_ps_data) == 0) {
+      return(ggplot() +
+        annotate("text",
+          x = 0.5, y = 0.5,
+          label = "No power spectrum data loaded. Please click 'Update Tracker Data' to compute power spectra for the selected participants/trials.",
+          hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+        ) +
+        xlim(0, 1) +
+        ylim(0, 1) +
+        theme_void() +
+        ggtitle("No Power Spectrum Data Loaded"))
+    }
+
+    # Process cached power spectrum data for plotting
+    tryCatch(
+      {
+        # Add grouping variables to cached PSD data
+        ps_data <- add_grouping_to_psd_data(
+          cached_ps_data,
+          input$psGroup,
+          if (input$psSplit == "None") NULL else input$psSplit
+        )
+
+        if (is.null(ps_data) || nrow(ps_data) == 0) {
+          return(ggplot() +
+            annotate("text",
+              x = 0.5, y = 0.5,
+              label = "Could not add grouping variables to power spectrum data.",
+              hjust = 0.5, vjust = 0.5, size = 3, color = "red"
+            ) +
+            xlim(0, 1) +
+            ylim(0, 1) +
+            theme_void() +
+            ggtitle("Grouping Failed"))
+        }
+
+
+        # Sum across participant/trial to get group-level spectra for plotting
+        # Don't group by frequency - instead interpolate to a common frequency grid first
+        group_vars <- c()
+        if (!is.null(input$psGroup) && input$psGroup != "None" && input$psGroup %in% names(ps_data)) {
+          group_vars <- c(group_vars, input$psGroup)
+        }
+        if (!is.null(input$psSplit) && input$psSplit != "None" && input$psSplit %in% names(ps_data)) {
+          group_vars <- c(group_vars, input$psSplit)
+        }
+
+        if (length(group_vars) > 0) {
+          # Create a common frequency grid
+          freq_range <- range(ps_data$frequency)
+          common_freqs <- seq(freq_range[1], freq_range[2], length.out = 500) # Smooth frequency grid
+
+          # Interpolate each participant-trial to common grid, then sum
+          ps_data <- ps_data %>%
+            dplyr::group_by(participant, trialNum, dplyr::across(dplyr::all_of(group_vars))) %>%
+            dplyr::group_modify(~ {
+              if (nrow(.x) > 1) {
+                # Interpolate to common frequency grid
+                interp_power <- approx(.x$frequency, .x$power, xout = common_freqs, rule = 2)$y
+                data.frame(frequency = common_freqs, power = interp_power)
+              } else {
+                .x
+              }
+            }) %>%
+            dplyr::ungroup() %>%
+            dplyr::group_by(frequency, dplyr::across(dplyr::all_of(group_vars))) %>%
+            dplyr::summarize(
+              power = sum(power, na.rm = TRUE),
+              .groups = "drop"
+            )
+        } else {
+          # No grouping - just interpolate to common grid and sum
+          freq_range <- range(ps_data$frequency)
+          common_freqs <- seq(freq_range[1], freq_range[2], length.out = 200)
+
+          ps_data <- ps_data %>%
+            dplyr::group_by(participant, trialNum) %>%
+            dplyr::group_modify(~ {
+              if (nrow(.x) > 1) {
+                interp_power <- approx(.x$frequency, .x$power, xout = common_freqs, rule = 2)$y
+                data.frame(frequency = common_freqs, power = interp_power)
+              } else {
+                .x
+              }
+            }) %>%
+            dplyr::ungroup() %>%
+            dplyr::group_by(frequency) %>%
+            dplyr::summarize(
+              power = sum(power, na.rm = TRUE),
+              .groups = "drop"
+            )
+        }
+
+        # Create the power spectrum plot
+        psd$plot_psd(
+          ps_data = ps_data,
+          plot_type = if (input$psStack) "area" else "line",
+          split_by = if (input$psSplit == "None") NULL else input$psSplit,
+          base_size = input$baseSize * 2
+        )
+      },
+      error = function(e) {
+        ggplot() +
+          annotate("text",
+            x = 0.5, y = 0.5,
+            label = paste("Error computing power spectrum:", e$message),
+            hjust = 0.5, vjust = 0.5, size = 3, color = "red"
+          ) +
+          xlim(0, 1) +
+          ylim(0, 1) +
+          theme_void() +
+          ggtitle("Error")
+      }
+    )
+  },
+  height = psPlotHeight
+)
 ```
 

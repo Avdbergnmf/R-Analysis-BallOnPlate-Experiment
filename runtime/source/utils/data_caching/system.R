@@ -1,7 +1,7 @@
 #' Data Caching System
 #'
 #' A flexible caching system that can be applied to different types of datasets.
-#' Supports RDS file persistence, incremental loading, and Shiny integration.
+#' Supports on-disk persistence (RDS or QS via config), incremental loading, and Shiny integration.
 
 # =============================================================================
 # GLOBAL CACHE STORAGE
@@ -397,7 +397,7 @@ create_shiny_cached_data_reactive <- function(cache_manager, data_type, downsamp
 # =============================================================================
 
 # Source the data type setup file to load data loaders and validators
-source("source/data_caching_setup.R", local = FALSE)
+source("source/utils/data_caching/setup.R", local = FALSE)
 
 # =============================================================================
 # CACHE FILE PATHS
@@ -405,7 +405,7 @@ source("source/data_caching_setup.R", local = FALSE)
 
 #' Get cache file path for a specific data type
 #' @param data_type The type of data (e.g., "simulation")
-#' @return Path to the RDS cache file
+#' @return Path to the cache file (format derived from configuration or suffix)
 get_cache_file_path <- function(data_type) {
   ensure_global_data_initialized()
 
@@ -414,7 +414,8 @@ get_cache_file_path <- function(data_type) {
     dir.create(cacheFolder, recursive = TRUE)
   }
 
-  cache_filename <- paste0(data_type, "_cache.rds")
+  cache_ext <- cache_extension_for_format()
+  cache_filename <- paste0(data_type, "_cache.", cache_ext)
   return(file.path(cacheFolder, cache_filename))
 }
 
@@ -422,7 +423,7 @@ get_cache_file_path <- function(data_type) {
 # CACHE MANAGEMENT FUNCTIONS
 # =============================================================================
 
-#' Load cached data from RDS file
+#' Load cached data from disk
 #' @param data_type The type of data to load
 #' @return The cached data or empty data.frame if not found
 load_cache_from_file <- function(data_type) {
@@ -435,15 +436,15 @@ load_cache_from_file <- function(data_type) {
         # Get file info for diagnostics
         file_info <- file.info(cache_path)
         file_size_mb <- round(file_info$size / (1024 * 1024), 2)
-        cache_logger("DEBUG", "RDS file size:", file_size_mb, "MB")
+        cache_logger("DEBUG", "Cache file size:", file_size_mb, "MB")
 
-        # Time the readRDS operation
+        # Time the cache read operation
         start_time <- Sys.time()
-        cached_data <- readRDS(cache_path)
+        cached_data <- read_cache_file(cache_path)
         end_time <- Sys.time()
         read_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
 
-        cache_logger("DEBUG", "readRDS completed in", read_duration, "seconds")
+        cache_logger("DEBUG", "Cache read completed in", read_duration, "seconds")
         cache_logger("DEBUG", "Loaded", data_type, "cache from file:", nrow(cached_data), "rows")
 
         # Additional diagnostics
@@ -467,7 +468,7 @@ load_cache_from_file <- function(data_type) {
   }
 }
 
-#' Save data to RDS cache file
+#' Save data to cache file
 #' @param data_type The type of data
 #' @param data The data to save
 save_cache_to_file <- function(data_type, data) {
@@ -480,9 +481,9 @@ save_cache_to_file <- function(data_type, data) {
       data_size_mb <- round(object.size(data) / (1024 * 1024), 2)
       cache_logger("DEBUG", "Data frame size:", data_size_mb, "MB, rows:", nrow(data))
 
-      # Time the saveRDS operation with compression
+      # Time the cache write operation
       start_time <- Sys.time()
-      saveRDS(data, cache_path, compress = "xz") # Use xz compression for better compression ratio
+      write_cache_file(data, cache_path)
       end_time <- Sys.time()
       save_duration <- round(as.numeric(end_time - start_time, units = "secs"), 2)
 
@@ -490,7 +491,7 @@ save_cache_to_file <- function(data_type, data) {
       file_info <- file.info(cache_path)
       file_size_mb <- round(file_info$size / (1024 * 1024), 2)
 
-      cache_logger("DEBUG", "saveRDS completed in", save_duration, "seconds")
+      cache_logger("DEBUG", "Cache write completed in", save_duration, "seconds")
       cache_logger("DEBUG", "Saved", data_type, "cache to file:", nrow(data), "rows, file size:", file_size_mb, "MB")
     },
     error = function(e) {
@@ -524,7 +525,7 @@ set_cache <- function(data_type, data, filters = list()) {
 
 #' Clear cache for a data type
 #' @param data_type The type of data
-clear_cache <- function(data_type) {
+clear_data_cache <- function(data_type) {
   if (data_type %in% names(global_data_cache)) {
     global_data_cache[[data_type]] <<- NULL
   }
@@ -563,15 +564,15 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
   current_cache <- get_current_cache(data_type)
   cache_logger("DEBUG", "Current cache has", nrow(current_cache), "rows")
 
-  # Step 2: Load from RDS file if cache is empty
+  # Step 2: Load from disk if cache is empty
   if (nrow(current_cache) == 0) {
-    cache_logger("DEBUG", "Step 2: Loading", data_type, "data from RDS file")
+    cache_logger("DEBUG", "Step 2: Loading", data_type, "data from cache file")
     current_cache <- load_cache_from_file(data_type)
-    cache_logger("DEBUG", "Loaded", nrow(current_cache), "rows from RDS file")
+    cache_logger("DEBUG", "Loaded", nrow(current_cache), "rows from cache file")
 
     # Update in-memory cache
     if (nrow(current_cache) > 0) {
-      cache_logger("DEBUG", "Updating in-memory cache with RDS data")
+      cache_logger("DEBUG", "Updating in-memory cache with disk data")
       set_cache(data_type, current_cache)
     }
   } else {
@@ -670,9 +671,9 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
     set_cache(data_type, current_cache)
     cache_logger("DEBUG", "Updated in-memory cache")
 
-    # Save to RDS file
+    # Save to disk
     save_cache_to_file(data_type, current_cache)
-    cache_logger("DEBUG", "Saved to RDS file")
+    cache_logger("DEBUG", "Saved to cache file")
 
     cache_logger("DEBUG", "Updated", data_type, "cache:", nrow(current_cache), "total rows")
   } else {
@@ -717,7 +718,7 @@ get_cached_data <- function(data_type, participants, trials, condition_filter = 
 # UTILITY FUNCTIONS
 # =============================================================================
 
-#' Clear all caches (both in-memory and RDS files)
+#' Clear all caches (both in-memory and on disk)
 #' @param data_types Vector of data types to clear (NULL for all)
 clear_all_caches <- function(data_types = NULL) {
   if (is.null(data_types)) {
@@ -726,9 +727,9 @@ clear_all_caches <- function(data_types = NULL) {
 
   for (data_type in data_types) {
     # Clear in-memory cache
-    clear_cache(data_type)
+    clear_data_cache(data_type)
 
-    # Remove RDS file
+    # Remove cache file
     cache_path <- get_cache_file_path(data_type)
     if (file.exists(cache_path)) {
       file.remove(cache_path)
@@ -739,7 +740,7 @@ clear_all_caches <- function(data_types = NULL) {
 
 #' Get cache statistics
 #' @return List with cache information
-get_cache_stats <- function() {
+get_data_cache_stats <- function() {
   stats <- list()
 
   for (data_type in names(global_data_cache)) {
@@ -750,8 +751,8 @@ get_cache_stats <- function() {
       in_memory_rows = nrow(cache_data),
       in_memory_participants = length(unique(cache_data$participant)),
       in_memory_trials = length(unique(cache_data$trialNum)),
-      rds_file_exists = file.exists(cache_path),
-      rds_file_size = if (file.exists(cache_path)) file.size(cache_path) else 0
+      cache_file_exists = file.exists(cache_path),
+      cache_file_size = if (file.exists(cache_path)) file.size(cache_path) else 0
     )
   }
 

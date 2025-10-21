@@ -111,7 +111,7 @@ load_or_calculate <- function(filePath,
     
     should_recalc <- force_recalc || 
                      !file.exists(filePath) || 
-                     (file.exists(filePath) && !is.null(combinations_df) && nrow(readRDS(filePath)) == 0)
+                     (file.exists(filePath) && !is.null(combinations_df) && nrow(read_cache_file(filePath)) == 0)
     
     logger("DEBUG", "should_recalc:", should_recalc)
     
@@ -164,7 +164,7 @@ load_or_calculate <- function(filePath,
         })
         
         logger("INFO", "Saving data to cache file:", filePath)
-        saveRDS(data, filePath)
+        write_cache_file(data, filePath)
         logger("INFO", "Cache file saved successfully")
 
         # Update dataset cache snapshot
@@ -182,8 +182,8 @@ load_or_calculate <- function(filePath,
         data <- tryCatch(
             load_cached_dataset(filePath, force_refresh = force_dataset_cache_refresh),
             error = function(e) {
-                logger("WARN", sprintf("Dataset cache load failed (%s), falling back to readRDS", e$message))
-                readRDS(filePath)
+                logger("WARN", sprintf("Dataset cache load failed (%s), falling back to direct cache read", e$message))
+                read_cache_file(filePath)
             }
         )
         logger("DEBUG", "Loaded", nrow(data), "rows from cache file")

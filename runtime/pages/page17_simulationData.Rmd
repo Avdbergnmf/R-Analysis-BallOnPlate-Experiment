@@ -246,15 +246,15 @@ runRiskAnalysis <- function(model_path, hazard_samples_path) {
 
       output$risk_analysis_std_table <- renderTable({
         std_table
-      }, rownames = FALSE)
+      }, rownames = FALSE, digits = 6)
 
       output$risk_analysis_within_table <- renderTable({
         within_table
-      }, rownames = FALSE)
+      }, rownames = FALSE, digits = 6)
 
       output$risk_analysis_did_table <- renderTable({
         did_table
-      }, rownames = FALSE)
+      }, rownames = FALSE, digits = 6)
 
       output$risk_analysis_plot <- renderPlot({
         if (!is.null(results$analysis_results$plot)) {

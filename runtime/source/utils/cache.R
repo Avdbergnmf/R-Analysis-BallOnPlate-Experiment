@@ -10,6 +10,91 @@
 cache_logger <- create_module_logger("CACHE")
 
 # =============================================================================
+# CACHE FILE FORMAT HELPERS
+# =============================================================================
+
+#' Resolve the cache format for a given file path
+#' Falls back to global CACHE_FORMAT when extension missing.
+resolve_cache_format <- function(file_path = NULL, format = NULL) {
+    if (!is.null(format) && nzchar(format)) {
+        fmt <- tolower(format)
+    } else if (!is.null(file_path)) {
+        ext <- tolower(tools::file_ext(file_path))
+        if (nzchar(ext) && ext %in% c("qs", "rds")) {
+            fmt <- ext
+        } else if (exists("CACHE_FORMAT", envir = .GlobalEnv)) {
+            fmt <- tolower(get("CACHE_FORMAT", envir = .GlobalEnv))
+        } else {
+            fmt <- "rds"
+        }
+    } else if (exists("CACHE_FORMAT", envir = .GlobalEnv)) {
+        fmt <- tolower(get("CACHE_FORMAT", envir = .GlobalEnv))
+    } else {
+        fmt <- "rds"
+    }
+
+    if (!fmt %in% c("qs", "rds")) {
+        fmt <- "rds"
+    }
+    fmt
+}
+
+#' Determine the standard file extension for a cache format
+cache_extension_for_format <- function(format = NULL) {
+    fmt <- resolve_cache_format(format = format)
+    if (fmt == "qs") {
+        return("qs")
+    }
+    "rds"
+}
+
+#' Read a cache file supporting both RDS and QS formats
+read_cache_file <- function(file_path, format = NULL) {
+    fmt <- resolve_cache_format(file_path, format)
+
+    if (!file.exists(file_path)) {
+        stop(sprintf("Cache file does not exist: %s", file_path))
+    }
+
+    if (fmt == "qs") {
+        return(qs::qread(file_path))
+    }
+
+    readRDS(file_path)
+}
+
+#' Write a cache file supporting both RDS and QS formats
+write_cache_file <- function(data,
+                             file_path,
+                             format = NULL,
+                             compression_level = NULL,
+                             rds_compress = "xz") {
+    fmt <- resolve_cache_format(file_path, format)
+
+    # Ensure target directory exists
+    dir_path <- dirname(file_path)
+    if (!dir.exists(dir_path)) {
+        dir.create(dir_path, recursive = TRUE, showWarnings = FALSE)
+    }
+
+    if (fmt == "qs") {
+        if (is.null(compression_level)) {
+            compression_level <- if (exists("CACHE_COMPRESSION_LEVEL", envir = .GlobalEnv)) {
+                get("CACHE_COMPRESSION_LEVEL", envir = .GlobalEnv)
+            } else {
+                6
+            }
+        }
+        qs::qsave(data, file_path, preset = "high", compress_level = compression_level)
+        return(invisible(file_path))
+    }
+
+    # RDS fallback
+    saveRDS(data, file_path, compress = rds_compress)
+    invisible(file_path)
+}
+
+# =============================================================================
 # CONFIGURATION ACCESS
 # =============================================================================
 
