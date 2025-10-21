@@ -40,6 +40,11 @@ get_simulation_signal <- function(participant, trial, column_name) {
     return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
   }
 
+  # Additional safety check - ensure sim_data is still valid
+  if (is.null(sim_data)) {
+    return(list(values = numeric(0), time = numeric(0), fs = NA_real_, n_valid = 0L))
+  }
+
   # Filter to only real simulation data (when ball is on plate)
   sim_data_filtered <- sim_data %>% dplyr::filter(simulating == TRUE)
 

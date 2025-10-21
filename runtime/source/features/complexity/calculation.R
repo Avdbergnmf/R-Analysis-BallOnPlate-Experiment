@@ -42,8 +42,10 @@ preload_complexity_data <- function(combinations_df = NULL,
   ))
 
   for (tracker in trackers_needed) {
-    complexity_logger("DEBUG", sprintf("Preloading tracker '%s' for %d combinations",
-                                       tracker, nrow(valid_combinations)))
+    complexity_logger("DEBUG", sprintf(
+      "Preloading tracker '%s' for %d combinations",
+      tracker, nrow(valid_combinations)
+    ))
     for (i in seq_len(nrow(valid_combinations))) {
       participant <- as.character(valid_combinations$participant[i])
       trial <- valid_combinations$trial[i]
@@ -298,9 +300,7 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
   # Create complexity logger for this function
   complexity_logger <- create_module_logger("COMPLEXITY")
-  
-  log_operation_start(complexity_logger, "get_all_complexity_metrics")
-  
+
   # Ensure global parameters and data are initialized
   ensure_global_data_initialized()
 
@@ -344,7 +344,6 @@ get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
     complexity_logger("DEBUG", "Removed debug_messages column from final result")
   }
 
-  log_operation_end(complexity_logger, "get_all_complexity_metrics", success = TRUE)
   return(result)
 }
 

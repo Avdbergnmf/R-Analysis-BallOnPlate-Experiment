@@ -332,7 +332,7 @@ attr(get_all_complexity_metrics, "preload") <- function() {
     }
   }
 
-  preload_complexity_data(
+  complexity$preload_complexity_data(
     combinations_df,
     include_continuous,
     continuous_vars,
