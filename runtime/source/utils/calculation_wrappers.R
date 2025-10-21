@@ -234,8 +234,8 @@ attr(calc_all_gait_params, "preload") <- function() {
   combinations_df <- NULL
   force_cache_refresh <- FALSE
 
-  if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
-    ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+  if (base::exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+    ctx <- base::get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
     if (!is.null(ctx$combinations_df)) {
       combinations_df <- ctx$combinations_df
     }
@@ -313,8 +313,8 @@ attr(get_all_complexity_metrics, "preload") <- function() {
   continuous_vars <- c("p", "hipPos", "pelvisPos")
   force_cache_refresh <- FALSE
 
-  if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
-    ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+  if (base::exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+    ctx <- base::get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
     if (!is.null(ctx$combinations_df)) {
       combinations_df <- ctx$combinations_df
     }
@@ -371,8 +371,8 @@ attr(load_or_create_udp_time_trim_info, "preload") <- function() {
   combinations_df <- NULL
   force_cache_refresh <- FALSE
 
-  if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
-    ctx <- get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+  if (base::exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+    ctx <- base::get(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
     if (!is.null(ctx$combinations_df)) {
       combinations_df <- ctx$combinations_df
     }

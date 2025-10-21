@@ -139,8 +139,8 @@ load_or_calculate <- function(filePath,
             ), envir = .GlobalEnv)
             on.exit(
                 {
-                    if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
-                        rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+                    if (base::exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+                        base::rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
                     }
                 },
                 add = TRUE
@@ -149,8 +149,8 @@ load_or_calculate <- function(filePath,
                 preload_fn(),
                 error = function(e) logger("WARN", "Preload hook failed:", e$message)
             )
-            if (exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
-                rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
+            if (base::exists(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv, inherits = FALSE)) {
+                base::rm(".LOAD_OR_CALC_CONTEXT", envir = .GlobalEnv)
             }
         }
         
