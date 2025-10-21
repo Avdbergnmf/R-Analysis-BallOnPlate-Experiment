@@ -681,9 +681,9 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                 means_CI <- boot_arr |>
                     dplyr::group_by(condition, phase) |>
                     dplyr::summarise(
-                        mean = mean(mean_hazard),
-                        lo = stats::quantile(mean_hazard, 0.025, na.rm = TRUE),
-                        hi = stats::quantile(mean_hazard, 0.975, na.rm = TRUE),
+                        mean = mean(risk_1s),
+                        lo = stats::quantile(risk_1s, 0.025, na.rm = TRUE),
+                        hi = stats::quantile(risk_1s, 0.975, na.rm = TRUE),
                         .groups = "drop"
                     )
 
@@ -760,7 +760,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 
                 within_boot_list <- lapply(boot_list, function(dfb) {
                     wide <- dfb |>
-                        tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard)
+                        tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = risk_1s)
                     tibble::tibble(
                         condition   = wide$condition,
                         d_retention = wide$retention - wide$baseline_task,
@@ -770,8 +770,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                 within_boot <- dplyr::bind_rows(within_boot_list, .id = "boot_id")
 
                 delta_point <- std_means |>
-                    dplyr::select(condition, phase, mean_hazard) |>
-                    tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard) |>
+                    dplyr::select(condition, phase, risk_1s) |>
+                    tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = risk_1s) |>
                     dplyr::transmute(
                         condition,
                         d_retention = retention - baseline_task,
