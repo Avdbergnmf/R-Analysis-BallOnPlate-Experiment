@@ -291,6 +291,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
         )
     }
 
+    # Use standardized 1-second drop risk for learning deltas and DiD
     delta <- std_means |>
         dplyr::select(condition, phase, risk_1s) |>
         tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = risk_1s) |>
@@ -836,7 +837,7 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             ggplot2::geom_line() +
             ggplot2::geom_point() +
             ggplot2::geom_errorbar(width = .1) +
-            ggplot2::labs(y = "Standardized mean hazard (per Δt)", x = NULL) +
+            ggplot2::labs(y = "Standardized 1-second drop risk", x = NULL) +
             ggplot2::theme_minimal()
     } else {
         p <- NULL
