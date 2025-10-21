@@ -8,12 +8,8 @@ library(plyr) # Data manipulation functions
 library(purrr) # Functional programming tools
 library(tidyr) # Data reshaping and tidying
 library(rlang) # Programming interface
-library(methods) # Object-oriented programming
 library(tibble) # Modern data frames
 library(magrittr) # Pipe operator
-library(stats) # Statistical functions
-library(utils) # Utility functions
-library(base) # Base functions
 
 # Statistical analysis and modeling
 library(lme4) # Linear mixed-effects models
@@ -45,7 +41,6 @@ library(zoo) # Rolling statistics and time series
 library(readxl) # Excel file reading
 library(jsonlite) # JSON file parsing
 library(svglite) # SVG graphics device
-library(R.utils) # Utility functions including timeout mechanisms
 
 # Parallel processing (optimization: efficient multi-core computation)
 library(foreach) # Parallel for loops
@@ -71,6 +66,9 @@ library(markdown) # Markdown rendering for data dictionary
 
 library(shinyjs) # ShinyJS for interactive UI
 
+library(qs) # caching data faster
+library(config) # configuration management
+library(digest) # for creating cache keys
 
-# Load initialization functions
+# Load initialization functions (but don't call them yet)
 source("source/initialization.R", local = FALSE)

@@ -44,16 +44,16 @@ tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
 
 #### Model Settings
 ```{r}
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + taskNum | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + task.taskNum | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
-  selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
-    choices = general_correction_choices,
-    selected = "holm", multiple = FALSE
-  )
+selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
+  choices = general_correction_choices,
+  selected = "holm", multiple = FALSE
+)
 ```
 
 ```{r}
@@ -174,11 +174,11 @@ conditionalPanel(
 
 ```{r}
 conditionalPanel(
-    condition = "input.paired_ttest == false",
-    selectizeInput("posthoc_correction", "Post-hoc correction method",
-      choices = c("tukey", "scheffe", "sidak", general_correction_choices),
-      selected = "tukey", multiple = FALSE
-    ),
+  condition = "input.paired_ttest == false",
+  selectizeInput("posthoc_correction", "Post-hoc correction method",
+    choices = c("tukey", "scheffe", "sidak", general_correction_choices),
+    selected = "tukey", multiple = FALSE
+  ),
   helpText("Tukey's HSD is recommended for pairwise comparisons. Other methods may be more or less conservative.")
 )
 ```
@@ -192,8 +192,6 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
-# Source statistical utility functions
-source("source/stats_utils.R", local = TRUE)
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())
@@ -201,29 +199,27 @@ ttest_assumption_state <- reactiveVal(NULL)
 
 ############ Getting and setting data
 get_stats_data <- reactive({
-  if (input$getSummarizedData_stats) {
-    dt <- get_mu_dyn_long()
-    if (input$averageData_stats) {
-      dt <- summarize_across_conditions(dt)
-    }
+  # Get the data based on user selection
+  data <- if (input$getSummarizedData_stats) {
+    get_mu_dyn_long()
   } else {
-    dt <- filteredParams()
+    filteredParams()
   }
 
   # Handle empty data case
-  if (!is_stats_data_valid(dt)) {
-    return(handle_invalid_stats_data())
+  if (!stats$validate_stats_data(data)) {
+    return(stats$handle_invalid_data())
   }
 
   # Apply reference levels so the column names match what the selectors expect
-  dt <- apply_reference_levels(dt)
+  dt <- stats$prepare_stats_dataset(data, input$averageData_stats)
   dt
 })
 
 # Helper that tells whether a dependent variable is selected AND exists in data
 dep_var_valid <- reactive({
   data <- get_stats_data()
-  is_dep_var_valid(input$depVar, data)
+  stats$validate_dependent_variable(input$depVar, data)
 })
 
 # Create dynamic observers for variable selection
@@ -266,10 +262,10 @@ create_dynamic_variable_observer(
 # Dynamic observers for reference level selection
 observe({
   data <- get_stats_data()
-  
+
   if ("condition" %in% names(data)) {
     available_conditions <- unique(data$condition)
-    
+
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "condition" %in% names(reference_levels)) {
       ref <- reference_levels$condition
@@ -277,20 +273,16 @@ observe({
     } else {
       available_conditions[1]
     }
-    
+
     updateSelectizeInput(session, "refLevelCondition",
       choices = available_conditions,
       selected = default_ref
     )
   }
-})
 
-observe({
-  data <- get_stats_data()
-  
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)
-    
+
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "phase" %in% names(reference_levels)) {
       ref <- reference_levels$phase
@@ -298,7 +290,7 @@ observe({
     } else {
       available_phases[1]
     }
-    
+
     updateSelectizeInput(session, "refLevelPhase",
       choices = available_phases,
       selected = default_ref
@@ -311,18 +303,18 @@ get_lmer <- reactive({
   req(dep_var_valid()) # ← stop early but quietly if no dep-var
 
   data <- get_stats_data()
-  validate_ready_for_lmm(data)
+  # Validation is now handled in fit_mixed_model
 
   # Apply custom reference levels if specified
   if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
-    data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+    data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
   }
   if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
-    data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+    data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
   }
 
   # Apply transformation to dependent variable if selected
-  data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+  data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
   if (is.null(data)) {
     return(NULL)
   }
@@ -331,14 +323,12 @@ get_lmer <- reactive({
   if (doCustom) {
     formula <- as.formula(paste(input$depVar, "~", input$customModel))
   } else {
-    formula <- build_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
+    formula <- stats$create_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
   }
 
-  if (input$doCentering) {
-    data <- center_predictors(data, formula, input$depVar, input$doScaling)
-  }
+  # Centering is now handled in fit_mixed_model
 
-  fit_lmm(data, formula)
+  stats$fit_mixed_model(data, formula, input$depVar, input$doCentering, input$doScaling)
 })
 
 # ----------------  LMM OUTPUTS ----------------
@@ -439,7 +429,7 @@ output$fixed_effects_table <- renderTable(
     rownames(fixed_effects_df) <- NULL
 
     # Format numbers and make significant p-values bold
-    fixed_effects_df <- set_digits_with_bold_pvalues(fixed_effects_df, "AdjustedP")
+    fixed_effects_df <- stats$format_with_bold_pvalues(fixed_effects_df, "AdjustedP")
 
     fixed_effects_df
   },
@@ -464,7 +454,7 @@ output$random_effects_table <- renderTable(
     # Optionally rename columns for clarity
     colnames(random_effects_df) <- c("Effect", "Group", "Variance", "Standard Deviation")
 
-    random_effects_df <- set_digits(random_effects_df)
+    random_effects_df <- stats$format_numeric_columns(random_effects_df)
 
     random_effects_df
   },
@@ -475,33 +465,40 @@ output$post_hoc_table <- renderTable(
   {
     req(dep_var_valid())
     lmm <- get_lmer()
-    
+
     # Get the same processed data that was used for the model
     data <- get_stats_data()
-    
+
     # Apply same reference levels as in get_lmer()
     if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
-      data <- apply_custom_reference_level(data, "condition", input$refLevelCondition)
+      data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
     }
     if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
-      data <- apply_custom_reference_level(data, "phase", input$refLevelPhase)
+      data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
     }
-    
+
     # Apply same transformation as in get_lmer()
-    data <- apply_depvar_transform(data, input$depVar, input$depVarTransform)
+    data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
     if (is.null(data)) {
       return(data.frame(Message = "Transformation failed. Cannot perform post-hoc analysis."))
     }
 
     # Prepare analysis (use posthoc_correction for emmeans, not correctionMethod which is for fixed effects)
-    lmm_posthoc <- prepare_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)
-    if (is.null(lmm_posthoc)) {
+    posthoc_results <- stats$run_posthoc_analysis(lmm, data, input$indepInterVars, input$indepVars, input$force_posthoc, input$posthoc_correction)
+    if (is.null(posthoc_results$results)) {
       return(data.frame(Message = "No significant main or interaction effects found."))
     }
+    
+    # Create lmm_posthoc structure for compatibility with existing code
+    lmm_posthoc <- list(
+      combined = list(df = posthoc_results$results),
+      posthoc_results = posthoc_results$metadata$posthoc_results,
+      all_indep_vars = posthoc_results$metadata$all_indep_vars
+    )
 
     # Choose method based on paired_ttest input
     if (input$paired_ttest) {
-      res <- compute_paired_ttest_table(lmm_posthoc, data, input$depVar, input$num_tests)
+      res <- stats$run_paired_ttest_analysis(lmm_posthoc, data, input$depVar, input$num_tests)
 
       # Store assumption lookup data and add assumption buttons
       assumption_lookup <- attr(res, "assumption_lookup")
@@ -512,7 +509,7 @@ output$post_hoc_table <- renderTable(
         if ("AssumptionID" %in% names(res)) {
           assumption_ids <- res$AssumptionID
           res$AssumptionID <- NULL # Remove ID column from display
-          res$Assumptions <- sapply(assumption_ids, build_assumption_button)
+          res$Assumptions <- sapply(assumption_ids, stats$create_assumption_button)
         }
       }
     } else {
@@ -520,7 +517,8 @@ output$post_hoc_table <- renderTable(
     }
 
     p_format_names <- c("p_value", "p.value", "corrected_p") # what column names to format based on value < 0.05
-    postprocess_posthoc_results(res, input$filter_posthoc, p_format_names)
+    # Note: postprocess_posthoc_results is called internally by run_posthoc_analysis
+    res
   },
   sanitize.text.function = function(x) x,
   escape = FALSE
@@ -531,7 +529,9 @@ observeEvent(input$ttest_assumption_row, {
   lookup <- ttest_assumption_lookup()
   info <- lookup[[input$ttest_assumption_row]]
   if (is.null(info)) {
-    showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
+    if (exists("showNotification")) {
+      showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
+    }
     return()
   }
 
@@ -552,52 +552,54 @@ observeEvent(input$ttest_assumption_row, {
 # DiD button UI
 output$did_button_ui <- renderUI({
   req(dep_var_valid())
-  HTML(build_did_button())
+  HTML(stats$create_did_button())
 })
 
 # LMM assumption button
 output$lmm_assumption_button_ui <- renderUI({
   req(dep_var_valid())
-  HTML(build_lmm_assumption_button())
+  HTML(stats$create_lmm_assumption_button())
 })
 
 # DiD analysis observer
 observeEvent(input$show_did_analysis, {
   req(dep_var_valid())
-  
+
   lmm <- get_lmer()
   data <- get_stats_data()
-  
+
   if (is.null(lmm)) {
-    showNotification("Model could not be fitted. Please check your model settings.", type = "error")
+    if (exists("showNotification")) {
+      showNotification("Model could not be fitted. Please check your model settings.", type = "error")
+    }
     return()
   }
-  
-  # Compute DiD analysis (uses Kenward-Roger df and Holm correction)
-  did_results <- compute_did_analysis(lmm, data)
-  
+
+  # Compute DiD analysis (uses Kenward-Roger df and selected correction method)
+  did_results <- stats$run_did_analysis(lmm, data, input$correctionMethod)
+
   # Check if we have valid results
   if (!is.null(did_results$message)) {
     showNotification(did_results$message, type = "warning", duration = 10)
     return()
   }
-  
+
   # Format the results for display
   within_cond_display <- did_results$within_condition
   within_phase_display <- did_results$within_phase
   did_display <- did_results$did
   baseline_used <- did_results$baseline_used
-  
+
   if (!is.null(within_cond_display)) {
-    within_cond_display <- set_digits_with_bold_pvalues(within_cond_display, "p_adjusted", digits = 4)
+    within_cond_display <- stats$format_with_bold_pvalues(within_cond_display, "p_adjusted", digits = 4)
   }
   if (!is.null(within_phase_display)) {
-    within_phase_display <- set_digits_with_bold_pvalues(within_phase_display, "p_adjusted", digits = 4)
+    within_phase_display <- stats$format_with_bold_pvalues(within_phase_display, "p_adjusted", digits = 4)
   }
   if (!is.null(did_display)) {
-    did_display <- set_digits_with_bold_pvalues(did_display, "p_adjusted", digits = 4)
+    did_display <- stats$format_with_bold_pvalues(did_display, "p_adjusted", digits = 4)
   }
-  
+
   # Show modal with results
   showModal(
     modalDialog(
@@ -611,64 +613,66 @@ observeEvent(input$show_did_analysis, {
         tags$p("This analysis compares how changes from baseline phase differ between conditions."),
         tags$p(tags$strong("Baseline phase used:"), baseline_used),
         tags$hr(),
-        
         tags$h5("Statistical Methods:"),
         tags$ul(
           tags$li(tags$strong("Degrees of Freedom:"), " Kenward-Roger approximation (more accurate for small samples and complex random effects structures)"),
-          tags$li(tags$strong("Multiple Comparison Correction:"), " Holm step-down procedure (controls family-wise error rate while being more powerful than Bonferroni)"),
+          tags$li(tags$strong("Multiple Comparison Correction:"), paste("Selected method:", input$correctionMethod)),
           tags$li(tags$strong("Confidence Intervals:"), " 95% CIs based on the t-distribution with Kenward-Roger df")
         ),
-        
         tags$h5("Interpreting Estimates:"),
         tags$ul(
           tags$li(tags$strong("Within-Condition:"), " Positive = increase from baseline; Negative = decrease from baseline"),
           tags$li(tags$strong("Within-Phase:"), " Positive = condition_cmp > condition_ref; Negative = condition_cmp < condition_ref"),
           tags$li(tags$strong("DiD:"), " Positive = condition_cmp changed more (or decreased less) than condition_ref from baseline; Negative = condition_cmp changed less (or decreased more) than condition_ref")
         ),
-        
         tags$p(tags$em("Note: Bold p-values indicate significance at α = 0.05 after correction.")),
         tags$hr()
       ),
-      
+
       # Within-condition comparisons table
       if (!is.null(within_cond_display)) {
         tags$div(
           tags$h4("Within-Condition Phase Comparisons", style = "margin-top: 20px;"),
           tags$p("Each condition's change from baseline phase (used as inputs for DiD calculation)."),
-          renderTable({
-            within_cond_display
-          }, 
-          sanitize.text.function = function(x) x,
-          escape = FALSE),
+          renderTable(
+            {
+              within_cond_display
+            },
+            sanitize.text.function = function(x) x,
+            escape = FALSE
+          ),
           tags$hr()
         )
       },
-      
+
       # DiD results table
       tags$div(
         tags$h4("Difference-in-Differences Results", style = "margin-top: 20px;"),
         tags$p("Tests whether conditions differ in how they changed from baseline to each phase."),
-        renderTable({
-          did_display
-        }, 
-        sanitize.text.function = function(x) x,
-        escape = FALSE),
+        renderTable(
+          {
+            did_display
+          },
+          sanitize.text.function = function(x) x,
+          escape = FALSE
+        ),
         tags$hr()
       ),
-      
+
       # Within-phase comparisons table
       if (!is.null(within_phase_display)) {
         tags$div(
           tags$h4("Within-Phase Condition Comparisons", style = "margin-top: 20px;"),
           tags$p("Pairwise comparisons between all conditions within each phase."),
-          renderTable({
-            within_phase_display
-          }, 
-          sanitize.text.function = function(x) x,
-          escape = FALSE)
+          renderTable(
+            {
+              within_phase_display
+            },
+            sanitize.text.function = function(x) x,
+            escape = FALSE
+          )
         )
       },
-      
       easyClose = TRUE,
       footer = modalButton("Close")
     )

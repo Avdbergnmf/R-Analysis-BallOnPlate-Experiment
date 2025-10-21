@@ -38,7 +38,7 @@ plotlyOutput("TwoD_interactive")
 # Helper function to update plot options while preserving selection
 updatePlotOptions <- function(tracker, target_x, target_y, current_x = NULL, current_y = NULL) {
   trialNum <- if (is.null(input$trialNum2d)) allTrials[2] else as.numeric(input$trialNum2d)
-  choices <- getOptions(tracker, trialNum)
+  choices <- get_tracker_options(tracker, trialNum)
 
   # Preserve previous selections if they still exist
   selected_x <- if (!is.null(current_x) && current_x %in% choices) current_x else choices[min(2, length(choices))]
@@ -66,14 +66,22 @@ observeEvent(
 
 output$TwoD <- renderSVG({
   reactive({
-    plot_2d(input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
+    # Load data for both trackers
+    xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+    yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+    
+    plotting$plot_2d(xData, yData, input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
   })
 })
 
 
 output$TwoD_interactive <- renderPlotly({
-  p <- plot_2d(
-    input$tracker, input$tracker,
+  # Load data for both trackers
+  xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+  yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
+  
+  p <- plotting$plot_2d(
+    xData, yData, input$tracker, input$tracker,
     input$participant2d,
     as.numeric(input$trialNum2d),
     input$xplot2d, input$yplot2d,

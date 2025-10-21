@@ -1,12 +1,10 @@
 ### Actions
 
 ```{r, context="server"}
+
 # Load shinyjs for enable/disable functionality
 library(shinyjs)
 useShinyjs()
-
-# Source utility functions
-source("source/outlier_utils.R", local = FALSE)
 
 # Initialize reactive values at top level
 prepared_changes <- reactiveVal(NULL)
@@ -570,7 +568,7 @@ observeEvent(event_data("plotly_relayout", source = "manual_outlier_plot"), {
     click_suffix <- if (click_type != "") paste0(" (", click_type, ")") else ""
     
     # Find the closest heel strike
-    closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, outlier_threshold)
+    closest_step <- gait$find_closest_strike(clicked_time, current_participant, current_trial, trial_data, outlier_threshold)
     
     if (!is.null(closest_step)) {
       # Remove from both lists first (clean slate)
@@ -647,7 +645,7 @@ observeEvent(event_data("plotly_click", source = "manual_outlier_plot"), {
     if (nrow(trial_data) == 0) return()
     
     # Find the closest heel strike to determine current state
-    closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
+    closest_step <- gait$find_closest_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
     
     if (!is.null(closest_step)) {
       current_step_outliers <- step_outliers()
@@ -1061,8 +1059,11 @@ output$manualOutlierPlot <- renderPlotly({
     
     # Create the base ggplot
     base_plot <- tryCatch({
-      plot_steps(
-        plot_data, current_participant, current_trial,
+      # Get preprocessed data for plotting
+      preprocessedData <- get_preprocessed_data(current_participant, current_trial)
+      
+      plotting$plot_steps(
+        plot_data, preprocessedData, current_participant, current_trial,
         current_xaxis, current_yaxis, input$filter, 
         baseSize = input$baseSize
       )
@@ -1394,7 +1395,7 @@ observeEvent(input$confirm_selection, {
       new_hs_outliers <- lapply(seq_len(nrow(selected_data)), function(i) {
         clicked_time <- selected_data$x[i]
         
-        closest_step <- find_closest_heel_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
+        closest_step <- gait$find_closest_strike(clicked_time, current_participant, current_trial, trial_data, input$outlier_threshold)
         
         if (!is.null(closest_step)) {
           data.frame(
@@ -1881,7 +1882,7 @@ observeEvent(input$apply_to_workspace, {
     threshold <- input$outlier_threshold
 
     # Find heel strikes to remove
-    hs_matches  <- find_closest_heel_strikes(current_hs_outliers, gait_dt, threshold)
+    hs_matches  <- gait$find_heel_strikes(current_hs_outliers, gait_dt, threshold)
     if (!is.null(hs_matches) && nrow(hs_matches) > 0) {
       hs_matches <- data.table::as.data.table(hs_matches)
       rows_to_remove <- gait_dt[hs_matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
@@ -1900,7 +1901,7 @@ observeEvent(input$apply_to_workspace, {
     } else ""
     
     # --- Calculate Step Outlier Markings ---
-    step_matches <- find_closest_heel_strikes(current_step_outliers, gait_dt, threshold)
+    step_matches <- gait$find_heel_strikes(current_step_outliers, gait_dt, threshold)
     if (!is.null(step_matches) && nrow(step_matches) > 0) {
       step_matches <- data.table::as.data.table(step_matches)
       rows_to_mark <- gait_dt[step_matches, on = .(participant, trialNum, time), nomatch = 0, which = TRUE]
@@ -1956,7 +1957,7 @@ observeEvent(input$confirm_apply_outliers, {
     current_hs_outliers <- heelstrike_outliers()
     current_step_outliers_data <- step_outliers()
 
-    allGaitParams <<- apply_outliers(
+    allGaitParams <<- gait$apply_outlier_processing(
       allGaitParams,
       current_hs_outliers,
       current_step_outliers_data,
@@ -1996,4 +1997,3 @@ output$save_workspace_rds <- downloadHandler(
   }
 )
 ```
-

@@ -21,28 +21,16 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 # Configuration variables are now centralized in source/initialization.R
 
 source("source/setup.R")
-source("source/logging_utils.R", local = FALSE)
-source("source/outlier_utils.R", local = FALSE)
-source("source/data_loading.R", local = FALSE)
-source("source/pre_processing.R", local = FALSE)
 
-source("source/find_foot_events.R", local = FALSE)
+# Gait event detection is now loaded on-demand via the gait feature module
 
 # =============================================================================
-# FORCE REINITIALIZATION AT STARTUP
+# ENSURE INITIALIZATION IS COMPLETE
 # =============================================================================
-# Force a complete reinitialization of all global data and parameters
-# This ensures everything is properly loaded before any calculations begin
-cat("=== FORCING COMPLETE REINITIALIZATION AT STARTUP ===\n")
-initialize_global_parameters()
-initialize_global_data()
-cat("=== REINITIALIZATION COMPLETE ===\n")
-# =============================================================================
-
-## Get Results
-source("source/get_data_from_loop.R", local = FALSE)
-source("source/calc_all_gait_params.R", local = FALSE)
-source("source/get_questionnaire_results.R", local = FALSE)
+# Ensure all global data and parameters are properly loaded
+# (This is now handled automatically by the loading process)
+cat("=== ENSURING INITIALIZATION IS COMPLETE ===\n")
+ensure_global_data_initialized()
 
 # File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
@@ -51,45 +39,30 @@ simDataFile <- file.path(resultsFolder, "allSimulationData.rds")
 taskMetricsFile <- file.path(resultsFolder, "allTaskMetrics.rds")
 complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
+
+
 # Create UDP time trim info for all participants and trials for improved performance
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
-udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
+cacheRefreshRequested <- isTRUE(CACHE_FORCE_REWRITE)
+udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info,
+                                      force_cache_refresh = cacheRefreshRequested)
 
 # Load or calculate the data using the global parallel setting
-allQResults <- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
-allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
+cat("=== LOADING MAIN DATA OBJECTS ===\n")
+allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
+allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params,
+                                    force_cache_refresh = cacheRefreshRequested)
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
-## The simulation source
-source("source/profile_shapes.R", local = FALSE)
-source("source/simulation_core.R", local = FALSE)
-source("source/get_simulation_data.R", local = FALSE)
+# Load remaining data objects
+cat("=== LOADING REMAINING DATA OBJECTS ===\n")
+allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics)
+allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+cat("=== ALL DATA OBJECTS LOADED ===\n")
 
 
-## Summary tables
-source("source/summarize_gaitparams.R", local = FALSE)
-source("source/summarize_simulation.R", local = FALSE)
-source("source/complexity.R", local = FALSE)
-
-# Data caching system (must be loaded before risk_model.R)
-source("source/data_caching_system.R", local = FALSE)
-source("source/risk_model.R", local = FALSE)
-
-# Load risk model and extract tau for parallel processing (only if it exists)
-#setup_global_risk_variables()
-
-# Load or calculate task and complexity metrics using the global parallel setting
-allTaskMetrics <- load_or_calculate(taskMetricsFile, get_all_task_metrics, parallel = FALSE, extra_global_vars = c("GLOBAL_RISK_TAU", "GLOBAL_HAZARD_SAMPLES_PREDS"))
-allComplexityMetrics <- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
-
-## Plotting code
-source("source/plotting.R", local = FALSE)
-
-# Dynamic input utilities (loaded once for all pages)
-source("source/dynamic_input_utils.R", local = FALSE)
-
-
+cat("=== INITIALIZATION COMPLETE ===\n")
 
 # for testing combining of tables
 # mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)
@@ -103,11 +76,6 @@ Sidebar {.sidebar}
 =====================================
 ```{r, child='pages/sidebar_dynamicDataFiltering.Rmd'}
 ```
-
-```{r, context="server", local=FALSE}
-source("source/get_filtered_data.R", local = TRUE)
-```
-
 
 ```{r, context="server", local=FALSE}
 session$allowReconnect(TRUE)
@@ -164,19 +132,10 @@ Histograms
 ```{r, child='pages/page5_histograms.Rmd'}
 ```
 
-Power Spectrum {data-icon="fa-wave-square"}
-=====================================
-```{r, child='pages/page18_powerSpectrum.Rmd'}
-```
 
 Scatterplots
 =====================================
 ```{r, child='pages/page6_scatterplots.Rmd'}
-```
-
-Scatterplots TrialData
-=====================================
-```{r, child='pages/page7_trialScatterplots.Rmd'}
 ```
 
 Questionnaires 
@@ -219,7 +178,7 @@ Manual Outlier Filtering
 ```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
 ```
 
-Simulation Data {data-icon="fa-gamepad"}
+Simulation Data
 =====================================
 ```{r, child='pages/page17_simulationData.Rmd'}
 ```
@@ -318,4 +277,3 @@ $(function() {
   setTimeout(saveCurrentPage, 2000);
 });
 ```
-

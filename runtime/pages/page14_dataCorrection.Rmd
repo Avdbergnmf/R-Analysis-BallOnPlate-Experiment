@@ -64,6 +64,9 @@ rotationDF <- reactiveVal(data.frame(participant = character(),
 
 # Function to get or set rotation
 getRotation <- function(participant, trial) {
+  # Convert trial to numeric if it's not already
+  trial <- as.numeric(trial)
+  
   df <- rotationDF()
   row <- df[df$participant == participant & df$trial == trial, ]
   if (nrow(row) > 0) {
@@ -79,7 +82,7 @@ getRotation <- function(participant, trial) {
 
 # Update rotation input when participant or trial changes
 observe({
-  rotation <- getRotation(input$participant_15, as.numeric(input$trialNum_15))
+  rotation <- getRotation(input$participant_15, input$trialNum_15)
   updateNumericInput(session, "rotationCorrection", value = rotation)
 })
 
@@ -87,7 +90,7 @@ observe({
 observeEvent(input$saveRotation, {
   df <- rotationDF()
   participant <- input$participant_15
-  trial <- as.numeric(input$trialNum_15)
+  trial <- input$trialNum_15
   rotation <- input$rotationCorrection
   
   # Update or add new row
@@ -135,15 +138,15 @@ output$rotationTable <- renderTable({
 })
 
 output$FeetTraj_15 <- renderPlotly({
-  tnum <- as.numeric(input$trialNum_15)
-  preprocessedData <- get_preprocessed_data(input$participant_15, tnum) 
-  rotation <- getRotation(input$participant_15, tnum)
+  # Gait feature is loaded globally in initialization
+  preprocessedData <- get_preprocessed_data(input$participant_15, input$trialNum_15) 
+  rotation <- getRotation(input$participant_15, input$trialNum_15)
   
   if (input$d_correction_15) {
     # Apply rotation to each dataset in the preprocessed data
     for (dataName in names(preprocessedData)) {
       # Only rotate if the data contains kinematic columns
-      if (is_kinematic_data(preprocessedData[[dataName]])) {
+      if (gait$is_kinematic_data(preprocessedData[[dataName]])) {
         preprocessedData[[dataName]] <- rotate_y(preprocessedData[[dataName]], rotation)
       }
     }
@@ -156,13 +159,12 @@ output$FeetTraj_15 <- renderPlotly({
             c(input$ylim_min_15, input$ylim_max_15) else NULL
 
   # Create the base ggplot
-  p <- plot_steps(
-    filteredParams(), input$participant_15, tnum,
+  p <- plotting$plot_steps(
+    filteredParams(), preprocessedData, input$participant_15, input$trialNum_15,
     input$xplot_15, input$yplot_15, input$filter_15, 
     baseSize = input$baseSize,
     xlim = xlim,
-    ylim = ylim,
-    preprocessedData = preprocessedData
+    ylim = ylim
   )
   # Convert to ggplotly
   ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%

@@ -75,7 +75,7 @@ imageOutput("homoscedasticity_plot")
 apply_correlation_transforms <- function(data, x_var, y_var, x_transform, y_transform) {
   # Apply transformation to X variable
   if (x_transform != "none" && x_var %in% colnames(data)) {
-    data <- apply_depvar_transform(data, x_var, x_transform)
+    data <- stats$transform_dependent_variable(data, x_var, x_transform)
     if (is.null(data)) {
       return(NULL)
     }
@@ -83,7 +83,7 @@ apply_correlation_transforms <- function(data, x_var, y_var, x_transform, y_tran
 
   # Apply transformation to Y variable
   if (y_transform != "none" && y_var %in% colnames(data)) {
-    data <- apply_depvar_transform(data, y_var, y_transform)
+    data <- stats$transform_dependent_variable(data, y_var, y_transform)
     if (is.null(data)) {
       return(NULL)
     }
@@ -109,7 +109,7 @@ get_correlation_data <- reactive({
   if (input$getSummarizedData) {
     data <- get_mu_dyn_long()
     if (input$averageData) {
-      data <- summarize_across_conditions(data)
+      data <- gait$summarize_across_conditions(data)
     }
     if (input$diffData) {
       # Calculate differences between phases for questionnaire data
@@ -396,7 +396,7 @@ output$correlation_plot_svg <- renderSVG({
       return()
     }
 
-    plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
+    plotting$plot_correlation_stats(dt, input$xVar, input$yVar, input$par, input$baseSize, input$heatmap, input$heatmap_bins)
   })
 })
 

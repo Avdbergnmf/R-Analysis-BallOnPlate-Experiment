@@ -1,0 +1,62 @@
+# Ball-on-Plate Experiment Configuration
+# This file contains the main configuration settings for the experiment analysis
+# Uses the config package format with inheritance
+
+default:
+  app_name: "Ball-on-Plate Experiment Analysis"
+  data_path: "data/"
+  cache_path: "cache/"
+  
+  # Cache Control Settings
+  cache:
+    force_rewrite: false
+    compression_level: 6
+    format: "qs"
+
+  # Performance Settings
+  performance:
+    use_parallel: true
+    enable_file_logging: true
+    parallel_threshold: 10
+    force_recalc: false
+    max_cores: 5  # -1 = use all cores -1, 0/1 = disable parallel, >1 = limit cores
+
+  # Data Processing Settings
+  data:
+    use_continuous_filtering: true
+    default_sampling_freq: 200
+    default_cutoff_freq: 5
+
+  # Logging Settings
+  logging:
+    enabled: true
+    level: "DEBUG"
+    memory_monitoring: true
+
+# Development environment (fast startup, minimal caching)
+development:
+  inherit: default
+  cache:
+    force_rewrite: false
+    compression_level: 3
+  performance:
+    enable_file_logging: false
+    parallel_threshold: 20
+    max_cores: 4  # Limit to 4 cores in development
+  logging:
+    level: "INFO"
+    memory_monitoring: false
+
+# Production environment (full caching, comprehensive logging)
+production:
+  inherit: default
+  cache:
+    force_rewrite: true
+    compression_level: 9
+  performance:
+    enable_file_logging: true
+    parallel_threshold: 5
+    max_cores: -1  # Use all available cores in production
+  logging:
+    level: "DEBUG"
+    memory_monitoring: true

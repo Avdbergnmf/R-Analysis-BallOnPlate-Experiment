@@ -74,8 +74,9 @@ plotOutput("powerSpectrumPlot", height = "auto")
 
 
 ```{r, context="server"}
-# Source power spectrum utilities and caching system
-source("source/power_spectrum_utils.R", local = TRUE)
+# PSD feature is loaded globally in initialization.R for efficiency
+
+# Source caching system
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
 
@@ -133,7 +134,7 @@ add_grouping_to_psd_data <- function(cached_ps_data, group_by, split_by) {
 observe({
   if (!is.null(input$psTracker)) {
     # Use trial 7, participant 1 to get example data (as suggested)
-    choices <- getOptions(input$psTracker, 7)
+    choices <- get_tracker_options(input$psTracker, 7)
     
     # Get current selection
     current_selection <- isolate(input$psVar)
@@ -350,9 +351,9 @@ output$powerSpectrumPlot <- renderPlot({
     }
     
     # Create the power spectrum plot
-    plot_power_spectrum(
+    psd$plot_psd(
       ps_data = ps_data,
-      stack = input$psStack,
+      plot_type = if (input$psStack) "area" else "line",
       split_by = if (input$psSplit == "None") NULL else input$psSplit,
       base_size = input$baseSize*2
     )

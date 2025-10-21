@@ -7,17 +7,14 @@ selectizeInput("dataType", "Data Type",
   selected = "gait", multiple = FALSE
 )
 
-# Status display and controls for simulation data
+# Status display for simulation data
 conditionalPanel(
   condition = "input.dataType == 'simulation'",
   div(
-    actionButton("simUpdateData", "Update Simulation Data",
-      class = "btn-primary", style = "margin-bottom: 10px;"
-    ),
     div(id = "simulationStatus", style = "margin-top: 5px; font-size: 12px; color: #666;"),
     div(
       style = "margin-top: 5px; font-size: 11px; color: #888;",
-      "Note: Click 'Update Simulation Data' to load and cache simulation data."
+      "Note: Simulation data is loaded automatically from hazard_samples_with_preds.rds."
     )
   )
 )
@@ -68,14 +65,13 @@ checkboxInput("interactiveHist", "Interactive histograms (hover tooltips)",
   value = FALSE
 )
 
+checkboxInput("disableSizeCheck", "Disable dataset size check (allow large datasets)",
+  value = FALSE
+)
+
 # Downsampling control for large datasets
 numericInput("downsampleFactor", "Downsampling factor (1=no downsampling, 10=every 10th row)",
   min = 1, max = 100, value = 10, step = 1
-)
-
-# Parallel loading control for cache managers
-checkboxInput("enableParallelLoading", "Enable parallel data loading",
-  value = TRUE
 )
 # Additional checkbox for summarizing across conditions
 conditionalPanel(
@@ -120,21 +116,14 @@ tableOutput("overallMeanTable")
 
 ```{r, context="server"}
 # Source required files for data loading functions
-source("source/get_simulation_data.R", local = TRUE)
 source("source/data_caching_setup.R", local = TRUE)
 source("source/data_caching_system.R", local = TRUE)
-source("source/logging_utils.R", local = TRUE)
 
 # Create logger for this page
 page_logger <- create_module_logger("PAGE5-HISTOGRAMS")
 
 # Define cacheable data types and their configurations
 cacheable_data_types <- list(
-  "simulation" = list(
-    button_id = "simUpdateData",
-    status_id = "simulationStatus",
-    display_name = "Simulation Data"
-  ),
   "raw_tracker" = list(
     button_id = "rawTrackerUpdateData",
     status_id = "rawTrackerStatus",
@@ -147,8 +136,8 @@ cache_managers <- list()
 cached_data_reactive <- list()
 
 for (data_type in names(cacheable_data_types)) {
-  # Create cache manager with default parallel loading (will be updated reactively)
-  cache_managers[[data_type]] <- create_shiny_cache_manager(data_type, use_parallel = TRUE)
+  # Create cache manager
+  cache_managers[[data_type]] <- create_shiny_cache_manager(data_type, use_parallel = FALSE)
 
   # Create cached data reactive
   cached_data_reactive[[data_type]] <- create_shiny_cached_data_reactive(
@@ -157,16 +146,38 @@ for (data_type in names(cacheable_data_types)) {
   )
 }
 
-# Helper function to get cached data for a data type (only if already loaded)
+# Helper function to get cached data for a data type with fast cache lookup
 get_cached_data_local <- function(data_type) {
   if (data_type %in% names(cache_managers)) {
-    # Only return data if it's already been loaded (trigger > 0)
-    trigger_value <- cache_managers[[data_type]]$trigger()
-    if (trigger_value > 0 && data_type %in% names(cached_data_reactive)) {
-      page_logger("DEBUG", "Getting already loaded data for", data_type)
+    # Try fast cache first
+    page_logger("DEBUG", "Trying fast cache lookup for", data_type)
+
+    # Get current filters for fast cache lookup
+    current_filters <- get_universal_filters()
+    if (!is.null(current_filters)) {
+      # Get downsampling factor from user input
+      downsample_factor <- if (!is.null(input$downsampleFactor)) input$downsampleFactor else 1
+
+      # Try fast cache lookup
+      fast_data <- cache_managers[[data_type]]$get_fast_cache(
+        participants = current_filters$participants,
+        trials = current_filters$trials,
+        condition_filter = current_filters$condition,
+        downsample_factor = downsample_factor
+      )
+
+      if (!is.null(fast_data)) {
+        page_logger("DEBUG", "Fast cache hit! Returning", nrow(fast_data), "rows")
+        return(fast_data)
+      } else {
+        page_logger("DEBUG", "Fast cache miss - falling back to reactive")
+      }
+    }
+
+    # Fallback to reactive if fast cache miss
+    if (data_type %in% names(cached_data_reactive)) {
+      page_logger("DEBUG", "Using reactive data for", data_type)
       return(cached_data_reactive[[data_type]]())
-    } else {
-      page_logger("DEBUG", "No data loaded yet for", data_type, "(trigger =", trigger_value, ")")
     }
   }
 
@@ -207,6 +218,12 @@ get_empty_data_structure <- function(data_type) {
 currentData <- reactive({
   page_logger("DEBUG", "currentData reactive triggered")
   page_logger("DEBUG", "dataType:", input$dataType)
+  
+  # Early return if histogram plotting is disabled to avoid unnecessary data processing
+  if (!input$enableHistograms) {
+    page_logger("DEBUG", "Histogram plotting disabled, returning empty data structure")
+    return(get_empty_data_structure(input$dataType))
+  }
 
   if (input$dataType == "summarized") {
     # Use summarized data when "Summarized Data" is selected
@@ -223,7 +240,7 @@ currentData <- reactive({
         # Apply additional summarization across conditions if requested
         if (input$summarizeAcrossConditions) {
           page_logger("DEBUG", "Applying additional summarization across conditions")
-          summarized_data <- summarize_across_conditions(summarized_data)
+          summarized_data <- gait$summarize_across_conditions(summarized_data)
           page_logger("DEBUG", "After condition summarization:", nrow(summarized_data), "rows")
         }
         return(summarized_data)
@@ -234,30 +251,81 @@ currentData <- reactive({
         return(data.frame())
       }
     )
-  } else if (input$dataType %in% names(cacheable_data_types)) {
-    # For cacheable data types, only return data if it's already been loaded
-    # Don't trigger automatic loading - only show what's already cached
-    page_logger("DEBUG", "Checking for existing cached data for type:", input$dataType)
+  } else if (input$dataType == "simulation") {
+    # Load hazard samples with predictions directly
+    page_logger("DEBUG", "Loading simulation data from hazard_samples_with_preds.rds")
+    tryCatch(
+      {
+        # Get the path from initialization
+        hazard_file <- file.path(dataExtraFolder, "hazard_samples_with_preds.rds")
+        page_logger("DEBUG", "Loading from:", hazard_file)
 
-    # Check if we have any cached data without triggering new loads
-    if (input$dataType %in% names(cached_data_reactive)) {
-      # Only get data if it's already been loaded (trigger > 0)
-      trigger_value <- cache_managers[[input$dataType]]$trigger()
-      if (trigger_value > 0) {
-        page_logger("DEBUG", "Data has been requested (trigger > 0), getting cached data")
-        data <- cached_data_reactive[[input$dataType]]()
-        page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
+        if (file.exists(hazard_file)) {
+          data <- readRDS(hazard_file)
+          page_logger("DEBUG", "Simulation data loaded:", nrow(data), "rows")
 
-        if (nrow(data) > 0) {
-          # Apply data-specific filters
-          page_logger("DEBUG", "Applying data-specific filters")
+          # Apply universal filters (participants, trials, conditions)
+          current_filters <- get_universal_filters()
+          if (!is.null(current_filters)) {
+            page_logger("DEBUG", "Applying universal filters to simulation data")
+            page_logger("DEBUG", "Filter participants:", paste(current_filters$participants, collapse = ", "))
+            page_logger("DEBUG", "Filter trials:", paste(current_filters$trials, collapse = ", "))
+            page_logger("DEBUG", "Filter conditions:", if (is.null(current_filters$condition)) "NULL" else paste(current_filters$condition, collapse = ", "))
+
+            # Filter by participants
+            if (length(current_filters$participants) > 0) {
+              data <- data[data$participant %in% current_filters$participants, , drop = FALSE]
+              page_logger("DEBUG", "After participant filtering:", nrow(data), "rows")
+            }
+
+            # Filter by trials (check both trialNum and trial columns)
+            if (length(current_filters$trials) > 0) {
+              if ("trialNum" %in% colnames(data)) {
+                data <- data[data$trialNum %in% current_filters$trials, , drop = FALSE]
+                page_logger("DEBUG", "After trial filtering (trialNum):", nrow(data), "rows")
+              } else if ("trial" %in% colnames(data)) {
+                data <- data[data$trial %in% current_filters$trials, , drop = FALSE]
+                page_logger("DEBUG", "After trial filtering (trial):", nrow(data), "rows")
+              } else {
+                page_logger("WARN", "No trial column found in simulation data")
+              }
+            }
+
+            # Filter by conditions
+            if (!is.null(current_filters$condition) && length(current_filters$condition) > 0) {
+              data <- data[data$condition %in% current_filters$condition, , drop = FALSE]
+              page_logger("DEBUG", "After condition filtering:", nrow(data), "rows")
+            }
+          } else {
+            page_logger("WARN", "No universal filters available, using all simulation data")
+          }
+
+          # Apply data-specific filters (e.g., sim_only_on_plate)
           data <- apply_data_filters(data, input$dataType)
-          page_logger("DEBUG", "After filtering:", nrow(data), "rows")
+          page_logger("DEBUG", "After data-specific filtering:", nrow(data), "rows")
           return(data)
+        } else {
+          page_logger("ERROR", "Hazard samples file not found:", hazard_file)
+          return(data.frame())
         }
-      } else {
-        page_logger("DEBUG", "No data request made yet (trigger = 0), returning empty structure")
+      },
+      error = function(e) {
+        page_logger("ERROR", "Error loading simulation data:", e$message)
+        return(data.frame())
       }
+    )
+  } else if (input$dataType == "raw_tracker") {
+    # Use cached data for raw tracker
+    page_logger("DEBUG", "Using cached data for type:", input$dataType)
+    data <- get_cached_data_local(input$dataType)
+    page_logger("DEBUG", "Cached data loaded:", nrow(data), "rows")
+
+    if (nrow(data) > 0) {
+      # Apply data-specific filters
+      page_logger("DEBUG", "Applying data-specific filters")
+      data <- apply_data_filters(data, input$dataType)
+      page_logger("DEBUG", "After filtering:", nrow(data), "rows")
+      return(data)
     }
 
     # Return empty data frame with expected structure if no data available
@@ -324,22 +392,6 @@ create_dynamic_category_observer(
   input = input
 )
 
-# Observer for parallel loading checkbox - update parallel setting in existing cache managers
-observeEvent(input$enableParallelLoading,
-  {
-    page_logger("DEBUG", "Parallel loading setting changed to:", input$enableParallelLoading)
-
-    # Update parallel setting in existing cache managers
-    use_parallel <- if (!is.null(input$enableParallelLoading)) input$enableParallelLoading else TRUE
-    for (data_type in names(cacheable_data_types)) {
-      cache_managers[[data_type]]$parallel_enabled(use_parallel)
-    }
-
-    page_logger("DEBUG", "Updated parallel loading setting to:", use_parallel, "for all cache managers")
-  },
-  ignoreNULL = TRUE
-)
-
 # Create button observers for all cacheable data types
 for (data_type in names(cacheable_data_types)) {
   config <- cacheable_data_types[[data_type]]
@@ -354,6 +406,27 @@ for (data_type in names(cacheable_data_types)) {
     ignoreNULL = TRUE
   )
 }
+
+# Simple status display for simulation data
+output$simulationStatus <- renderText({
+  if (input$dataType == "simulation") {
+    data <- currentData()
+    if (nrow(data) > 0) {
+      # Handle different column names for trials
+      trial_col <- if ("trialNum" %in% colnames(data)) "trialNum" else "trial"
+      return(sprintf(
+        "Ready: %d participants, %d trials, %d samples",
+        length(unique(data$participant)),
+        length(unique(data[[trial_col]])),
+        nrow(data)
+      ))
+    } else {
+      return("No simulation data available. Please check your filters and ensure participants/trials are selected.")
+    }
+  } else {
+    return("")
+  }
+})
 
 # Create status displays for all cacheable data types
 for (data_type in names(cacheable_data_types)) {
@@ -478,7 +551,7 @@ output$hist <- renderSVG({
       page_logger("DEBUG", "About to call make_histogram...")
       tryCatch(
         {
-          result <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
+          result <- plotting$make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
           page_logger("DEBUG", "make_histogram completed successfully")
           return(result)
         },
@@ -567,7 +640,7 @@ output$hist_plotly <- renderPlotly({
   page_logger("DEBUG", "About to call make_histogram for Plotly...")
   tryCatch(
     {
-      p <- make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize)
+      p <- plotting$make_histogram(data, mu_data, FALSE, input$group, input$split, input$plot, input$bin, input$position, baseSize = input$baseSize, disable_size_check = input$disableSizeCheck)
       page_logger("DEBUG", "make_histogram completed, converting to Plotly...")
 
       plotly_result <- ggplotly(p, tooltip = "all", dynamicTicks = TRUE, height = plotHeight())
