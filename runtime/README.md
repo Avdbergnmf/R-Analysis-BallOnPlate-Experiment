@@ -134,6 +134,7 @@ Click through the different tabs to get a preview and a brief explanation of wha
     - [**Key Configuration Options**](#key-configuration-options)
   - [Known Issues and Workarounds](#known-issues-and-workarounds)
     - [Complexity Calculation Bug](#complexity-calculation-bug)
+    - [Risk Data Workflow for Simulation Data](#risk-data-workflow-for-simulation-data)
   - [Data Processing Pipeline](#data-processing-pipeline)
     - [**Modular Architecture**](#modular-architecture)
     - [**Performance Optimizations**](#performance-optimizations)

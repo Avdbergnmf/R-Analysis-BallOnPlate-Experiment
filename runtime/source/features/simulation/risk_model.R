@@ -1039,11 +1039,15 @@ annotate_hazard_predictions <- function(model,
     }
 
     predict_logger <- create_module_logger("PREDICT")
-    predict_logger("INFO", "Annotating hazard samples with", if (include_re) "subject-specific" else "fixed-effects", "predictions...")
 
-    # Choose whether to include random effect smooth
-    pred_args <- list(type = "response")
-    if (!include_re) pred_args$exclude <- "s(participant)" # fixed-effects only
+    # Determine prediction approach
+    if (include_re) {
+        predict_logger("INFO", "Using subject-specific predictions (including participant random effects)")
+        pred_args <- list(type = "response")
+    } else {
+        predict_logger("INFO", "Using fixed-effects predictions (excluding participant random effects)")
+        pred_args <- list(type = "response", exclude = "s(participant)")
+    }
 
     # Predict all at once
     predict_logger("DEBUG", "Processing", nrow(hazard_samples), "samples in prediction...")
