@@ -585,10 +585,12 @@ sim_data <- reactive({
       standardized_phase <- input$standardized_phase
     }
   }
+  needs_override <- !is.null(standardized_condition) || !is.null(standardized_phase)
 
   model_available <- base::exists("GLOBAL_RISK_MODEL", envir = .GlobalEnv) &&
     !is.null(base::get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))
-  if (isTRUE(input$enable_risk_predictions) && !model_available && !risk_analysis_state$model_modal_shown) {
+  require_direct_model <- isTRUE(input$allow_direct_model) || needs_override
+  if (isTRUE(input$enable_risk_predictions) && require_direct_model && !model_available && !risk_analysis_state$model_modal_shown) {
     risk_analysis_state$model_modal_shown <- TRUE
     showRiskModal(
       title = "Risk Model Required",
@@ -612,11 +614,12 @@ sim_data <- reactive({
       easyClose = TRUE
     )
   }
-  force_direct_model <- isTRUE(input$enable_risk_predictions) && model_available
+  allow_direct_model <- model_available && (isTRUE(input$allow_direct_model) || needs_override)
+  force_direct_model <- isTRUE(input$enable_risk_predictions) && model_available && (isTRUE(input$allow_direct_model) || needs_override)
 
   sim_data <- simulation$add_risk_predictions(sim_data,
     enable_risk = input$enable_risk_predictions,
-    allow_direct_model = model_available,
+    allow_direct_model = allow_direct_model,
     standardized_condition = standardized_condition,
     standardized_phase = standardized_phase,
     force_direct_model = force_direct_model
