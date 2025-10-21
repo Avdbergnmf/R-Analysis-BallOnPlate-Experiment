@@ -157,7 +157,7 @@ preload_udp_trim_data <- function(combinations_df = NULL, force_cache_refresh = 
 calculate_gait_parameters <- function(participant, trialNum) {
   # Get preprocessed data using utils function (depends on global cache environments)
   preprocessedData <- get_preprocessed_data(participant, trialNum, c("leftfoot", "rightfoot", "hip"))
-  
+
   # Use gait feature module for foot event detection with preprocessed data
   gaitData <- gait$detect_foot_events(participant, trialNum, preprocessedData)
 
@@ -260,7 +260,7 @@ attr(calc_all_gait_params, "preload") <- function() {
 get_all_questionnaire_results <- function(loop_function = NULL) {
   # Note: This function doesn't use loop_function as it processes questionnaire data directly
   # The parameter is kept for consistency with other calculation functions
-  
+
   # Use the questionnaire feature module to get results
   questionnaire$get_all_questionnaire_results(
     all_questionnaires = c("IMI", "UserExperience"),
@@ -282,6 +282,7 @@ get_all_task_metrics <- function(loop_function) {
   if (!is.function(simulation_api)) {
     stop("Simulation module did not provide get_all_task_metrics(). Ensure the feature loaded correctly.")
   }
+
   simulation_api(loop_function)
 }
 attr(get_all_task_metrics, "log_label") <- "task_metrics"
@@ -299,11 +300,34 @@ attr(get_all_task_metrics, "extra_globals") <- c("GLOBAL_HAZARD_SAMPLES_PREDS")
 #' @return Data frame with complexity metrics for all valid combinations
 get_all_complexity_metrics <- function(loop_function, include_continuous = TRUE,
                                        continuous_vars = c("p", "hipPos", "pelvisPos")) {
+  # Check if task data was just calculated in this session
+  if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv) &&
+    isTRUE(.GlobalEnv$.TASK_DATA_JUST_CALCULATED)) {
+    complexity_logger <- create_module_logger("COMPLEXITY")
+    complexity_logger("INFO", "=== COMPLEXITY CALCULATION SKIPPED ===")
+    complexity_logger("INFO", "Task data was calculated in this session, which causes a known bug")
+    complexity_logger("INFO", "when running complexity calculation immediately after.")
+    complexity_logger("INFO", "")
+    complexity_logger("INFO", "SOLUTION: Please run the complexity calculation again in a fresh init-run session.")
+    complexity_logger("INFO", "")
+    complexity_logger("INFO", "This is a technical limitation we haven't been able to resolve yet.")
+    complexity_logger("INFO", "=== END SKIP MESSAGE ===")
+
+    # Return NULL to prevent dataset creation and avoid manual cleanup
+    return(NULL)
+  }
+
   # Use the complexity feature module
   complexity_api <- complexity$get_all_complexity_metrics
   if (!is.function(complexity_api)) {
     stop("Complexity module did not provide get_all_complexity_metrics(). Ensure the feature loaded correctly.")
   }
+
+  # Clear the flag since we're proceeding with complexity calculation
+  if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv)) {
+    rm(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv)
+  }
+
   complexity_api(loop_function, include_continuous, continuous_vars)
 }
 attr(get_all_complexity_metrics, "log_label") <- "complexity_metrics"

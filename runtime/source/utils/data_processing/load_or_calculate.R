@@ -172,6 +172,16 @@ load_or_calculate <- function(filePath,
             {
                 data <- calculate_data(calculate_function, parallel, combinations_df, extra_global_vars, logger)
                 logger("DEBUG", "calculate_data returned successfully with", nrow(data), "rows")
+
+                # Set flag to indicate task data was actually calculated (not loaded from cache)
+                # This helps prevent the complexity calculation bug when running in the same session
+                if (is.function(calculate_function)) {
+                    func_name <- deparse(substitute(calculate_function))
+                    if (grepl("task_metrics|get_all_task_metrics", func_name, ignore.case = TRUE)) {
+                        assign(".TASK_DATA_JUST_CALCULATED", TRUE, envir = .GlobalEnv)
+                        logger("DEBUG", "Set task calculation flag - complexity calculation will be skipped in this session")
+                    }
+                }
             },
             error = function(e) {
                 logger("ERROR", "Error in calculate_data:", e$message)
