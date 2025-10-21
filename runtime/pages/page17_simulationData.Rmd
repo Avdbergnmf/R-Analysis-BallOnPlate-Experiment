@@ -65,6 +65,7 @@ actionButton("load_risk_model", "Load Selected Model",
 actionButton("train_risk_model", "Train New Model",
   class = "btn-primary", style = "margin-top: 5px;"
 )
+div(class = "text-muted", style = "margin-top: 5px;", uiOutput("current_model_info"))
 
 # Hazard samples management
 selectizeInput("hazard_samples_file", "Hazard Samples File",
@@ -97,7 +98,8 @@ plotlyOutput("sim_tsPlot")
 risk_analysis_state <- reactiveValues(
   pending = NULL,
   latest_model_path = NULL,
-  latest_hazard_path = NULL
+  latest_hazard_path = NULL,
+  model_modal_shown = FALSE
 )
 
 showRiskModal <- function(title, body, footer = modalButton("Close"), size = "m", easyClose = TRUE) {
@@ -152,6 +154,84 @@ formatOperationDetails <- function(context, extras = NULL, error = NULL) {
     }
   }
   paste(parts, collapse = "\n")
+}
+
+load_risk_model_internal <- function(model_file, notify = TRUE, from_modal = FALSE) {
+  if (is.null(model_file) || identical(model_file, "No risk model files found")) {
+    if (notify) {
+      showRiskErrorModal(
+        title = "Load Risk Model",
+        message = "Select a valid risk model file before loading."
+      )
+    }
+    return(FALSE)
+  }
+
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    if (notify) {
+      showRiskErrorModal(
+        title = "Load Risk Model",
+        message = "The simulation module is not available; cannot load the model."
+      )
+    }
+    return(FALSE)
+  }
+
+  model_path <- file.path(dataExtraFolder, model_file)
+
+  tryCatch(
+    {
+      model <- simulation$load_risk_model(model_path)
+
+      if (is.null(model)) {
+        if (notify) {
+          showRiskErrorModal(
+            title = "Load Risk Model Failed",
+            message = "The selected risk model could not be loaded.",
+            details = formatOperationDetails(
+              context = "Load risk model failure",
+              extras = paste0("Path: ", model_path)
+            )
+          )
+        }
+        return(FALSE)
+      }
+
+      GLOBAL_RISK_MODEL <<- model
+      risk_analysis_state$latest_model_path <- model_path
+      risk_analysis_state$model_modal_shown <- FALSE
+
+        if (notify) {
+          showRiskSuccessModal(
+            title = "Risk Model Loaded",
+            message = sprintf("Loaded %s (%s).", model_file, class(model)[1]),
+            details = formatOperationDetails(
+              context = "Risk model loaded",
+              extras = c(
+                paste0("Path: ", model_path),
+                paste0("Class: ", class(model)[1])
+              )
+            )
+          )
+        }
+        risk_analysis_state$model_modal_shown <- FALSE
+        return(TRUE)
+    },
+    error = function(e) {
+      if (notify) {
+        showRiskErrorModal(
+          title = "Load Risk Model Failed",
+          message = "The selected risk model could not be loaded.",
+          details = formatOperationDetails(
+            context = "Load risk model failure",
+            extras = paste0("Path: ", model_path),
+            error = e
+          )
+        )
+      }
+      return(FALSE)
+    }
+  )
 }
 
 runRiskAnalysis <- function(model_path, hazard_samples_path) {
@@ -495,11 +575,51 @@ sim_data <- reactive({
   # Get the simulation data with UI parameters
   sim_data <- simulation$get_simulation_data(participant, trial)
 
+  standardized_condition <- NULL
+  standardized_phase <- NULL
+  if (isTRUE(input$enable_standardized_training)) {
+    if (!is.null(input$standardized_condition) && input$standardized_condition != "<current>") {
+      standardized_condition <- input$standardized_condition
+    }
+    if (!is.null(input$standardized_phase) && input$standardized_phase != "<current>") {
+      standardized_phase <- input$standardized_phase
+    }
+  }
+
+  model_available <- base::exists("GLOBAL_RISK_MODEL", envir = .GlobalEnv) &&
+    !is.null(base::get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))
+  if (isTRUE(input$enable_risk_predictions) && !model_available && !risk_analysis_state$model_modal_shown) {
+    risk_analysis_state$model_modal_shown <- TRUE
+    showRiskModal(
+      title = "Risk Model Required",
+      body = tagList(
+        tags$p("A loaded risk model is required to generate predictions with the current settings."),
+        tags$pre(formatOperationDetails(
+          context = "Missing risk model",
+          extras = c(
+            paste0(
+              "Selected model file: ",
+              ifelse(is.null(input$risk_model_file), "<none>", input$risk_model_file)
+            )
+          )
+        ))
+      ),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("modal_load_model", "Load Selected Model", class = "btn-primary")
+      ),
+      size = "m",
+      easyClose = TRUE
+    )
+  }
+  force_direct_model <- isTRUE(input$enable_risk_predictions) && model_available
+
   sim_data <- simulation$add_risk_predictions(sim_data,
     enable_risk = input$enable_risk_predictions,
-    allow_direct_model = input$allow_direct_model,
-    standardized_condition = if (input$enable_standardized_training) input$standardized_condition else NULL,
-    standardized_phase = if (input$enable_standardized_training) input$standardized_phase else NULL
+    allow_direct_model = model_available,
+    standardized_condition = standardized_condition,
+    standardized_phase = standardized_phase,
+    force_direct_model = force_direct_model
   )
   return(sim_data)
 })
@@ -519,18 +639,18 @@ output$sim_data_status <- renderText({
           n_real <- sum(data$simulating, na.rm = TRUE)
           n_respawns <- length(unique(data$respawn_segment)) - 1
           paste0(
-            "Ã¢Å“â€œ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
+            "✓ Simulation data available: ", nrow(data), " total samples (", n_real, " on plate, ", n_respawns, " ball falls), arcDeg = ",
             paste(unique(data$arcDeg), collapse = ", ")
           )
         } else {
-          "Ã¢Å“â€” Error loading simulation data"
+          "✗ Error loading simulation data"
         }
       } else {
-        "Ã¢Å“â€” No simulation data available for this participant/trial"
+        "✗ No simulation data available for this participant/trial"
       }
     },
     error = function(e) {
-      paste("Ã¢Å“â€” Error checking simulation data:", e$message)
+      paste("✗ Error checking simulation data:", e$message)
     }
   )
 })
@@ -558,7 +678,7 @@ observe({
     prev <- isolate(input$sim_vars)
     keep <- intersect(prev, available_vars)
     if (length(keep) == 0) {
-      keep <- intersect(c("q", "x", "dist_to_escape", "drop_risk_1s"), available_vars)
+      keep <- intersect(c("q", "x", "dist_to_escape_ratio", "drop_risk_1s"), available_vars)
       if (length(keep) == 0) keep <- available_vars[1]
     }
     updateSelectizeInput(session, "sim_vars",
@@ -574,29 +694,59 @@ observe({
 
   # Use the reactive sim_data to get available conditions and phases
   data <- sim_data()
-  if (is.null(data) || nrow(data) == 0) {
-    updateSelectizeInput(session, "standardized_condition", choices = NULL, selected = NULL)
-    updateSelectizeInput(session, "standardized_phase", choices = NULL, selected = NULL)
-    return()
+
+  # Helper to collect available conditions/phases from the richest source we have
+  get_available_levels <- function(column_name, data_fallback = NULL) {
+    levels <- character(0)
+
+    if (exists("GLOBAL_HAZARD_SAMPLES_PREDS", envir = .GlobalEnv) &&
+      !is.null(.GlobalEnv$GLOBAL_HAZARD_SAMPLES_PREDS) &&
+      column_name %in% names(.GlobalEnv$GLOBAL_HAZARD_SAMPLES_PREDS)) {
+      levels <- unique(as.character(.GlobalEnv$GLOBAL_HAZARD_SAMPLES_PREDS[[column_name]]))
+    } else if (!is.null(data_fallback) && column_name %in% names(data_fallback)) {
+      levels <- unique(as.character(data_fallback[[column_name]]))
+    }
+
+    levels <- sort(levels[!is.na(levels) & nzchar(levels)])
+    levels
   }
 
-  # Update available conditions
-  if ("condition" %in% names(data)) {
-    available_conditions <- unique(data$condition)
-    updateSelectizeInput(session, "standardized_condition",
-      choices = available_conditions,
-      selected = if (length(available_conditions) > 0) available_conditions[1] else NULL
-    )
+  available_conditions <- get_available_levels("condition", data)
+  if (length(available_conditions) == 0 && !is.null(condition_map)) {
+    available_conditions <- sort(names(condition_map))
   }
 
-  # Update available phases
-  if ("phase" %in% names(data)) {
-    available_phases <- unique(data$phase)
-    updateSelectizeInput(session, "standardized_phase",
-      choices = available_phases,
-      selected = if (length(available_phases) > 0) available_phases[1] else NULL
-    )
+  available_phases <- get_available_levels("phase", data)
+  if (length(available_phases) == 0 && exists("phase_map", envir = .GlobalEnv)) {
+    available_phases <- sort(names(.GlobalEnv$phase_map))
   }
+
+  condition_choices <- c("Keep current" = "<current>", setNames(available_conditions, available_conditions))
+  phase_choices <- c("Keep current" = "<current>", setNames(available_phases, available_phases))
+
+  updateSelectizeInput(
+    session,
+    "standardized_condition",
+    choices = condition_choices,
+    selected = if (!is.null(input$standardized_condition) && input$standardized_condition %in% names(condition_choices)) {
+      input$standardized_condition
+    } else {
+      "<current>"
+    },
+    server = FALSE
+  )
+
+  updateSelectizeInput(
+    session,
+    "standardized_phase",
+    choices = phase_choices,
+    selected = if (!is.null(input$standardized_phase) && input$standardized_phase %in% names(phase_choices)) {
+      input$standardized_phase
+    } else {
+      "<current>"
+    },
+    server = FALSE
+  )
 })
 
 # Time series plot
@@ -682,70 +832,64 @@ observe({
 observeEvent(input$load_risk_model, {
   req(input$risk_model_file)
 
-  if (identical(input$risk_model_file, "No risk model files found")) {
-    showRiskErrorModal(
-      title = "Load Risk Model",
-      message = "No risk model files are available to load."
-    )
-    return()
-  }
-
-  if (!exists("simulation", envir = .GlobalEnv)) {
-    showRiskErrorModal(
-      title = "Load Risk Model",
-      message = "The simulation module is not available; cannot load the model."
-    )
-    return()
-  }
-
-  model_path <- file.path(dataExtraFolder, input$risk_model_file)
-
-  tryCatch(
-    {
-      model <- simulation$load_risk_model(model_path)
-
-      if (is.null(model)) {
-        showRiskErrorModal(
-          title = "Load Risk Model Failed",
-          message = "The selected risk model could not be loaded.",
-          details = formatOperationDetails(
-            context = "Load risk model failure",
-            extras = paste0("Path: ", model_path)
-          )
-        )
-        return()
-      }
-
-      GLOBAL_RISK_MODEL <<- model
-      risk_analysis_state$latest_model_path <- model_path
-
-      showRiskSuccessModal(
-        title = "Risk Model Loaded",
-        message = sprintf("Loaded %s (%s).", input$risk_model_file, class(model)[1]),
-        details = formatOperationDetails(
-          context = "Risk model loaded",
-          extras = c(
-            paste0("Path: ", model_path),
-            paste0("Class: ", class(model)[1])
-          )
-        )
-      )
-    },
-    error = function(e) {
-      showRiskErrorModal(
-        title = "Load Risk Model Failed",
-        message = "The selected risk model could not be loaded.",
-        details = formatOperationDetails(
-          context = "Load risk model failure",
-          extras = paste0("Path: ", model_path),
-          error = e
-        )
-      )
-    }
-  )
+  load_risk_model_internal(input$risk_model_file, notify = TRUE)
 })
 
-# Risk model training
+observeEvent(input$modal_load_model, {
+  removeModal()
+  risk_analysis_state$model_modal_shown <- FALSE
+  if (load_risk_model_internal(input$risk_model_file, notify = TRUE, from_modal = TRUE)) {
+    # nothing else to do; modal already closed
+  }
+})
+
+output$current_model_info <- renderUI({
+  model_loaded <- base::exists("GLOBAL_RISK_MODEL", envir = .GlobalEnv) &&
+    !is.null(base::get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))
+  hazard_loaded <- base::exists("GLOBAL_HAZARD_SAMPLES_PREDS", envir = .GlobalEnv) &&
+    !is.null(base::get("GLOBAL_HAZARD_SAMPLES_PREDS", envir = .GlobalEnv))
+
+  model_path <- if (!is.null(risk_analysis_state$latest_model_path)) {
+    risk_analysis_state$latest_model_path
+  } else if (model_loaded) {
+    "<loaded from session>"
+  } else {
+    NULL
+  }
+
+  hazard_rows <- if (hazard_loaded) {
+    nrow(base::get("GLOBAL_HAZARD_SAMPLES_PREDS", envir = .GlobalEnv))
+  } else {
+    0
+  }
+  tau_attr <- if (model_loaded) attr(base::get("GLOBAL_RISK_MODEL", envir = .GlobalEnv), "tau") else NULL
+
+  standardized_condition <- if (!is.null(input$standardized_condition) && input$standardized_condition != "<current>") input$standardized_condition else "Keep current"
+  standardized_phase <- if (!is.null(input$standardized_phase) && input$standardized_phase != "<current>") input$standardized_phase else "Keep current"
+
+  rows <- list(
+    c("Model status", if (model_loaded) "Loaded" else "Not loaded"),
+    c("Model file", if (!is.null(model_path)) basename(model_path) else "<none>"),
+    c("Model class", if (model_loaded) class(base::get("GLOBAL_RISK_MODEL", envir = .GlobalEnv))[1] else "-"),
+    c("Model tau", if (!is.null(tau_attr)) sprintf("%.3f s", tau_attr) else "-"),
+    c("Hazard predictions", if (hazard_loaded) sprintf("Loaded (%s rows)", format(hazard_rows, big.mark = ",")) else "Not loaded"),
+    c("Standardized condition", standardized_condition),
+    c("Standardized phase", standardized_phase)
+  )
+
+  tags$table(
+    class = "table table-sm table-borderless mb-0",
+    tags$tbody(lapply(rows, function(r) tags$tr(tags$th(r[1]), tags$td(r[2]))))
+  )
+  })
+
+  observeEvent(input$enable_risk_predictions, {
+    if (!isTRUE(input$enable_risk_predictions)) {
+      risk_analysis_state$model_modal_shown <- FALSE
+    }
+  })
+
+  # Risk model training
 observeEvent(input$train_risk_model, {
   selected_participants <- input$filterParticipants
   selected_trials <- input$filterTrials
@@ -823,6 +967,7 @@ observeEvent(input$train_risk_model, {
       actual_model <- if (is.list(model) && "model" %in% names(model)) model$model else model
       GLOBAL_RISK_MODEL <<- actual_model
       risk_analysis_state$latest_model_path <- risk_model_path
+      risk_analysis_state$model_modal_shown <- FALSE
 
       if (!is.null(actual_model$model)) {
         n_obs <- nrow(actual_model$model)
@@ -1046,6 +1191,7 @@ observeEvent(input$confirm_risk_analysis_proceed, {
   removeModal()
 })
 ```
+
 
 
 

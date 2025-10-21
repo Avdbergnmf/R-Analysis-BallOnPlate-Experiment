@@ -704,8 +704,19 @@ assign_risk_predictions <- function(data, p_bin, lambda, p_1s, method_name = "un
 }
 
 
-add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model = FALSE, standardized_condition = NULL, standardized_phase = NULL) {
-    sim_logger("INFO", "Starting add_risk_predictions for", nrow(data), "samples, enable_risk=", enable_risk)
+add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model = FALSE, standardized_condition = NULL, standardized_phase = NULL, force_direct_model = FALSE) {
+    sim_logger(
+        "INFO",
+        sprintf(
+            "Starting add_risk_predictions for %d samples (enable_risk=%s, allow_direct_model=%s, std_condition=%s, std_phase=%s, force_direct=%s)",
+            nrow(data),
+            enable_risk,
+            allow_direct_model,
+            ifelse(is.null(standardized_condition), "<NULL>", standardized_condition),
+            ifelse(is.null(standardized_phase), "<NULL>", standardized_phase),
+            force_direct_model
+        )
+    )
     overall_start <- Sys.time()
 
     # Add velocity towards edge metrics using helper function
@@ -718,6 +729,34 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
     data <- add_edge_pressure_metric(data)
     sim_logger("DEBUG", sprintf("Edge pressure metrics computed in %.2fs", as.numeric(difftime(Sys.time(), step_start, units = "secs"))))
 
+    # Helper to apply standardized overrides when requested
+    apply_standardization <- function(df) {
+        result <- df
+        if (!is.null(standardized_condition) && "condition" %in% names(result)) {
+            cond_value <- standardized_condition
+            if (is.factor(result$condition)) {
+                if (!(cond_value %in% levels(result$condition))) {
+                    levels(result$condition) <- c(levels(result$condition), cond_value)
+                }
+                result$condition[] <- cond_value
+            } else {
+                result$condition <- rep(cond_value, nrow(result))
+            }
+        }
+        if (!is.null(standardized_phase) && "phase" %in% names(result)) {
+            phase_value <- standardized_phase
+            if (is.factor(result$phase)) {
+                if (!(phase_value %in% levels(result$phase))) {
+                    levels(result$phase) <- c(levels(result$phase), phase_value)
+                }
+                result$phase[] <- phase_value
+            } else {
+                result$phase <- rep(phase_value, nrow(result))
+            }
+        }
+        result
+    }
+
     # Initialize all risk columns
     data$drop_risk_bin <- NA_real_
     data$drop_lambda <- NA_real_
@@ -728,6 +767,23 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
     if (!enable_risk) {
         sim_logger("INFO", "Risk predictions disabled, returning with NA risk columns")
         return(data)
+    }
+
+    # Force direct model when explicit overrides are requested
+    force_direct_model <- force_direct_model || !is.null(standardized_condition) || !is.null(standardized_phase)
+    if (force_direct_model) {
+        sim_logger("INFO", "Using direct model predictions (forced or standardized override)")
+        data_direct <- apply_standardization(data)
+        sim_logger(
+            "DEBUG",
+            sprintf(
+                "Direct prediction override -> condition levels: %s | phase levels: %s",
+                paste(unique(data_direct$condition), collapse = ", "),
+                paste(unique(data_direct$phase), collapse = ", ")
+            )
+        )
+        direct_result <- add_risk_predictions_direct_model(data_direct, enable_risk = TRUE)
+        return(direct_result)
     }
 
     # Try global hazard samples first (most efficient), fallback to direct model if needed
@@ -773,7 +829,18 @@ add_risk_predictions <- function(data, enable_risk = FALSE, allow_direct_model =
     # If both methods failed, return early
     if (is.null(risk_scores)) {
         if (allow_direct_model) {
-            sim_logger("WARN", "Both global hazard samples and direct model prediction failed")
+            sim_logger("WARN", "Global hazard samples unavailable; falling back to direct model predictions")
+            data_direct <- apply_standardization(data)
+            sim_logger(
+                "DEBUG",
+                sprintf(
+                    "Fallback direct prediction -> condition levels: %s | phase levels: %s",
+                    paste(unique(data_direct$condition), collapse = ", "),
+                    paste(unique(data_direct$phase), collapse = ", ")
+                )
+            )
+            direct_result <- add_risk_predictions_direct_model(data_direct, enable_risk = TRUE)
+            return(direct_result)
         } else {
             sim_logger("WARN", "Global hazard samples failed and direct model prediction is disabled")
         }
@@ -947,7 +1014,18 @@ score_trial_with_hazards_predictions <- function(sim_data, hazard_predictions_da
 # This was the previous approach that used direct model prediction on all samples
 # It was replaced with the saved predictions approach for better reliability
 add_risk_predictions_direct_model <- function(data, enable_risk = FALSE, tau = 0.2) {
-    sim_logger("INFO", "Starting add_risk_predictions_direct_model for", nrow(data), "samples, enable_risk=", enable_risk)
+    condition_vals <- if ("condition" %in% names(data)) paste(unique(data$condition), collapse = ", ") else "<missing>"
+    phase_vals <- if ("phase" %in% names(data)) paste(unique(data$phase), collapse = ", ") else "<missing>"
+    sim_logger(
+        "INFO",
+        sprintf(
+            "Starting add_risk_predictions_direct_model for %d samples (enable_risk=%s, conditions=%s, phases=%s)",
+            nrow(data),
+            enable_risk,
+            condition_vals,
+            phase_vals
+        )
+    )
 
     # Add velocity towards edge metrics using helper function
     data <- add_velocity_towards_edge_metrics(data)
