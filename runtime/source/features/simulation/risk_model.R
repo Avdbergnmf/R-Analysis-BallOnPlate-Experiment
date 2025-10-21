@@ -10,6 +10,42 @@ library(tibble)
 library(mvtnorm)
 library(ggplot2)
 
+normalize_factor_labels <- function(x) {
+    if (is.null(x)) {
+        return(x)
+    }
+    if (is.factor(x)) {
+        x <- as.character(x)
+    }
+    x <- as.character(x)
+    if (!length(x)) {
+        return(x)
+    }
+    x <- trimws(x)
+    x[!nzchar(x)] <- NA_character_
+    x
+}
+
+unique_nonempty <- function(x) {
+    vals <- normalize_factor_labels(x)
+    vals <- vals[!is.na(vals)]
+    unique(vals)
+}
+
+get_model_levels <- function(model, key, fallback_values = NULL) {
+    attr_name <- paste0("levels_", key)
+    lvls <- attr(model, attr_name)
+    lvls <- normalize_factor_labels(lvls)
+    lvls <- lvls[!is.na(lvls)]
+    if ((is.null(lvls) || length(lvls) == 0) && !is.null(fallback_values)) {
+        fallback <- unique_nonempty(fallback_values)
+        if (length(fallback) > 0) {
+            lvls <- fallback
+        }
+    }
+    lvls
+}
+
 # Extract just the e and v features from sim_data (without tau processing)
 extract_risk_features <- function(sim_data) {
     if (is.null(sim_data) || nrow(sim_data) == 0) {
@@ -99,6 +135,27 @@ build_hazard_samples <- function(sim_data, tau = 0.2) {
     haz <- cbind(haz, drop_within_tau = pos)
     haz <- haz[, c(base_cols, "drop_within_tau")]
     haz <- haz[complete.cases(haz[, c("e", "v", "drop_within_tau")]), , drop = FALSE]
+
+    # Normalize categorical labels to avoid whitespace-related mismatches
+    dropped_rows <- rep(FALSE, nrow(haz))
+    if ("condition" %in% names(haz)) {
+        haz$condition <- normalize_factor_labels(haz$condition)
+        dropped_rows <- dropped_rows | is.na(haz$condition)
+    }
+    if ("phase" %in% names(haz)) {
+        haz$phase <- normalize_factor_labels(haz$phase)
+        dropped_rows <- dropped_rows | is.na(haz$phase)
+    }
+    if (any(dropped_rows)) {
+        hazard_logger(
+            "WARN",
+            sprintf(
+                "Dropping %d hazard rows lacking normalized condition/phase labels",
+                sum(dropped_rows)
+            )
+        )
+        haz <- haz[!dropped_rows, , drop = FALSE]
+    }
 
     # --- debug output ---
     n_on <- nrow(sim_data)
@@ -297,19 +354,62 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
         hazard_samples$participant <- as.factor(hazard_samples$participant)
     }
 
-    # Create condition×phase interaction factor for factor-by smooths (if enabled)
+    # Normalize condition and phase labels before modeling
+    condition_levels <- NULL
+    phase_levels <- NULL
+    cond_phase_levels <- NULL
+
+    if ("condition" %in% names(hazard_samples)) {
+        condition_values <- normalize_factor_labels(hazard_samples$condition)
+        missing_condition <- is.na(condition_values)
+        if (any(missing_condition)) {
+            model_logger("WARN", sprintf("Removing %d hazard rows with missing condition labels after normalization", sum(missing_condition)))
+            hazard_samples <- hazard_samples[!missing_condition, , drop = FALSE]
+            condition_values <- condition_values[!missing_condition]
+        }
+        condition_levels <- unique(condition_values)
+        hazard_samples$condition <- factor(condition_values, levels = condition_levels)
+        model_logger("DEBUG", "Condition levels after normalization:", paste(condition_levels, collapse = ", "))
+    }
+
+    if ("phase" %in% names(hazard_samples)) {
+        phase_values <- normalize_factor_labels(hazard_samples$phase)
+        missing_phase <- is.na(phase_values)
+        if (any(missing_phase)) {
+            model_logger("WARN", sprintf("Removing %d hazard rows with missing phase labels after normalization", sum(missing_phase)))
+            hazard_samples <- hazard_samples[!missing_phase, , drop = FALSE]
+            if (!is.null(condition_levels)) {
+                condition_values <- normalize_factor_labels(hazard_samples$condition)
+                condition_levels <- unique(condition_values)
+                hazard_samples$condition <- factor(condition_values, levels = condition_levels)
+            }
+            phase_values <- phase_values[!missing_phase]
+        }
+        phase_levels <- unique(phase_values)
+        hazard_samples$phase <- factor(phase_values, levels = phase_levels)
+        model_logger("DEBUG", "Phase levels after normalization:", paste(phase_levels, collapse = ", "))
+    }
+
+    # Create condition x phase interaction factor for factor-by smooths (if enabled)
     if (use_by_interaction && "condition" %in% names(hazard_samples) && "phase" %in% names(hazard_samples)) {
-        model_logger("DEBUG", "Creating condition×phase interaction factor for shape differences...")
+        model_logger("DEBUG", "Creating condition x phase interaction factor for shape differences...")
         hazard_samples$cond_phase <- interaction(hazard_samples$condition, hazard_samples$phase, drop = TRUE)
-        model_logger("DEBUG", "  - Created", length(levels(hazard_samples$cond_phase)), "unique condition×phase combinations:", paste(levels(hazard_samples$cond_phase), collapse = ", "))
+        cond_phase_levels <- levels(hazard_samples$cond_phase)
+        model_logger("DEBUG", "  - Created", length(cond_phase_levels), "unique condition x phase combinations:", paste(cond_phase_levels, collapse = ", "))
     } else if (!use_by_interaction) {
         model_logger("DEBUG", "Factor-by smooths disabled by use_by_interaction=FALSE. Using simple smooths.")
     } else {
         model_logger("WARN", "condition or phase columns not found. Using simple smooths only.")
     }
 
-    # Remove any rows with missing values
+# Remove any rows with missing values
     required_cols <- c("e", "v", "participant", "drop_within_tau")
+    if ("condition" %in% names(hazard_samples)) {
+        required_cols <- c(required_cols, "condition")
+    }
+    if ("phase" %in% names(hazard_samples)) {
+        required_cols <- c(required_cols, "phase")
+    }
     if ("cond_phase" %in% names(hazard_samples)) {
         required_cols <- c(required_cols, "cond_phase")
     }
@@ -375,6 +475,16 @@ train_risk_model <- function(hazard_samples, use_by_interaction = FALSE) {
                 model_logger("DEBUG", "Model structure: Simple smooths only")
             }
 
+            if (!is.null(condition_levels) && length(condition_levels) > 0) {
+                attr(model, "levels_condition") <- condition_levels
+            }
+            if (!is.null(phase_levels) && length(phase_levels) > 0) {
+                attr(model, "levels_phase") <- phase_levels
+            }
+            if (!is.null(cond_phase_levels) && length(cond_phase_levels) > 0) {
+                attr(model, "levels_cond_phase") <- cond_phase_levels
+            }
+
             return(model)
         },
         error = function(e) {
@@ -421,13 +531,12 @@ apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standar
         x
     }
 
-    ref_condition <- clean_input(standardized_condition, hazard_samples$condition, "condition")
-    ref_phase <- clean_input(standardized_phase, hazard_samples$phase, "phase")
+    ref_condition <- normalize_factor_labels(clean_input(standardized_condition, hazard_samples$condition, "condition"))
+    ref_phase <- normalize_factor_labels(clean_input(standardized_phase, hazard_samples$phase, "phase"))
 
-    unique_conditions <- unique(as.character(ref_condition))
-    unique_phases <- unique(as.character(ref_phase))
     summarize_values <- function(values) {
-        values <- unique(as.character(values))
+        values <- normalize_factor_labels(values)
+        values <- unique(values[!is.na(values)])
         if (length(values) == 0) {
             return("<none>")
         }
@@ -438,107 +547,78 @@ apply_model_factors_to_hazard_samples <- function(hazard_samples, model, standar
         }
         collapsed
     }
+
     factor_logger(
         "DEBUG",
         sprintf(
             "Using reference condition(s): %s | phase(s): %s",
-            summarize_values(unique_conditions),
-            summarize_values(unique_phases)
+            summarize_values(ref_condition),
+            summarize_values(ref_phase)
         )
     )
 
-    if ("condition" %in% names(model$model)) {
-        model_cond_levels <- levels(model$model$condition)
-        if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
-            model_cond_levels <- levels(factor(hazard_samples$condition))
+    model_cond_levels <- get_model_levels(model, "condition", ref_condition)
+    model_phase_levels <- get_model_levels(model, "phase", ref_phase)
+    model_cond_phase_levels <- get_model_levels(
+        model,
+        "cond_phase",
+        paste(ref_condition, ref_phase, sep = ".")
+    )
+
+    apply_factor <- function(values, levels, label) {
+        if (length(levels) == 0) {
+            factor_logger(
+                "WARN",
+                sprintf("Model has no stored %s levels; using raw values", label)
+            )
+            return(factor(values))
+        }
+        unmatched <- setdiff(unique(values), c(levels, NA_character_))
+        mapped <- values
+        if (length(unmatched) > 0) {
             factor_logger(
                 "WARN",
                 sprintf(
-                    "Model condition levels unavailable; falling back to hazard sample levels: %s",
-                    summarize_values(model_cond_levels)
+                    "Standardized %s value(s) %s not seen during training; mapping to baseline level %s",
+                    label,
+                    summarize_values(unmatched),
+                    levels[1]
                 )
             )
+            mapped[mapped %in% unmatched] <- levels[1]
         }
-        factor_logger("DEBUG", "Model condition levels:", paste(model_cond_levels, collapse = ", "))
-        if (any(ref_condition %in% model_cond_levels)) {
-            hazard_samples$condition <- factor(ref_condition, levels = model_cond_levels)
-            factor_logger("DEBUG", "Applied condition factor:", summarize_values(hazard_samples$condition))
-        } else {
-            hazard_samples$condition <- factor(model_cond_levels[1], levels = model_cond_levels)
-            factor_logger(
-                "WARN",
-                sprintf(
-                    "Reference condition(s) %s not in model levels, using default: %s",
-                    summarize_values(ref_condition),
-                    model_cond_levels[1]
-                )
-            )
-        }
+        factor(mapped, levels = levels)
     }
 
-    if ("phase" %in% names(model$model)) {
-        model_phase_levels <- levels(model$model$phase)
-        if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
-            model_phase_levels <- levels(factor(hazard_samples$phase))
-            factor_logger(
-                "WARN",
-                sprintf(
-                    "Model phase levels unavailable; falling back to hazard sample levels: %s",
-                    summarize_values(model_phase_levels)
-                )
-            )
-        }
-        factor_logger("DEBUG", "Model phase levels:", paste(model_phase_levels, collapse = ", "))
-        if (any(ref_phase %in% model_phase_levels)) {
-            hazard_samples$phase <- factor(ref_phase, levels = model_phase_levels)
-            factor_logger("DEBUG", "Applied phase factor:", summarize_values(hazard_samples$phase))
-        } else {
-            hazard_samples$phase <- factor(model_phase_levels[1], levels = model_phase_levels)
-            factor_logger(
-                "WARN",
-                sprintf(
-                    "Reference phase(s) %s not in model levels, using default: %s",
-                    summarize_values(ref_phase),
-                    model_phase_levels[1]
-                )
-            )
-        }
-    }
+    hazard_samples$condition <- apply_factor(ref_condition, model_cond_levels, "condition")
+    factor_logger("DEBUG", "Applied condition factor:", summarize_values(hazard_samples$condition))
 
-    if ("cond_phase" %in% names(model$model)) {
-        expected_cond_phase <- paste(ref_condition, ref_phase, sep = ".")
-        model_cond_phase_levels <- levels(model$model$cond_phase)
-        if (is.null(model_cond_phase_levels) || length(model_cond_phase_levels) == 0) {
-            model_cond_phase_levels <- unique(paste(hazard_samples$condition, hazard_samples$phase, sep = "."))
+    hazard_samples$phase <- apply_factor(ref_phase, model_phase_levels, "phase")
+    factor_logger("DEBUG", "Applied phase factor:", summarize_values(hazard_samples$phase))
+
+    if (length(model_cond_phase_levels) > 0) {
+        combined_ref <- paste(as.character(hazard_samples$condition), as.character(hazard_samples$phase), sep = ".")
+        unmatched_cp <- setdiff(unique(combined_ref), c(model_cond_phase_levels, NA_character_))
+        mapped_cp <- combined_ref
+        if (length(unmatched_cp) > 0) {
             factor_logger(
                 "WARN",
                 sprintf(
-                    "Model cond_phase levels unavailable; falling back to hazard sample combinations: %s",
-                    summarize_values(model_cond_phase_levels)
-                )
-            )
-        }
-        factor_logger("DEBUG", "Model cond_phase levels:", paste(model_cond_phase_levels, collapse = ", "))
-        factor_logger("DEBUG", "Expected cond_phase:", summarize_values(expected_cond_phase))
-        if (any(expected_cond_phase %in% model_cond_phase_levels)) {
-            hazard_samples$cond_phase <- factor(expected_cond_phase, levels = model_cond_phase_levels)
-            factor_logger("DEBUG", "Applied cond_phase factor:", summarize_values(hazard_samples$cond_phase))
-        } else {
-            hazard_samples$cond_phase <- factor(model_cond_phase_levels[1], levels = model_cond_phase_levels)
-            factor_logger(
-                "WARN",
-                sprintf(
-                    "Expected cond_phase %s not in model levels, using default: %s",
-                    summarize_values(expected_cond_phase),
+                    "Standardized condition x phase combination(s) %s not in training; mapping to %s",
+                    summarize_values(unmatched_cp),
                     model_cond_phase_levels[1]
                 )
             )
+            mapped_cp[mapped_cp %in% unmatched_cp] <- model_cond_phase_levels[1]
         }
+        hazard_samples$cond_phase <- factor(mapped_cp, levels = model_cond_phase_levels)
+        factor_logger("DEBUG", "Applied cond_phase factor:", summarize_values(hazard_samples$cond_phase))
     }
 
     factor_logger("DEBUG", "Factor application completed successfully")
     return(hazard_samples)
 }
+
 
 
 #' Score trial with risk model (on-the-fly computation only)
@@ -616,6 +696,22 @@ save_risk_model <- function(model, file_path, tau = NULL) {
         save_logger("WARN", "No tau provided, model will be saved without tau attribute")
     }
 
+    level_map <- list(
+        condition = attr(model, "levels_condition"),
+        phase = attr(model, "levels_phase"),
+        cond_phase = attr(model, "levels_cond_phase")
+    )
+    for (key in names(level_map)) {
+        lvls <- level_map[[key]]
+        if (!is.null(lvls) && length(lvls) > 0) {
+            preview <- paste(head(lvls, 5), collapse = ", ")
+            if (length(lvls) > 5) {
+                preview <- paste0(preview, ", ...")
+            }
+            save_logger("DEBUG", sprintf("Persisting %s levels (%d): %s", key, length(lvls), preview))
+        }
+    }
+
     saveRDS(model, file_path)
     save_logger("INFO", "Model saved to:", file_path)
 }
@@ -636,6 +732,22 @@ load_risk_model <- function(file_path) {
             load_logger("DEBUG", "Model loaded with tau attribute:", tau, "seconds")
         } else {
             load_logger("WARN", "Model loaded without tau attribute")
+        }
+
+        level_map <- list(
+            condition = attr(model, "levels_condition"),
+            phase = attr(model, "levels_phase"),
+            cond_phase = attr(model, "levels_cond_phase")
+        )
+        for (key in names(level_map)) {
+            lvls <- level_map[[key]]
+            if (!is.null(lvls) && length(lvls) > 0) {
+                preview <- paste(head(lvls, 5), collapse = ", ")
+                if (length(lvls) > 5) {
+                    preview <- paste0(preview, ", ...")
+                }
+                load_logger("DEBUG", sprintf("Model %s levels (%d): %s", key, length(lvls), preview))
+            }
         }
 
         return(model)
@@ -879,7 +991,6 @@ train_and_save_risk_model <- function(participants, trials, tau = 0.15,
 
         # Return just the model
         return(model)
-        }
     })
 }
 
@@ -1010,12 +1121,10 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
     std_logger <- create_module_logger("STANDARDIZED")
     std_logger("DEBUG", "compute_pooled_standardized_risks called")
 
-    # sanity
     need <- c("e", "v", "participant", "condition", "phase")
     miss <- setdiff(need, names(hazard_samples))
     if (length(miss) > 0) stop("hazard_samples missing: ", paste(miss, collapse = ", "))
 
-    # Get tau from model attributes (CRITICAL for rate calculations)
     tau <- attr(model, "tau")
     if (is.null(tau) || !is.finite(tau) || tau <= 0) {
         tau <- attr(hazard_samples, "tau")
@@ -1034,28 +1143,51 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
     }
     attr(hazard_samples, "tau") <- tau
 
-    # factor levels to match the model
     hazard_samples$participant <- factor(hazard_samples$participant)
-    if ("condition" %in% names(model$model)) {
-        hazard_samples$condition <- factor(hazard_samples$condition,
-            levels = levels(model$model$condition)
-        )
-    } else {
-        hazard_samples$condition <- factor(hazard_samples$condition)
+
+    raw_condition <- normalize_factor_labels(hazard_samples$condition)
+    raw_phase <- normalize_factor_labels(hazard_samples$phase)
+
+    condition_levels <- get_model_levels(model, "condition", raw_condition)
+    phase_levels <- get_model_levels(model, "phase", raw_phase)
+    cond_phase_levels <- get_model_levels(
+        model,
+        "cond_phase",
+        paste(raw_condition, raw_phase, sep = ".")
+    )
+
+    if (length(condition_levels) == 0) {
+        std_logger("ERROR", "No valid condition levels available for standardization")
+        return(NULL)
     }
-    if ("phase" %in% names(model$model)) {
-        hazard_samples$phase <- factor(hazard_samples$phase,
-            levels = levels(model$model$phase)
-        )
-    } else {
-        hazard_samples$phase <- factor(hazard_samples$phase)
+    if (length(phase_levels) == 0) {
+        std_logger("ERROR", "No valid phase levels available for standardization")
+        return(NULL)
     }
 
-    # reference X: pooled (e, v, participant) rows
+    hazard_samples$condition <- factor(raw_condition, levels = condition_levels)
+    hazard_samples$phase <- factor(raw_phase, levels = phase_levels)
+    if (length(cond_phase_levels) > 0) {
+        hazard_samples$cond_phase <- factor(
+            paste(hazard_samples$condition, hazard_samples$phase, sep = "."),
+            levels = cond_phase_levels
+        )
+    }
+
+    std_logger("INFO", sprintf(
+        "Computing standardized mapping scores for %d condition x %d phase combinations",
+        length(condition_levels),
+        length(phase_levels)
+    ))
+    std_logger("DEBUG", "Condition levels:", paste(condition_levels, collapse = ", "))
+    std_logger("DEBUG", "Phase levels:", paste(phase_levels, collapse = ", "))
+    if (length(cond_phase_levels) > 0) {
+        std_logger("DEBUG", "condition x phase levels:", paste(cond_phase_levels, collapse = ", "))
+    }
+
     ref_df <- hazard_samples[, c("e", "v", "participant")]
     ref_df$participant <- factor(ref_df$participant)
 
-    # estimate bin width Δt from within-segment time differences (for info only, not used in calculations)
     dt <- NA_real_
     if (all(c("time", "respawn_segment") %in% names(hazard_samples))) {
         dt_vec <- hazard_samples |>
@@ -1071,163 +1203,56 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
         std_logger("DEBUG", "Estimated dt =", dt, "seconds (for info only)")
     }
 
-    # Condition levels
-    if ("condition" %in% names(model$model)) {
-        cond_levels <- levels(model$model$condition)
-        if (is.null(cond_levels)) cond_levels <- unique(model$model$condition)
-    } else {
-        cond_levels <- levels(hazard_samples$condition)
-        if (is.null(cond_levels)) cond_levels <- unique(hazard_samples$condition)
-    }
-
-    # Phase levels
-    if ("phase" %in% names(model$model)) {
-        phase_levels <- levels(model$model$phase)
-        if (is.null(phase_levels)) phase_levels <- unique(model$model$phase)
-    } else {
-        phase_levels <- levels(hazard_samples$phase)
-        if (is.null(phase_levels)) phase_levels <- unique(hazard_samples$phase)
-    }
-
-    # Ensure we have valid levels
-    if (is.null(cond_levels) || length(cond_levels) == 0) {
-        cond_levels <- unique(hazard_samples$condition)
-    }
-    if (is.null(phase_levels) || length(phase_levels) == 0) {
-        phase_levels <- unique(hazard_samples$phase)
-    }
-
+    total_targets <- length(condition_levels) * length(phase_levels)
     res_list <- list()
 
-    std_logger("INFO", "Computing standardized mapping scores for", length(cond_levels), "condition ×", length(phase_levels), "phase combinations")
-    std_logger("DEBUG", "Using fixed reference state distribution (e, v, participant) with standardized condition×phase labels")
-
-    # Ensure we have valid levels to work with
-    if (length(cond_levels) == 0) {
-        std_logger("ERROR", "No valid condition levels found")
-        return(NULL)
-    }
-    if (length(phase_levels) == 0) {
-        std_logger("ERROR", "No valid phase levels found")
-        return(NULL)
+    n_cores_default <- parallel::detectCores()
+    if (is.null(n_cores_default) || !is.finite(n_cores_default) || n_cores_default < 1) {
+        n_cores_default <- 1L
     }
 
-    # Debug: Show model's factor levels
-    if ("condition" %in% names(model$model)) {
-        std_logger("DEBUG", "Model condition levels:", paste(levels(model$model$condition), collapse = ", "))
-    }
-    if ("phase" %in% names(model$model)) {
-        std_logger("DEBUG", "Model phase levels:", paste(levels(model$model$phase), collapse = ", "))
-    }
-    if ("cond_phase" %in% names(model$model)) {
-        std_logger("DEBUG", "Model cond_phase levels:", paste(levels(model$model$cond_phase), collapse = ", "))
-    }
-
-    # Process all condition × phase combinations
-    res_list <- list()
-
-    for (cn in cond_levels) {
+    for (cn in condition_levels) {
         for (ph in phase_levels) {
-            std_logger("DEBUG", "Processing: condition='", cn, "', phase='", ph, "'")
+            combo_label <- paste(cn, ph, sep = " x ")
 
-            # Create standardized prediction data using fixed reference states
+            if (length(cond_phase_levels) > 0) {
+                expected_cond_phase <- paste(cn, ph, sep = ".")
+                if (!(expected_cond_phase %in% cond_phase_levels)) {
+                    std_logger("DEBUG", "Skipping", combo_label, "because it was not present during model training")
+                    next
+                }
+            }
+
+            std_logger("DEBUG", "Processing standardized combination:", combo_label)
+
             newdf <- ref_df
-
-            # CRITICAL: Align factor levels with model's training levels
-            # This ensures we only use combinations that existed in training
-            skip_combination <- FALSE
-
-            if ("condition" %in% names(model$model)) {
-                model_cond_levels <- levels(model$model$condition)
-                # If model levels are empty, use the levels we determined earlier
-                if (is.null(model_cond_levels) || length(model_cond_levels) == 0) {
-                    std_logger("WARN", "Model condition levels are empty, using fallback levels")
-                    model_cond_levels <- cond_levels
-                }
-
-                if (cn %in% model_cond_levels) {
-                    newdf$condition <- factor(cn, levels = model_cond_levels)
-                } else {
-                    std_logger("WARN", "Condition '", cn, "' not in model training levels:", paste(model_cond_levels, collapse = ", "))
-                    skip_combination <- TRUE
-                }
-            } else {
-                newdf$condition <- factor(cn, levels = cond_levels)
+            newdf$condition <- factor(rep(cn, nrow(newdf)), levels = condition_levels)
+            newdf$phase <- factor(rep(ph, nrow(newdf)), levels = phase_levels)
+            if (length(cond_phase_levels) > 0) {
+                newdf$cond_phase <- factor(
+                    paste(newdf$condition, newdf$phase, sep = "."),
+                    levels = cond_phase_levels
+                )
             }
 
-            if ("phase" %in% names(model$model)) {
-                model_phase_levels <- levels(model$model$phase)
-                # If model levels are empty, use the levels we determined earlier
-                if (is.null(model_phase_levels) || length(model_phase_levels) == 0) {
-                    std_logger("WARN", "Model phase levels are empty, using fallback levels")
-                    model_phase_levels <- phase_levels
-                }
+            std_logger("DEBUG", "Using", n_cores_default, "cores for parallel prediction")
+            std_logger("DEBUG", "Predicting on", nrow(newdf), "rows for", combo_label, "...")
 
-                if (ph %in% model_phase_levels) {
-                    newdf$phase <- factor(ph, levels = model_phase_levels)
-                } else {
-                    std_logger("WARN", "Phase '", ph, "' not in model training levels:", paste(model_phase_levels, collapse = ", "))
-                    skip_combination <- TRUE
-                }
-            } else {
-                newdf$phase <- factor(ph, levels = phase_levels)
-            }
-
-            # Skip prediction if factor levels don't match
-            if (skip_combination) {
-                std_logger("WARN", "Skipping prediction due to factor level mismatch")
-                next
-            }
-
-            # Create cond_phase interaction factor for factor-by smooths
-            if ("cond_phase" %in% names(model$model)) {
-                # Create the interaction factor using the same method as training
-                newdf$cond_phase <- interaction(newdf$condition, newdf$phase, drop = TRUE)
-
-                # Get the model's cond_phase levels
-                model_cond_phase_levels <- levels(model$model$cond_phase)
-
-                # Debug: Show what we're trying to create vs what the model expects
-                std_logger("DEBUG", "Created cond_phase:", paste(levels(newdf$cond_phase), collapse = ", "))
-                std_logger("DEBUG", "Model expects cond_phase:", paste(model_cond_phase_levels, collapse = ", "))
-
-                # Check if our created levels match the model's levels
-                if (!all(levels(newdf$cond_phase) %in% model_cond_phase_levels)) {
-                    std_logger("WARN", "Some cond_phase levels not in model training levels")
-                    # Try to align the levels
-                    newdf$cond_phase <- factor(newdf$cond_phase, levels = model_cond_phase_levels)
-                }
-            }
-
-            # Skip prediction if cond_phase levels don't match
-            if (skip_combination) {
-                std_logger("WARN", "Skipping prediction due to cond_phase level mismatch")
-                next
-            }
-
-            std_logger("DEBUG", "Computing standardized risk for condition='", cn, "', phase='", ph, "'")
-
-            # Predict fixed-effects hazard; exclude random effect smooth for population-level mapping
-            # Use parallel processing for faster prediction (same as training)
-            n_cores <- parallel::detectCores()
-            std_logger("DEBUG", "Using", n_cores, "cores for parallel prediction")
-            std_logger("DEBUG", "Predicting on", nrow(newdf), "rows...")
-
-            # Add timing
             start_time <- Sys.time()
-            eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)", nthreads = n_cores)
+            eta <- predict(model, newdata = newdf, type = "link", exclude = "s(participant)", nthreads = n_cores_default)
             end_time <- Sys.time()
-            std_logger("DEBUG", "Prediction completed in", round(as.numeric(end_time - start_time, units = "secs"), 2), "seconds")
+            std_logger("DEBUG", "Prediction for", combo_label, "completed in", round(as.numeric(end_time - start_time, units = "secs"), 2), "seconds")
 
-            # per-τ drop probability (for backward compat with 'mean_hazard'):
             p_tau <- 1 - exp(-exp(eta))
-            mean_h <- mean(tapply(p_tau, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            mean_h <- mean(tapply(p_tau, newdf$participant, mean, na.rm = TRUE) |>
+                unlist(), na.rm = TRUE)
 
-            # sampling-invariant rate and 1-second risk using model's tau:
-            lambda <- exp(eta) / tau # per-second hazard rate
-            risk1s <- 1 - exp(-lambda) # 1-second risk
-            exp_dpm <- 60 * mean(tapply(lambda, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
-            risk_1s <- mean(tapply(risk1s, newdf$participant, mean, na.rm = TRUE) |> unlist(), na.rm = TRUE)
+            lambda <- exp(eta) / tau
+            risk1s <- 1 - exp(-lambda)
+            exp_dpm <- 60 * mean(tapply(lambda, newdf$participant, mean, na.rm = TRUE) |>
+                unlist(), na.rm = TRUE)
+            risk_1s <- mean(tapply(risk1s, newdf$participant, mean, na.rm = TRUE) |>
+                unlist(), na.rm = TRUE)
 
             res_list[[paste(cn, ph, sep = "|")]] <- data.frame(
                 condition = cn,
@@ -1241,30 +1266,41 @@ compute_pooled_standardized_risks <- function(model, hazard_samples, analysis_re
         }
     }
 
+    if (length(res_list) == 0) {
+        std_logger("ERROR", "No standardized risks could be computed; aborting analysis")
+        return(NULL)
+    }
+
     out <- do.call(rbind, res_list)
     rownames(out) <- NULL
 
-    std_logger("INFO", "Successfully computed standardized risks for", nrow(out), "condition×phase combinations")
+    std_logger("INFO", sprintf(
+        "Successfully computed standardized risks for %d/%d target combinations",
+        nrow(out),
+        total_targets
+    ))
     if (nrow(out) > 0) {
         std_logger("DEBUG", "Computed combinations:")
         for (i in seq_len(nrow(out))) {
-            std_logger("DEBUG", "  -", out$condition[i], "×", out$phase[i], ": risk_1s =", round(out$risk_1s[i], 6), ", mean_hazard =", round(out$mean_hazard[i], 6))
+            std_logger(
+                "DEBUG",
+                sprintf("  - %s x %s : risk_1s = %.6f , mean_hazard = %.6f",
+                    out$condition[i], out$phase[i], out$risk_1s[i], out$mean_hazard[i])
+            )
         }
     }
 
-    # Perform comprehensive statistical analysis
     analysis_results <- perform_risk_analysis(model, hazard_samples, out, analysis_results_path)
 
-    # Always print standardized risks to console
     std_logger("INFO", "Pooled standardized risks computed:")
     print(out)
 
-
     return(list(
         standardized_risks = out,
-        analysis_results   = analysis_results
+        analysis_results = analysis_results
     ))
 }
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1290,20 +1326,31 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 
     # Standardize factor levels to match model
     hazard_samples$participant <- factor(hazard_samples$participant)
-    if ("condition" %in% names(model$model)) {
-        hazard_samples$condition <- factor(hazard_samples$condition, levels = levels(model$model$condition))
-    } else {
-        hazard_samples$condition <- factor(hazard_samples$condition)
+
+    raw_condition <- normalize_factor_labels(hazard_samples$condition)
+    raw_phase <- normalize_factor_labels(hazard_samples$phase)
+
+    condition_levels <- get_model_levels(model, "condition", raw_condition)
+    phase_levels <- get_model_levels(model, "phase", raw_phase)
+
+    if (length(condition_levels) == 0) {
+        condition_levels <- unique(raw_condition[!is.na(raw_condition)])
+        analysis_logger("WARN", "Model missing stored condition levels; using observed hazard sample levels")
     }
-    if ("phase" %in% names(model$model)) {
-        hazard_samples$phase <- factor(hazard_samples$phase, levels = levels(model$model$phase))
-    } else {
-        hazard_samples$phase <- factor(hazard_samples$phase)
+    if (length(phase_levels) == 0) {
+        phase_levels <- unique(raw_phase[!is.na(raw_phase)])
+        analysis_logger("WARN", "Model missing stored phase levels; using observed hazard sample levels")
     }
 
-    # Use levels from std_means (robust)
-    cond_levels <- unique(as.character(std_means$condition))
-    phase_levels <- unique(as.character(std_means$phase))
+    hazard_samples$condition <- factor(raw_condition, levels = condition_levels)
+    hazard_samples$phase <- factor(raw_phase, levels = phase_levels)
+
+    analysis_logger("DEBUG", "Condition levels for analysis:", paste(condition_levels, collapse = ", "))
+    analysis_logger("DEBUG", "Phase levels for analysis:", paste(phase_levels, collapse = ", "))
+
+# Use levels from std_means (robust)
+    cond_levels <- unique(normalize_factor_labels(std_means$condition))
+    phase_levels <- unique(normalize_factor_labels(std_means$phase))
     analysis_logger("DEBUG", "cond_levels =", cond_levels)
     analysis_logger("DEBUG", "phase_levels =", phase_levels)
 
@@ -1370,32 +1417,73 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
             d_transfer  = transfer - baseline_task
         )
 
-    get_mh <- function(cond, ph) {
-        v <- mm$mean_hazard[mm$condition == cond & mm$phase == ph]
-        if (length(v) == 0) NA_real_ else v[1]
+    extract_mean <- function(data, cond, ph) {
+        v <- data |>
+            dplyr::filter(condition == cond, phase == ph) |>
+            dplyr::pull(mean_hazard)
+        if (length(v) == 0 || all(is.na(v))) {
+            return(NA_real_)
+        }
+        v[[1]]
     }
 
-    DiD <- tibble::tibble(
-        contrast = c(
-            "PV vs Control (Retention)", "PV vs Control (Transfer)",
-            "P  vs Control (Retention)", "P  vs Control (Transfer)",
-            "P  vs PV (Retention)", "P  vs PV (Transfer)"
-        ),
-        DiD = c(
-            (get_mh("perturbation_visualization", "retention") - get_mh("perturbation_visualization", "baseline_task")) -
-                (get_mh("control", "retention") - get_mh("control", "baseline_task")),
-            (get_mh("perturbation_visualization", "transfer") - get_mh("perturbation_visualization", "baseline_task")) -
-                (get_mh("control", "transfer") - get_mh("control", "baseline_task")),
-            (get_mh("perturbation", "retention") - get_mh("perturbation", "baseline_task")) -
-                (get_mh("control", "retention") - get_mh("control", "baseline_task")),
-            (get_mh("perturbation", "transfer") - get_mh("perturbation", "baseline_task")) -
-                (get_mh("control", "transfer") - get_mh("control", "baseline_task")),
-            (get_mh("perturbation", "retention") - get_mh("perturbation", "baseline_task")) -
-                (get_mh("perturbation_visualization", "retention") - get_mh("perturbation_visualization", "baseline_task")),
-            (get_mh("perturbation", "transfer") - get_mh("perturbation", "baseline_task")) -
-                (get_mh("perturbation_visualization", "transfer") - get_mh("perturbation_visualization", "baseline_task"))
-        )
+    get_mh <- function(cond, ph) {
+        extract_mean(mm, cond, ph)
+    }
+
+    missing_notified <- new.env(parent = emptyenv())
+
+    warn_missing_mean <- function(cond, ph) {
+        key <- paste(cond, ph, sep = "::")
+        if (!exists(key, envir = missing_notified, inherits = FALSE)) {
+            analysis_logger("WARN", sprintf(
+                "Missing standardized means for %s (%s vs baseline); returning NA",
+                cond, ph
+            ))
+            assign(key, TRUE, envir = missing_notified)
+        }
+    }
+
+    delta_for <- function(cond, phase) {
+        base_val <- get_mh(cond, "baseline_task")
+        phase_val <- get_mh(cond, phase)
+        if (is.na(base_val)) warn_missing_mean(cond, "baseline_task")
+        if (is.na(phase_val)) warn_missing_mean(cond, phase)
+        if (is.na(base_val) || is.na(phase_val)) {
+            return(NA_real_)
+        }
+        phase_val - base_val
+    }
+
+    calc_did <- function(condA, condB, phase) {
+        deltaA <- delta_for(condA, phase)
+        deltaB <- delta_for(condB, phase)
+        if (is.na(deltaA) || is.na(deltaB)) {
+            return(NA_real_)
+        }
+        deltaA - deltaB
+    }
+
+    contrast_defs <- tibble::tribble(
+        ~contrast, ~condA, ~condB, ~phase,
+        "PV vs Control (Retention)", "perturbation_visualization", "control", "retention",
+        "PV vs Control (Transfer)", "perturbation_visualization", "control", "transfer",
+        "P  vs Control (Retention)", "perturbation", "control", "retention",
+        "P  vs Control (Transfer)", "perturbation", "control", "transfer",
+        "P  vs PV (Retention)", "perturbation", "perturbation_visualization", "retention",
+        "P  vs PV (Transfer)", "perturbation", "perturbation_visualization", "transfer"
     )
+
+    available_contrasts <- contrast_defs |
+        dplyr::filter(condA %in% cond_levels, condB %in% cond_levels, phase %in% needed_phases)
+
+    if (nrow(available_contrasts) > 0) {
+        DiD <- available_contrasts
+        DiD$DiD <- mapply(calc_did, DiD$condA, DiD$condB, DiD$phase)
+        DiD <- dplyr::select(DiD, contrast, DiD)
+    } else {
+        DiD <- tibble::tibble(contrast = character(), DiD = numeric())
+    }
 
     # 3) Parametric bootstrap CIs (guarded)
     analysis_logger("DEBUG", "Computing parametric bootstrap CIs...")
@@ -1633,60 +1721,71 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
                     )
 
                 # DiD bootstrap
-                did_from_df <- function(df, condA, condB, phase) {
-                    wide <- df |>
-                        tidyr::pivot_wider(id_cols = condition, names_from = phase, values_from = mean_hazard)
-                    if (!all(c("baseline_task", phase) %in% names(wide))) {
+                delta_value <- function(df, cond, phase) {
+                    base_val <- extract_mean(df, cond, "baseline_task")
+                    targ_val <- extract_mean(df, cond, phase)
+                    if (is.na(base_val)) {
+                        warn_missing_mean(cond, "baseline_task")
+                    }
+                    if (is.na(targ_val)) {
+                        warn_missing_mean(cond, phase)
+                    }
+                    if (is.na(base_val) || is.na(targ_val)) {
                         return(NA_real_)
                     }
-                    as.numeric((wide[wide$condition == condA, phase] - wide[wide$condition == condA, "baseline_task"]) -
-                        (wide[wide$condition == condB, phase] - wide[wide$condition == condB, "baseline_task"]))
+                    targ_val - base_val
                 }
 
-                did_names <- rbind(
-                    c("perturbation_visualization", "control", "retention"),
-                    c("perturbation_visualization", "control", "transfer"),
-                    c("perturbation", "control", "retention"),
-                    c("perturbation", "control", "transfer"),
-                    c("perturbation", "perturbation_visualization", "retention"),
-                    c("perturbation", "perturbation_visualization", "transfer")
-                )
-                pts <- apply(did_names, 1, \(r) did_from_df(std_means, r[1], r[2], r[3]))
-
-                analysis_logger("DEBUG", "Computing DiD bootstrap samples...")
-                flush.console()
-                did_boot_mat <- sapply(seq_len(B), function(b) {
-                    if (b %% 20 == 0 || b == B) {
-                        analysis_logger("DEBUG", "DiD bootstrap progress:", b, "/", B, "(", round(100 * b / B, 1), "%)")
-                        flush.console()
-                    }
-                    dfb <- boot_list[[b]]
-                    apply(did_names, 1, \(r) did_from_df(dfb, r[1], r[2], r[3]))
-                })
-
-                # Bootstrap p-values for DiD (two-sided) + Holm
-                did_pvals <- apply(did_boot_mat, 1, function(x) {
-                    x <- x[is.finite(x)]
-                    if (!length(x)) {
+                did_from_df <- function(df, condA, condB, phase) {
+                    deltaA <- delta_value(df, condA, phase)
+                    deltaB <- delta_value(df, condB, phase)
+                    if (is.na(deltaA) || is.na(deltaB)) {
                         return(NA_real_)
                     }
-                    2 * min(mean(x >= 0), mean(x <= 0))
-                })
-                did_pvals_holm <- p.adjust(did_pvals, method = "holm")
+                    deltaA - deltaB
+                }
 
-                DiD_boot <- tibble::tibble(
-                    contrast = c(
-                        "PV vs Control (Retention)", "PV vs Control (Transfer)",
-                        "P vs Control (Retention)", "P vs Control (Transfer)",
-                        "P vs PV (Retention)", "P vs PV (Transfer)"
-                    ),
-                    point = as.numeric(pts),
-                    lo = apply(did_boot_mat, 1, \(x) stats::quantile(x, .025, na.rm = TRUE)),
-                    med = apply(did_boot_mat, 1, \(x) stats::quantile(x, .5, na.rm = TRUE)),
-                    hi = apply(did_boot_mat, 1, \(x) stats::quantile(x, .975, na.rm = TRUE)),
-                    p_boot = as.numeric(did_pvals),
-                    p_boot_holm = as.numeric(did_pvals_holm)
-                )
+                if (nrow(available_contrasts) > 0) {
+                    did_names <- as.matrix(dplyr::select(available_contrasts, condA, condB, phase))
+                    pts <- apply(did_names, 1, \(r) did_from_df(std_means, r[1], r[2], r[3]))
+
+                    analysis_logger("DEBUG", "Computing DiD bootstrap samples...")
+                    flush.console()
+                    did_boot_mat <- sapply(seq_len(B), function(b) {
+                        if (b %% 20 == 0 || b == B) {
+                            analysis_logger("DEBUG", "DiD bootstrap progress:", b, "/", B, "(", round(100 * b / B, 1), "%)")
+                            flush.console()
+                        }
+                        dfb <- boot_list[[b]]
+                        apply(did_names, 1, \(r) did_from_df(dfb, r[1], r[2], r[3]))
+                    })
+
+                    if (is.null(dim(did_boot_mat))) {
+                        did_boot_mat <- matrix(did_boot_mat, nrow = nrow(available_contrasts))
+                    }
+
+                    did_pvals <- apply(did_boot_mat, 1, function(x) {
+                        x <- x[is.finite(x)]
+                        if (!length(x)) {
+                            return(NA_real_)
+                        }
+                        2 * min(mean(x >= 0), mean(x <= 0))
+                    })
+                    did_pvals_holm <- if (length(did_pvals) > 0 && any(is.finite(did_pvals))) p.adjust(did_pvals, method = "holm") else rep(NA_real_, length(did_pvals))
+
+                    DiD_boot <- tibble::tibble(
+                        contrast = available_contrasts$contrast,
+                        point = as.numeric(pts),
+                        lo = apply(did_boot_mat, 1, \(x) stats::quantile(x, .025, na.rm = TRUE)),
+                        med = apply(did_boot_mat, 1, \(x) stats::quantile(x, .5, na.rm = TRUE)),
+                        hi = apply(did_boot_mat, 1, \(x) stats::quantile(x, .975, na.rm = TRUE)),
+                        p_boot = as.numeric(did_pvals),
+                        p_boot_holm = as.numeric(did_pvals_holm)
+                    )
+                } else {
+                    analysis_logger("INFO", "No valid condition contrasts available for DiD bootstrap; skipping DiD summary.")
+                    DiD_boot <- tibble::tibble()
+                }
 
                 # Within-condition deltas: CIs + p-values
                 analysis_logger("DEBUG", "Computing bootstrap p-values for within-condition changes...")
@@ -1816,6 +1915,8 @@ perform_risk_analysis <- function(model, hazard_samples, std_means, analysis_res
 #' @param std_means Standardized means data frame
 #' @param txt_path Path to save the text file
 save_analysis_to_txt <- function(results, std_means, txt_path) {
+    writer_logger <- create_module_logger("ANALYSIS")
+
     # Check if file already exists and create unique filename if needed
     if (file.exists(txt_path)) {
         # Extract directory, base name, and extension
@@ -1828,7 +1929,7 @@ save_analysis_to_txt <- function(results, std_means, txt_path) {
         new_filename <- paste0(base_name, "_", timestamp, ".", ext)
         txt_path <- file.path(dir_path, new_filename)
 
-        analysis_logger("WARN", "File already exists, saving to:", txt_path)
+        writer_logger("WARN", "File already exists, saving to:", txt_path)
     }
 
     sink(txt_path)

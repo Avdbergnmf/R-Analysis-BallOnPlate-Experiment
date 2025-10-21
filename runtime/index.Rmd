@@ -178,6 +178,10 @@ Manual Outlier Filtering
 ```{r, child='pages/page16_manualOutlierFiltering.Rmd'}
 ```
 
+Simulation Data
+=====================================
+```{r, child='pages/page17_simulationData.Rmd'}
+```
 
 ```{js}
 // Last visited page persistence for flexdashboard
