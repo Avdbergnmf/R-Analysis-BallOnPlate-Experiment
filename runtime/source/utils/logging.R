@@ -145,33 +145,43 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
     # Create the full message with proper alignment
     # Calculate padding for consistent alignment
     level_width <- 7 # "[DEBUG]", "[INFO]", etc.
-    module_width <- 15 # Maximum module name width
+    module_width <- 20 # Maximum module name width
 
     # Create aligned prefix
     if (GLOBAL_COLORED_LOGGING) {
-      level_text <- switch(level,
-        "DEBUG" = "\033[90m[DEBUG]\033[0m",
-        "INFO" = "\033[32m[INFO]\033[0m",
-        "WARN" = "\033[33m[WARN]\033[0m",
-        "ERROR" = "\033[31m[ERROR]\033[0m",
-        "\033[90m[DEBUG]\033[0m"
+      colorize <- function(text, color) paste0(color, text, "\033[0m")
+
+      level_plain <- switch(level,
+        "DEBUG" = "[DEBUG]",
+        "INFO" = "[INFO]",
+        "WARN" = "[WARN]",
+        "ERROR" = "[ERROR]",
+        "[DEBUG]"
       )
+      level_color <- switch(level,
+        "DEBUG" = "\033[90m",
+        "INFO" = "\033[32m",
+        "WARN" = "\033[33m",
+        "ERROR" = "\033[31m",
+        "\033[90m"
+      )
+      level_padded <- sprintf("%-*s", level_width, level_plain)
+      level_text <- colorize(level_padded, level_color)
 
       if (!is.null(module_name)) {
         # Truncate module name if too long
-        truncated_name <- if (nchar(module_name) > module_width - 2) {
-          paste0(substr(module_name, 1, module_width - 5), "...")
+        truncated_name <- if (nchar(module_name) > module_width - 3) {
+          paste0(substr(module_name, 1, module_width - 4), "...")
         } else {
           module_name
         }
-        module_text <- paste0("\033[36m[", truncated_name, "]\033[0m")
-        # Pad module name to fixed width
-        module_padded <- sprintf("%-*s", module_width, module_text)
-        prefix <- paste(level_text, module_padded)
+        module_plain <- paste0("[", truncated_name, "]")
+        module_padded <- sprintf("%-*s", module_width, module_plain)
+        module_text <- colorize(module_padded, "\033[36m")
+        prefix <- paste(level_text, module_text)
       } else {
-        # Pad level to fixed width
-        level_padded <- sprintf("%-*s", level_width, level_text)
-        prefix <- paste(level_padded, sprintf("%-*s", module_width, ""))
+        module_placeholder <- sprintf("%-*s", module_width, "")
+        prefix <- paste(level_text, module_placeholder)
       }
     } else {
       level_text <- switch(level,
@@ -184,15 +194,15 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
 
       if (!is.null(module_name)) {
         # Truncate module name if too long
-        truncated_name <- if (nchar(module_name) > module_width - 2) {
-          paste0(substr(module_name, 1, module_width - 5), "...")
+        truncated_name <- if (nchar(module_name) > module_width - 3) {
+          paste0(substr(module_name, 1, module_width - 4), "...")
         } else {
           module_name
         }
         module_text <- paste0("[", truncated_name, "]")
         # Pad module name to fixed width
         module_padded <- sprintf("%-*s", module_width, module_text)
-        prefix <- paste(level_text, module_padded)
+        prefix <- paste(sprintf("%-*s", level_width, level_text), module_padded)
       } else {
         # Pad level to fixed width
         level_padded <- sprintf("%-*s", level_width, level_text)
@@ -389,16 +399,16 @@ test_logging_alignment <- function() {
   long_logger <- create_module_logger("TRACKER-CACHE")
   very_long_logger <- create_module_logger("VERY-LONG-MODULE-NAME")
 
-  cat("Testing logging alignment (max 15 chars for module names):\n")
-  cat("========================================================\n")
+  cat("Testing logging alignment (max 20 chars for module names):\n")
+  cat("==========================================================\n")
 
   short_logger("INFO", "Short module name")
   medium_logger("INFO", "Medium length module name")
   long_logger("INFO", "Longer module name")
   very_long_logger("INFO", "Very long module name that might overflow")
 
-  cat("========================================================\n")
-  cat("All messages should be properly aligned with 15-char module width.\n")
+  cat("==========================================================\n")
+  cat("All messages should be properly aligned with 20-char module width.\n")
   cat("Long module names should be truncated with '...'\n")
 }
 
@@ -490,3 +500,5 @@ log_progress <- function(logger, current, total, message = "") {
   progress_msg <- sprintf("[%d/%d] (%s%%) %s", current, total, percentage, message)
   logger("INFO", progress_msg)
 }
+
+
