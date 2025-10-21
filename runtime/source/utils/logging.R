@@ -145,7 +145,7 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
     # Create the full message with proper alignment
     # Calculate padding for consistent alignment
     level_width <- 7 # "[DEBUG]", "[INFO]", etc.
-    module_width <- 20 # Maximum module name width
+    module_width <- 15 # Maximum module name width
 
     # Create aligned prefix
     if (GLOBAL_COLORED_LOGGING) {
@@ -158,7 +158,13 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
       )
 
       if (!is.null(module_name)) {
-        module_text <- paste0("\033[36m[", module_name, "]\033[0m")
+        # Truncate module name if too long
+        truncated_name <- if (nchar(module_name) > module_width - 2) {
+          paste0(substr(module_name, 1, module_width - 5), "...")
+        } else {
+          module_name
+        }
+        module_text <- paste0("\033[36m[", truncated_name, "]\033[0m")
         # Pad module name to fixed width
         module_padded <- sprintf("%-*s", module_width, module_text)
         prefix <- paste(level_text, module_padded)
@@ -177,7 +183,13 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
       )
 
       if (!is.null(module_name)) {
-        module_text <- paste0("[", module_name, "]")
+        # Truncate module name if too long
+        truncated_name <- if (nchar(module_name) > module_width - 2) {
+          paste0(substr(module_name, 1, module_width - 5), "...")
+        } else {
+          module_name
+        }
+        module_text <- paste0("[", truncated_name, "]")
         # Pad module name to fixed width
         module_padded <- sprintf("%-*s", module_width, module_text)
         prefix <- paste(level_text, module_padded)
@@ -377,16 +389,17 @@ test_logging_alignment <- function() {
   long_logger <- create_module_logger("TRACKER-CACHE")
   very_long_logger <- create_module_logger("VERY-LONG-MODULE-NAME")
 
-  cat("Testing logging alignment:\n")
-  cat("========================\n")
+  cat("Testing logging alignment (max 15 chars for module names):\n")
+  cat("========================================================\n")
 
   short_logger("INFO", "Short module name")
   medium_logger("INFO", "Medium length module name")
   long_logger("INFO", "Longer module name")
   very_long_logger("INFO", "Very long module name that might overflow")
 
-  cat("========================\n")
-  cat("All messages should be properly aligned.\n")
+  cat("========================================================\n")
+  cat("All messages should be properly aligned with 15-char module width.\n")
+  cat("Long module names should be truncated with '...'\n")
 }
 
 #' Demonstrate colored logging with different modules
