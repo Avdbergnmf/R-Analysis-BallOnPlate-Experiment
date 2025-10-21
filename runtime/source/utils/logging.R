@@ -142,6 +142,52 @@ create_logger <- function(enabled = TRUE, messages = NULL, module_name = NULL) {
     # Create timestamp
     timestamp <- format(Sys.time(), "%H:%M:%S")
 
+    # Create the full message with proper alignment
+    # Calculate padding for consistent alignment
+    level_width <- 7 # "[DEBUG]", "[INFO]", etc.
+    module_width <- 20 # Maximum module name width
+
+    # Create aligned prefix
+    if (GLOBAL_COLORED_LOGGING) {
+      level_text <- switch(level,
+        "DEBUG" = "\033[90m[DEBUG]\033[0m",
+        "INFO" = "\033[32m[INFO]\033[0m",
+        "WARN" = "\033[33m[WARN]\033[0m",
+        "ERROR" = "\033[31m[ERROR]\033[0m",
+        "\033[90m[DEBUG]\033[0m"
+      )
+
+      if (!is.null(module_name)) {
+        module_text <- paste0("\033[36m[", module_name, "]\033[0m")
+        # Pad module name to fixed width
+        module_padded <- sprintf("%-*s", module_width, module_text)
+        prefix <- paste(level_text, module_padded)
+      } else {
+        # Pad level to fixed width
+        level_padded <- sprintf("%-*s", level_width, level_text)
+        prefix <- paste(level_padded, sprintf("%-*s", module_width, ""))
+      }
+    } else {
+      level_text <- switch(level,
+        "DEBUG" = "[DEBUG]",
+        "INFO" = "[INFO]",
+        "WARN" = "[WARN]",
+        "ERROR" = "[ERROR]",
+        "[DEBUG]"
+      )
+
+      if (!is.null(module_name)) {
+        module_text <- paste0("[", module_name, "]")
+        # Pad module name to fixed width
+        module_padded <- sprintf("%-*s", module_width, module_text)
+        prefix <- paste(level_text, module_padded)
+      } else {
+        # Pad level to fixed width
+        level_padded <- sprintf("%-*s", level_width, level_text)
+        prefix <- paste(level_padded, sprintf("%-*s", module_width, ""))
+      }
+    }
+
     # Create the full message with timestamp
     msg <- paste(timestamp, prefix, paste(..., collapse = " "))
 
@@ -321,6 +367,26 @@ test_colored_logging <- function() {
 
   cat("==============================\n")
   cat("Module names should appear in cyan.\n")
+}
+
+#' Test logging alignment with different module names
+test_logging_alignment <- function() {
+  # Test with different module name lengths
+  short_logger <- create_module_logger("CACHE")
+  medium_logger <- create_module_logger("SIMULATION-DATA")
+  long_logger <- create_module_logger("TRACKER-CACHE")
+  very_long_logger <- create_module_logger("VERY-LONG-MODULE-NAME")
+
+  cat("Testing logging alignment:\n")
+  cat("========================\n")
+
+  short_logger("INFO", "Short module name")
+  medium_logger("INFO", "Medium length module name")
+  long_logger("INFO", "Longer module name")
+  very_long_logger("INFO", "Very long module name that might overflow")
+
+  cat("========================\n")
+  cat("All messages should be properly aligned.\n")
 }
 
 #' Demonstrate colored logging with different modules
