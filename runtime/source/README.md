@@ -18,11 +18,40 @@ The runtime layer is now organised around **feature modules** (domain logic) and
 - Wrappers hand the appropriate loop function to feature modules, which produce one-row data frames per combination; utilities then bind those rows to the final output.
 - Missing combinations can be backfilled via `handle_missing_combinations()` after initial load.
 
-## Parallelism & Caching
+## Caching & Parallelism
 
-- `parallel = TRUE` switches the loop executor to the PSOCK worker pool defined in `parallel_processing.R`; `parallel = FALSE` stays sequential.
-- `force_cache_refresh = TRUE` on `load_or_calculate()` (or any wrapper passing `...`) rebuilds the `.qs` snapshots for tracker/simulation data before the loop.
-- `force_recalc`, `stop_cluster`, `allow_add_missing`, `combinations_df`, and `extra_global_vars` let you control cache bypassing, cluster lifecycle, selective recalc, subset processing, and worker exports respectively; all described in `utils/data_processing/load_or_calculate.R`.
+**Two cache layers**
+- `load_or_calculate()` writes the final results of each wrapper to `results/*.rds` (or `.qs`) so repeated dashboard loads skip re-computation.
+- Tracker and simulation primitives use `utils/cache.R`/`utils/data_caching` to persist per-dataset `.qs` snapshots. Preload hooks call helpers such as `preload_gait_tracking_data()` to warm these caches before the main loop runs.
+
+**Force refresh controls**
+- Passing `force_cache_refresh = TRUE` to `load_or_calculate()` tells preload hooks to rebuild dataset snapshots; if callers omit it, the function now falls back to the global `CACHE_FORCE_REWRITE` flag.
+- `FORCE_RECALC` (from config) forces `load_or_calculate()` to ignore the existing result file and recompute everything.
+- `force_recalc = TRUE` on a single call skips the saved result just for that invocation.
+
+**Parallel execution**
+- By default `parallel = USE_PARALLEL`, which wires the loop through the PSOCK cluster in `utils/data_processing/parallel_processing.R`. Setting `parallel = FALSE` keeps everything sequential.
+- `THRESHOLD_PARALLEL` guards the overhead of spinning up workers when only a handful of combinations are requested. `MAX_CORES` caps the worker count (with `-1` meaning “auto-detect all cores minus one”).
+- When you need reusable workers across several calls, keep `stop_cluster = FALSE`; pass `stop_cluster = TRUE` on the last call to shut the shared cluster down cleanly.
+
+**Other knobs**
+- `allow_add_missing` backfills combinations missing from the cached result.
+- `combinations_df` scopes work to a subset of participant/trial rows.
+- `extra_global_vars` ensures specific globals are exported to workers beyond the default environment snapshot.
+
+## Configuration Touchpoints
+
+All toggles live in `runtime/config.yml` and are surfaced as globals in `runtime/global.R`. Key settings:
+
+- `cache.force_rewrite` → populates `CACHE_FORCE_REWRITE`; drives the default `force_cache_refresh` behaviour for both dataset snapshots and result caching.
+- `cache.compression_level` & `cache.format` → control `qs::qsave` compression and whether caches use `.qs` or `.rds`.
+- `performance.use_parallel` → becomes `USE_PARALLEL`, the default for `load_or_calculate()` and the loop wrappers.
+- `performance.parallel_threshold` → exported as `THRESHOLD_PARALLEL`, setting the break-even point for enabling workers.
+- `performance.force_recalc` → mapped onto `FORCE_RECALC`, forcing fresh result calculations on every run when true.
+- `performance.max_cores` → used when sizing the shared PSOCK cluster.
+- `performance.enable_file_logging`, plus `logging.*` → determine whether module loggers write to disk and at which level, useful when diagnosing cache/parallel behaviour.
+
+Adjust these values per environment (`default`, `development`, `production`) and reload the app to have the runtime pick up the new defaults automatically.
 
 ## Key Files
 

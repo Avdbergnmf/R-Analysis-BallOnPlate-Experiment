@@ -15,7 +15,8 @@
 #' @param allow_add_missing Whether to check for and load missing combinations when loading from cache (default: FALSE, but automatically enabled when combinations_df is provided)
 #' @param threshold_parallel Threshold for using parallel processing when loading missing combinations (default: uses global THRESHOLD_PARALLEL)
 #' @param ... Additional options passed to preload hooks and helper routines
-#' (e.g., `force_cache_refresh = TRUE` to rebuild tracker/simulation caches)
+#' (e.g., `force_cache_refresh = TRUE` to rebuild tracker/simulation caches;
+#' defaults to the global CACHE_FORCE_REWRITE flag when not provided)
 #' @return The loaded or calculated data
 #'
 #' @examples
@@ -57,6 +58,15 @@ load_or_calculate <- function(filePath,
     # Create logger for this function
     logger <- create_module_logger("LOAD-OR-CALC")
     additional_args <- list(...)
+    force_cache_refresh_from_global <- FALSE
+    if (is.null(additional_args$force_cache_refresh)) {
+        global_force_refresh <- FALSE
+        if (base::exists("CACHE_FORCE_REWRITE", envir = .GlobalEnv, inherits = FALSE)) {
+            global_force_refresh <- base::get("CACHE_FORCE_REWRITE", envir = .GlobalEnv)
+        }
+        additional_args$force_cache_refresh <- isTRUE(global_force_refresh)
+        force_cache_refresh_from_global <- TRUE
+    }
     force_dataset_cache_refresh <- isTRUE(additional_args$force_cache_refresh)
     
     logger("DEBUG", "=== load_or_calculate called ===")
@@ -78,7 +88,11 @@ load_or_calculate <- function(filePath,
     logger("DEBUG", "force_recalc:", force_recalc)
     logger("DEBUG", "combinations_df:", if(is.null(combinations_df)) "NULL" else paste("rows:", nrow(combinations_df)))
     if (force_dataset_cache_refresh) {
-        logger("INFO", "force_cache_refresh flag set to TRUE")
+        if (force_cache_refresh_from_global) {
+            logger("INFO", "force_cache_refresh flag set to TRUE via CACHE_FORCE_REWRITE")
+        } else {
+            logger("INFO", "force_cache_refresh flag set to TRUE")
+        }
     }
     
     # Unified cluster cleanup: ensure we stop the global cluster on exit when requested
