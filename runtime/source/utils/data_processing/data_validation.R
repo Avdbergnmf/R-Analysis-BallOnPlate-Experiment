@@ -252,7 +252,11 @@ load_missing_combinations <- function(data_loader, datasets_to_verify, missing_c
     # Use parallel processing for missing combinations
     if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
         is.null(.GlobalEnv$.GLOBAL_PARALLEL_CLUSTER)) {
-      assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+      assign(
+        ".GLOBAL_PARALLEL_CLUSTER",
+        create_parallel_cluster(extra_global_vars = extra_global_vars),
+        envir = .GlobalEnv
+      )
     }
     cl <- .GlobalEnv$.GLOBAL_PARALLEL_CLUSTER
     

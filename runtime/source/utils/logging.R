@@ -275,6 +275,14 @@ set_colored_logging <- function(enabled = TRUE) {
   }
 }
 
+
+#' Strip ANSI color codes from text
+#' @param text Text that may contain ANSI escape sequences
+#' @return Clean text without ANSI codes
+strip_ansi_codes <- function(text) {
+  gsub("\033\\[[0-9;]*m", "", text)
+}
+
 #' Get current logging configuration
 #' @return List with current logging settings
 get_logging_config <- function() {
@@ -500,5 +508,3 @@ log_progress <- function(logger, current, total, message = "") {
   progress_msg <- sprintf("[%d/%d] (%s%%) %s", current, total, percentage, message)
   logger("INFO", progress_msg)
 }
-
-

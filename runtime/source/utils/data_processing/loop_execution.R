@@ -21,11 +21,20 @@ calculate_data <- function(calculate_function, parallel, combinations_df, extra_
     if (parallel) {
         logger("INFO", "Using parallel processing")
         
+        max_jobs <- if (!is.null(combinations_df)) nrow(combinations_df) else NULL
+
         # Obtain or create a reusable cluster
         if (!exists(".GLOBAL_PARALLEL_CLUSTER", envir = .GlobalEnv) ||
             is.null(.GlobalEnv$.GLOBAL_PARALLEL_CLUSTER)) {
             logger("DEBUG", "Creating new global parallel cluster")
-            assign(".GLOBAL_PARALLEL_CLUSTER", create_parallel_cluster(), envir = .GlobalEnv)
+            assign(
+                ".GLOBAL_PARALLEL_CLUSTER",
+                create_parallel_cluster(
+                    maxJobs = max_jobs,
+                    extra_global_vars = extra_global_vars
+                ),
+                envir = .GlobalEnv
+            )
         } else {
             logger("DEBUG", "Using existing global parallel cluster")
         }

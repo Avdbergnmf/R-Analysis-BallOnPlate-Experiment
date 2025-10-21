@@ -86,13 +86,15 @@ get_configured_core_count <- function(default = 1L, allow_autodetect = FALSE) {
 #' @param numCores Number of cores to use. If NULL, relies on MAX_CORES config
 #'                 (or environment hints) while leaving at least one core free.
 #' @param maxJobs Maximum number of jobs that will be processed. Cores will not exceed this number.
+#' @param extra_global_vars Character vector of global object names that must be available on workers.
+#'        Used for export planning and memory estimation.
 #' @return A configured cluster object so it can be reused across multiple calls.
-create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
+create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL, extra_global_vars = NULL) {
     cluster_logger <- create_module_logger("CLUSTER")
-    
+
     # Get max cores from configuration
     max_cores_config <- if (base::exists("MAX_CORES", envir = .GlobalEnv, inherits = FALSE)) base::get("MAX_CORES", envir = .GlobalEnv, inherits = FALSE) else -1
-    
+
     # Determine whether we should auto-detect cores (config <= 0 or explicit request)
     auto_detect <- FALSE
     if (is.null(numCores)) {
@@ -154,30 +156,142 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
         }
     }
 
+    # Prepare objects from the global environment for export and estimate memory usage
+    # Get all objects from global environment
+    global_objects <- ls(envir = .GlobalEnv, all.names = TRUE)
+
+    # Filter out objects we don't want to export (like the cluster itself)
+    objects_to_exclude <- c(".GLOBAL_PARALLEL_CLUSTER", "cl", "parallel_logger")
+    objects_to_export <- setdiff(global_objects, objects_to_exclude)
+    if (!is.null(extra_global_vars)) {
+        objects_to_export <- unique(c(objects_to_export, extra_global_vars))
+    }
+
+    # Ensure all requested exports exist
+    objects_to_export <- objects_to_export[
+        vapply(
+            objects_to_export,
+            function(nm) base::exists(nm, envir = .GlobalEnv, inherits = FALSE),
+            logical(1)
+        )
+    ]
+
+    cluster_logger(
+        "INFO",
+        sprintf("Preparing %d global objects for worker export", length(objects_to_export))
+    )
+
+    # Estimate memory footprint of exported objects to prevent over-allocation
+    estimate_object_mb <- function(name) {
+        if (!base::exists(name, envir = .GlobalEnv, inherits = FALSE)) {
+            return(0)
+        }
+        obj <- base::get(name, envir = .GlobalEnv, inherits = FALSE)
+        size_bytes <- tryCatch(
+            as.numeric(object.size(obj)),
+            error = function(e) NA_real_
+        )
+        if (is.na(size_bytes)) {
+            return(0)
+        }
+        size_bytes / (1024^2)
+    }
+
+    export_sizes_mb <- numeric(0)
+    if (length(objects_to_export) > 0) {
+        export_sizes_mb <- vapply(objects_to_export, estimate_object_mb, numeric(1))
+        names(export_sizes_mb) <- objects_to_export
+    }
+
+    total_export_mb <- sum(export_sizes_mb)
+    replication_multiplier <- getOption("parallel.worker.replication.multiplier", 1.35)
+    worker_overhead_mb <- getOption("parallel.worker.overhead.mb", 512)
+    per_worker_mb <- total_export_mb * replication_multiplier + worker_overhead_mb
+
+    cluster_logger(
+        "DEBUG",
+        sprintf(
+            "Export footprint≈%.1fMB (multiplier=%.2f, overhead≈%.1fMB) -> per-worker estimate≈%.1fMB",
+            total_export_mb, replication_multiplier, worker_overhead_mb, per_worker_mb
+        )
+    )
+
+    if (total_export_mb > 50) {
+        top_heavy <- sort(export_sizes_mb, decreasing = TRUE)
+        top_heavy <- top_heavy[is.finite(top_heavy) & top_heavy > 1]
+        if (length(top_heavy) > 0) {
+            preview <- paste(
+                head(sprintf("%s=%.1fMB", names(top_heavy), top_heavy), 5),
+                collapse = ", "
+            )
+            cluster_logger("DEBUG", sprintf("Largest exported globals: %s", preview))
+        }
+    }
+
+    adjust_workers_for_memory <- function(current_cores, per_worker_mb_estimate) {
+        if (is.na(per_worker_mb_estimate) || per_worker_mb_estimate <= 0) {
+            return(current_cores)
+        }
+
+        mem_limit_mb <- tryCatch(
+            as.numeric(base::memory.limit()),
+            error = function(e) NA_real_
+        )
+        mem_used_mb <- tryCatch(
+            as.numeric(base::memory.size()),
+            error = function(e) NA_real_
+        )
+
+        if (!is.finite(mem_limit_mb) || mem_limit_mb <= 0 ||
+            !is.finite(mem_used_mb) || mem_used_mb <= 0) {
+            return(current_cores)
+        }
+
+        safety_margin_mb <- getOption("parallel.memory.safety.margin.mb", 1024)
+        available_mb <- mem_limit_mb - mem_used_mb - safety_margin_mb
+        if (available_mb <= 0) {
+            cluster_logger("WARN", "Insufficient available memory detected; limiting to a single worker")
+            return(1L)
+        }
+
+        max_workers_mem <- floor(available_mb / per_worker_mb_estimate)
+        max_workers_mem <- max(1L, max_workers_mem)
+
+        if (max_workers_mem < current_cores) {
+            cluster_logger(
+                "INFO",
+                sprintf(
+                    "Downscaling workers from %d to %d based on estimated memory usage (export=%.1fMB, per-worker≈%.1fMB, available≈%.1fMB)",
+                    current_cores, max_workers_mem, total_export_mb, per_worker_mb_estimate, available_mb
+                )
+            )
+            return(max_workers_mem)
+        }
+
+        current_cores
+    }
+
+    numCores <- adjust_workers_for_memory(numCores, per_worker_mb)
+
     cluster_logger("INFO", sprintf("Creating cluster with %d worker processes...", numCores))
     cl <- makeCluster(numCores)
     registerDoParallel(cl)
 
     cluster_logger("INFO", "Initializing worker processes (loading packages and data)...")
 
-    # Export the entire global environment to workers (much more efficient than re-sourcing)
-    cluster_logger("INFO", "Exporting global environment to workers...")
-    
-    # Get all objects from global environment
-    global_objects <- ls(envir = .GlobalEnv, all.names = TRUE)
-    
-    # Filter out objects we don't want to export (like the cluster itself)
-    objects_to_exclude <- c(".GLOBAL_PARALLEL_CLUSTER", "cl", "parallel_logger")
-    objects_to_export <- setdiff(global_objects, objects_to_exclude)
-    
-    cluster_logger("INFO", sprintf("Exporting %d objects to workers", length(objects_to_export)))
-    
-    # Export all global objects to workers
-    clusterExport(cl, objects_to_export, envir = .GlobalEnv)
-    
+    cluster_logger("INFO", "Exporting global objects to workers...")
+
+    if (length(objects_to_export) > 0) {
+        cluster_logger("INFO", sprintf("Exporting %d objects to workers", length(objects_to_export)))
+        # Export all global objects to workers
+        clusterExport(cl, objects_to_export, envir = .GlobalEnv)
+    } else {
+        cluster_logger("INFO", "No global objects queued for export")
+    }
+
     # Export the cluster_logger function to workers
     clusterExport(cl, "cluster_logger", envir = environment())
-    
+
     # Just load required packages on workers (much lighter than re-sourcing everything)
     clusterEvalQ(cl, {
         # Load only the essential packages
@@ -187,10 +301,10 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
         library(signal)
         library(zoo)
         library(mgcv)
-        
+
         # Set a flag to indicate this is a worker process
         .IS_WORKER_PROCESS <<- TRUE
-        
+
         # Check if cluster_logger is available
         if (exists("cluster_logger")) {
             cluster_logger("DEBUG", "Worker process initialized with global environment")
@@ -238,9 +352,9 @@ create_parallel_cluster <- function(numCores = NULL, maxJobs = NULL) {
 get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = c("leftfoot", "rightfoot", "hip"),
                                         cl = NULL, log_to_file = TRUE, log_file = NULL, extra_global_vars = NULL, combinations_df = NULL, ...) {
     parallel_logger <- create_module_logger("PARALLEL")
-    cluster_logger <- create_module_logger("CLUSTER")  # Create cluster_logger for this function
+    cluster_logger <- create_module_logger("CLUSTER") # Create cluster_logger for this function
     start_time <- Sys.time()
-    
+
     # Get valid combinations using the helper function
     valid_combinations <- get_valid_combinations_for_processing(combinations_df, datasets_to_verify, parallel_logger)
 
@@ -293,7 +407,10 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Use existing cluster or create our own
     own_cluster <- FALSE
     if (is.null(cl)) {
-        cl <- create_parallel_cluster(maxJobs = nrow(valid_combinations))
+        cl <- create_parallel_cluster(
+            maxJobs = nrow(valid_combinations),
+            extra_global_vars = extra_global_vars
+        )
         if (is.null(cl)) {
             # Parallel processing was disabled by configuration
             parallel_logger("INFO", "Parallel processing disabled by configuration, falling back to sequential processing")
@@ -309,7 +426,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
     # Export the specific function and any extra variables needed for this job
     # (Note: most variables are already exported during cluster creation)
     vars_to_export <- c("get_data_function")
-    
+
     # Add any extra global variables passed in
     if (!is.null(extra_global_vars)) {
         vars_to_export <- c(vars_to_export, extra_global_vars)
@@ -323,7 +440,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
         cluster_logger("DEBUG", sprintf("Exporting additional variables: %s", paste(vars_to_export, collapse = ", ")))
         clusterExport(cl, vars_to_export, envir = environment())
     }
-    
+
     # Export cluster_logger to workers
     clusterExport(cl, "cluster_logger", envir = environment())
 
@@ -466,7 +583,7 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
                 parallel_logger("ERROR", sprintf("    Call: %s", error_info$call))
             }
         }
-        
+
         # Also print a summary of all error messages for easier debugging
         parallel_logger("ERROR", "=== ALL ERROR MESSAGES ===")
         for (i in 1:length(error_data)) {
@@ -543,8 +660,11 @@ get_data_from_loop_parallel <- function(get_data_function, datasets_to_verify = 
                     sprintf("=== Parallel Processing Log Completed: %s ===", Sys.time())
                 )
 
+                # Strip ANSI color codes from log messages for clean file output
+                clean_log_messages <- gsub("\033\\[[0-9;]*m", "", log_messages)
+
                 # Write all messages to file in a single operation
-                writeLines(log_messages, log_file_path)
+                writeLines(clean_log_messages, log_file_path)
                 parallel_logger("INFO", sprintf(
                     "Log written to: %s (%d lines)",
                     log_file_path, length(log_messages)
