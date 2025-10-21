@@ -23,6 +23,10 @@ filter_manager_logger("INFO", "Filter manager module loaded")
 .mu_dyn_long_cache <- list()
 .mu_dyn_long_cache_key <- NULL
 
+# Cache for derived metrics to avoid repeated CSV loading
+.derived_metrics_cache <- NULL
+.derived_metrics_cache_timestamp <- NULL
+
 # Initialize data.table version when first called
 init_gait_data_table <- function() {
   if (is.null(.allGaitParams_dt)) {
@@ -32,6 +36,50 @@ init_gait_data_table <- function() {
     data.table::setkey(.allGaitParams_dt, participant, trialNum, condition)
     filter_manager_logger("INFO", sprintf("Data.table initialized with %d rows and keys set", nrow(.allGaitParams_dt)))
   }
+}
+
+# Load derived metrics with caching
+load_derived_metrics_cached <- function() {
+  derived_metrics_file <- "data_extra/derived_metrics.csv"
+
+  # Check if CSV file exists and get its modification time
+  if (file.exists(derived_metrics_file)) {
+    csv_mtime <- file.mtime(derived_metrics_file)
+  } else {
+    filter_manager_logger("DEBUG", "No derived metrics file found")
+    return(NULL)
+  }
+
+  # Check if we have a valid cache
+  if (!is.null(.derived_metrics_cache) &&
+    !is.null(.derived_metrics_cache_timestamp) &&
+    .derived_metrics_cache_timestamp >= csv_mtime) {
+    filter_manager_logger("DEBUG", "Using cached derived metrics")
+    return(.derived_metrics_cache)
+  }
+
+  # Load from CSV and cache
+  filter_manager_logger("DEBUG", "Loading derived metrics from CSV and caching")
+  tryCatch(
+    {
+      defs <- read.csv(derived_metrics_file, stringsAsFactors = FALSE)
+      if (nrow(defs) > 0 && all(c("var", "scope", "level", "label", "colname") %in% names(defs))) {
+        # Cache the data
+        .derived_metrics_cache <<- defs
+        .derived_metrics_cache_timestamp <<- csv_mtime
+
+        filter_manager_logger("DEBUG", sprintf("Loaded and cached %d derived metrics", nrow(defs)))
+        return(defs)
+      } else {
+        filter_manager_logger("WARN", "Derived metrics file exists but has invalid format")
+        return(NULL)
+      }
+    },
+    error = function(e) {
+      filter_manager_logger("WARN", sprintf("Error loading derived metrics: %s", e$message))
+      return(NULL)
+    }
+  )
 }
 
 # =============================================================================
@@ -70,33 +118,57 @@ get_filter_state <- function() {
 #' @param input Shiny input object
 update_filter_state <- function(input) {
   filter_manager_logger("DEBUG", "update_filter_state called")
-  
+
   # Log current input values
-  filter_manager_logger("DEBUG", sprintf("Input participants: %s", 
-    if(is.null(input$filterParticipants)) "NULL" else paste(input$filterParticipants, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input trials: %s", 
-    if(is.null(input$filterTrials)) "NULL" else paste(input$filterTrials, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input conditions: %s", 
-    if(is.null(input$filterCondition)) "NULL" else paste(input$filterCondition, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input phases: %s", 
-    if(is.null(input$filterPhase)) "NULL" else paste(input$filterPhase, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input outliers: %s", 
-    if(is.null(input$filterOutliers)) "NULL" else paste(input$filterOutliers, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input suspect: %s", 
-    if(is.null(input$filterSuspect)) "NULL" else paste(input$filterSuspect, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input sides: %s", 
-    if(is.null(input$filterSide)) "NULL" else paste(input$filterSide, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Input do_slicing: %s", 
-    if(is.null(input$do_slicing)) "NULL" else input$do_slicing))
-  filter_manager_logger("DEBUG", sprintf("Input slice_length: %s", 
-    if(is.null(input$slice_length)) "NULL" else input$slice_length))
-  filter_manager_logger("DEBUG", sprintf("Input avg_feet: %s", 
-    if(is.null(input$avg_feet)) "NULL" else input$avg_feet))
-  filter_manager_logger("DEBUG", sprintf("Input add_diff: %s", 
-    if(is.null(input$add_diff)) "NULL" else input$add_diff))
-  filter_manager_logger("DEBUG", sprintf("Input remove_middle_slices: %s", 
-    if(is.null(input$remove_middle_slices)) "NULL" else input$remove_middle_slices))
-  
+  filter_manager_logger("DEBUG", sprintf(
+    "Input participants: %s",
+    if (is.null(input$filterParticipants)) "NULL" else paste(input$filterParticipants, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input trials: %s",
+    if (is.null(input$filterTrials)) "NULL" else paste(input$filterTrials, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input conditions: %s",
+    if (is.null(input$filterCondition)) "NULL" else paste(input$filterCondition, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input phases: %s",
+    if (is.null(input$filterPhase)) "NULL" else paste(input$filterPhase, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input outliers: %s",
+    if (is.null(input$filterOutliers)) "NULL" else paste(input$filterOutliers, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input suspect: %s",
+    if (is.null(input$filterSuspect)) "NULL" else paste(input$filterSuspect, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input sides: %s",
+    if (is.null(input$filterSide)) "NULL" else paste(input$filterSide, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input do_slicing: %s",
+    if (is.null(input$do_slicing)) "NULL" else input$do_slicing
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input slice_length: %s",
+    if (is.null(input$slice_length)) "NULL" else input$slice_length
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input avg_feet: %s",
+    if (is.null(input$avg_feet)) "NULL" else input$avg_feet
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input add_diff: %s",
+    if (is.null(input$add_diff)) "NULL" else input$add_diff
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Input remove_middle_slices: %s",
+    if (is.null(input$remove_middle_slices)) "NULL" else input$remove_middle_slices
+  ))
+
   # Update filter state
   .filter_state$participants <<- input$filterParticipants
   .filter_state$trials <<- input$filterTrials
@@ -110,15 +182,21 @@ update_filter_state <- function(input) {
   .filter_state$avg_feet <<- input$avg_feet
   .filter_state$add_diff <<- input$add_diff
   .filter_state$remove_middle_slices <<- input$remove_middle_slices
-  
+
   # Log updated filter state
   filter_manager_logger("INFO", "Filter state updated successfully")
-  filter_manager_logger("DEBUG", sprintf("Updated participants: %s", 
-    if(is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Updated trials: %s", 
-    if(is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("Updated conditions: %s", 
-    if(is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")))
+  filter_manager_logger("DEBUG", sprintf(
+    "Updated participants: %s",
+    if (is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Updated trials: %s",
+    if (is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "Updated conditions: %s",
+    if (is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")
+  ))
 }
 
 #' Set filter state manually (for non-Shiny contexts)
@@ -134,10 +212,10 @@ update_filter_state <- function(input) {
 #' @param avg_feet Whether to average across feet
 #' @param add_diff Whether to add difference columns
 #' @param remove_middle_slices Whether to remove middle slices
-set_filter_state <- function(participants = NULL, trials = NULL, conditions = NULL, 
-                           phases = NULL, outliers = NULL, suspect = NULL, sides = NULL,
-                           do_slicing = FALSE, slice_length = NULL, avg_feet = FALSE,
-                           add_diff = FALSE, remove_middle_slices = FALSE) {
+set_filter_state <- function(participants = NULL, trials = NULL, conditions = NULL,
+                             phases = NULL, outliers = NULL, suspect = NULL, sides = NULL,
+                             do_slicing = FALSE, slice_length = NULL, avg_feet = FALSE,
+                             add_diff = FALSE, remove_middle_slices = FALSE) {
   .filter_state$participants <<- participants
   .filter_state$trials <<- trials
   .filter_state$conditions <<- conditions
@@ -218,10 +296,10 @@ apply_step_filters <- function(data) {
 # =============================================================================
 
 # Non-reactive version for use outside Shiny context
-get_filtered_params <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL, 
-                               outliers = NULL, suspect = NULL, sides = NULL) {
+get_filtered_params <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL,
+                                outliers = NULL, suspect = NULL, sides = NULL) {
   filter_manager_logger("DEBUG", "Starting get_filtered_params")
-  
+
   # Check if allGaitParams exists and has data
   if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
     filter_manager_logger("WARN", "allGaitParams not available, returning empty data frame")
@@ -263,24 +341,54 @@ get_filtered_params <- function(participants = NULL, trials = NULL, conditions =
 
 # Non-reactive version for use outside Shiny context
 get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions = NULL, phases = NULL,
-                                outliers = NULL, suspect = NULL, sides = NULL,
-                                avg_feet = FALSE, add_diff = FALSE) {
-  # Create cache key from parameters
+                                 outliers = NULL, suspect = NULL, sides = NULL,
+                                 avg_feet = FALSE, add_diff = FALSE, derived_metrics_defs = NULL) {
+  # Get derived metrics definitions for cache key
+  derived_metrics_hash <- tryCatch(
+    {
+      if (!is.null(derived_metrics_defs) && nrow(derived_metrics_defs) > 0) {
+        filter_manager_logger("DEBUG", sprintf("Retrieved derived metrics: %d definitions", nrow(derived_metrics_defs)))
+        hash <- digest::digest(derived_metrics_defs)
+        filter_manager_logger("DEBUG", sprintf("Derived metrics hash: %s", substr(hash, 1, 8)))
+        hash
+      } else {
+        filter_manager_logger("DEBUG", "No derived metrics provided")
+        "no_derived_metrics"
+      }
+    },
+    error = function(e) {
+      filter_manager_logger("WARN", sprintf("Error processing derived metrics: %s", e$message))
+      "derived_metrics_error"
+    }
+  )
+
+  # Create cache key from parameters including derived metrics
   cache_key <- digest::digest(list(
     participants = participants, trials = trials, conditions = conditions, phases = phases,
     outliers = outliers, suspect = suspect, sides = sides,
-    avg_feet = avg_feet, add_diff = add_diff
+    avg_feet = avg_feet, add_diff = add_diff,
+    derived_metrics = derived_metrics_hash
   ))
-  
+
+  filter_manager_logger("DEBUG", sprintf("Cache key components - derived_metrics: %s", derived_metrics_hash))
+  filter_manager_logger("DEBUG", sprintf("Full cache key: %s", substr(cache_key, 1, 12)))
+
   # Check cache first
-  if (!is.null(.mu_dyn_long_cache_key) && .mu_dyn_long_cache_key == cache_key && 
-      !is.null(.mu_dyn_long_cache) && nrow(.mu_dyn_long_cache) > 0) {
+  if (!is.null(.mu_dyn_long_cache_key) && .mu_dyn_long_cache_key == cache_key &&
+    !is.null(.mu_dyn_long_cache) && nrow(.mu_dyn_long_cache) > 0) {
     filter_manager_logger("DEBUG", "Returning cached result for get_mu_dyn_long_data")
     return(.mu_dyn_long_cache)
   }
-  
+
+  # Log cache miss reason
+  if (!is.null(.mu_dyn_long_cache_key) && .mu_dyn_long_cache_key != cache_key) {
+    filter_manager_logger("DEBUG", "Cache miss: derived metrics or filter parameters changed")
+  } else {
+    filter_manager_logger("DEBUG", "Cache miss: no cached data available")
+  }
+
   filter_manager_logger("DEBUG", "Starting get_mu_dyn_long_data (cache miss)")
-  
+
   # Check if required global data objects are available
   if (!exists("allGaitParams") || is.null(allGaitParams) || nrow(allGaitParams) == 0) {
     filter_manager_logger("WARN", "allGaitParams not available, returning empty data frame")
@@ -297,7 +405,7 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   # Initialize data.table and apply ONLY step-based filters (not trial filters yet)
   init_gait_data_table()
   step_filtered_data <- as.data.frame(.allGaitParams_dt)
-  
+
   # Apply step-based filters with provided parameters
   if (!is.null(outliers) && length(outliers) > 0 && "outlierSteps" %in% colnames(step_filtered_data)) {
     step_filtered_data <- step_filtered_data[step_filtered_data$outlierSteps %in% outliers, ]
@@ -343,34 +451,80 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   filter_manager_logger("DEBUG", sprintf("Merged complexity metrics, mu now has %d rows", nrow(mu)))
 
   # Inject global derived metrics from full MU (before trial filtering)
-  defs <- tryCatch(global_derived_metric_defs(), error = function(e) NULL)
+  defs <- derived_metrics_defs
+
   if (!is.null(defs) && nrow(defs) > 0) {
+    filter_manager_logger("INFO", sprintf("Processing %d derived metric definitions", nrow(defs)))
+
     if ("trialNum" %in% names(mu)) {
       mu$trialNum_num <- suppressWarnings(as.numeric(as.character(mu$trialNum)))
     }
+
     for (i in seq_len(nrow(defs))) {
       var_name <- defs$var[i]
       scope <- defs$scope[i]
       level <- defs$level[i]
       col_name <- defs$colname[i]
-      if (!(var_name %in% names(mu))) next
+
+      filter_manager_logger("DEBUG", sprintf(
+        "Processing derived metric %d: var=%s, scope=%s, level=%s, colname=%s",
+        i, var_name, scope, level, col_name
+      ))
+
+      if (!(var_name %in% names(mu))) {
+        filter_manager_logger("WARN", sprintf("Variable %s not found in mu data, skipping", var_name))
+        next
+      }
+
       if (identical(scope, "phase") && ("phase" %in% names(mu))) {
         lookup <- mu[as.character(mu$phase) == as.character(level), c("participant", var_name)]
+        filter_manager_logger("DEBUG", sprintf("Phase lookup: found %d rows for phase=%s", nrow(lookup), level))
       } else if (identical(scope, "trial") && ("trialNum" %in% names(mu))) {
         if ("trialNum_num" %in% names(mu) && suppressWarnings(!is.na(as.numeric(level)))) {
           lvl_num <- suppressWarnings(as.numeric(level))
           lookup <- mu[mu$trialNum_num == lvl_num, c("participant", var_name)]
+          filter_manager_logger("DEBUG", sprintf("Trial lookup (numeric): found %d rows for trial=%s", nrow(lookup), level))
         } else {
           lookup <- mu[as.character(mu$trialNum) == as.character(level), c("participant", var_name)]
+          filter_manager_logger("DEBUG", sprintf("Trial lookup (character): found %d rows for trial=%s", nrow(lookup), level))
         }
       } else {
+        filter_manager_logger("WARN", sprintf("Unknown scope %s or missing required columns, skipping", scope))
         next
       }
-      if (nrow(lookup) == 0) next
-      agg <- stats::aggregate(lookup[[var_name]], by = list(participant = lookup$participant), FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE)))
+
+      if (nrow(lookup) == 0) {
+        filter_manager_logger("WARN", sprintf("No data found for derived metric %s, skipping", col_name))
+        next
+      }
+
+      # Calculate aggregated values
+      agg <- stats::aggregate(lookup[[var_name]],
+        by = list(participant = lookup$participant),
+        FUN = function(x) suppressWarnings(mean(as.numeric(x), na.rm = TRUE))
+      )
       names(agg)[2] <- col_name
+
+      filter_manager_logger("DEBUG", sprintf("Aggregated data for %s: %d participants", col_name, nrow(agg)))
+
+      # Merge with main dataset
       mu <- base::merge(mu, agg, by = "participant", all.x = TRUE, sort = FALSE)
+
+      filter_manager_logger("DEBUG", sprintf("Successfully added derived metric %s to mu data", col_name))
     }
+
+    filter_manager_logger("INFO", sprintf("Derived metrics processing complete. Mu now has %d columns", ncol(mu)))
+
+    # Debug: Show which derived metrics were successfully added
+    derived_cols <- setdiff(names(mu), c("participant", "trialNum", "condition", "phase", "gender", "motion", "age", "weight", "education", "vr_experience", "height_meters"))
+    derived_metrics_added <- derived_cols[grepl("_(phase|trial)_", derived_cols)]
+    if (length(derived_metrics_added) > 0) {
+      filter_manager_logger("DEBUG", sprintf("Successfully added derived metrics: %s", paste(derived_metrics_added, collapse = ", ")))
+    } else {
+      filter_manager_logger("WARN", "No derived metrics were successfully added to the dataset")
+    }
+  } else {
+    filter_manager_logger("DEBUG", "No derived metric definitions found")
   }
 
   # NOW apply trial-based filters to the complete merged dataset
@@ -420,11 +574,11 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   }
 
   filter_manager_logger("INFO", sprintf("get_mu_dyn_long_data completed successfully, returning %d rows with %d columns", nrow(mu), ncol(mu)))
-  
+
   # Update cache
   .mu_dyn_long_cache <<- mu
   .mu_dyn_long_cache_key <<- cache_key
-  
+
   return(mu)
 }
 
@@ -432,28 +586,43 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
 #' @return Filtered data frame
 get_current_filtered_params <- function() {
   filter_manager_logger("DEBUG", "get_current_filtered_params called")
-  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s", 
-    if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
-    if(is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
-    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
+  filter_manager_logger("DEBUG", sprintf(
+    "Filter state: participants=%s, trials=%s, conditions=%s",
+    if (is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
+    if (is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
+    if (is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
   ))
-  
+
   # Log detailed filter state
   filter_manager_logger("DEBUG", sprintf("Detailed filter state:"))
-  filter_manager_logger("DEBUG", sprintf("  participants: %s", 
-    if(is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  trials: %s", 
-    if(is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  conditions: %s", 
-    if(is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  phases: %s", 
-    if(is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  outliers: %s", 
-    if(is.null(.filter_state$outliers)) "NULL" else paste(.filter_state$outliers, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  suspect: %s", 
-    if(is.null(.filter_state$suspect)) "NULL" else paste(.filter_state$suspect, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  sides: %s", 
-    if(is.null(.filter_state$sides)) "NULL" else paste(.filter_state$sides, collapse = ", ")))
+  filter_manager_logger("DEBUG", sprintf(
+    "  participants: %s",
+    if (is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  trials: %s",
+    if (is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  conditions: %s",
+    if (is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  phases: %s",
+    if (is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  outliers: %s",
+    if (is.null(.filter_state$outliers)) "NULL" else paste(.filter_state$outliers, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  suspect: %s",
+    if (is.null(.filter_state$suspect)) "NULL" else paste(.filter_state$suspect, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  sides: %s",
+    if (is.null(.filter_state$sides)) "NULL" else paste(.filter_state$sides, collapse = ", ")
+  ))
 
   result <- get_filtered_params(
     participants = .filter_state$participants,
@@ -474,33 +643,69 @@ get_current_filtered_params <- function() {
 #' @return Processed mu data frame
 get_current_mu_dyn_long <- function() {
   filter_manager_logger("DEBUG", "get_current_mu_dyn_long called")
-  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, trials=%s, conditions=%s", 
-    if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
-    if(is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
-    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
+  filter_manager_logger("DEBUG", sprintf(
+    "Filter state: participants=%s, trials=%s, conditions=%s",
+    if (is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
+    if (is.null(.filter_state$trials)) "NULL" else length(.filter_state$trials),
+    if (is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions)
   ))
-  
+
   # Log detailed filter state
   filter_manager_logger("DEBUG", sprintf("Detailed filter state for mu_dyn_long:"))
-  filter_manager_logger("DEBUG", sprintf("  participants: %s", 
-    if(is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  trials: %s", 
-    if(is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  conditions: %s", 
-    if(is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  phases: %s", 
-    if(is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  outliers: %s", 
-    if(is.null(.filter_state$outliers)) "NULL" else paste(.filter_state$outliers, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  suspect: %s", 
-    if(is.null(.filter_state$suspect)) "NULL" else paste(.filter_state$suspect, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  sides: %s", 
-    if(is.null(.filter_state$sides)) "NULL" else paste(.filter_state$sides, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  avg_feet: %s", 
-    if(is.null(.filter_state$avg_feet)) "NULL" else .filter_state$avg_feet))
-  filter_manager_logger("DEBUG", sprintf("  add_diff: %s", 
-    if(is.null(.filter_state$add_diff)) "NULL" else .filter_state$add_diff))
-  
+  filter_manager_logger("DEBUG", sprintf(
+    "  participants: %s",
+    if (is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  trials: %s",
+    if (is.null(.filter_state$trials)) "NULL" else paste(.filter_state$trials, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  conditions: %s",
+    if (is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  phases: %s",
+    if (is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  outliers: %s",
+    if (is.null(.filter_state$outliers)) "NULL" else paste(.filter_state$outliers, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  suspect: %s",
+    if (is.null(.filter_state$suspect)) "NULL" else paste(.filter_state$suspect, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  sides: %s",
+    if (is.null(.filter_state$sides)) "NULL" else paste(.filter_state$sides, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  avg_feet: %s",
+    if (is.null(.filter_state$avg_feet)) "NULL" else .filter_state$avg_feet
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  add_diff: %s",
+    if (is.null(.filter_state$add_diff)) "NULL" else .filter_state$add_diff
+  ))
+
+  # Get derived metrics definitions to pass to the function
+  derived_metrics_defs <- tryCatch(
+    {
+      # Try to access the reactive function first
+      if (exists("global_derived_metric_defs") && is.function(global_derived_metric_defs)) {
+        global_derived_metric_defs()
+      } else {
+        # Fallback: use cached loading from file
+        load_derived_metrics_cached()
+      }
+    },
+    error = function(e) {
+      filter_manager_logger("WARN", sprintf("Error getting derived metrics: %s", e$message))
+      NULL
+    }
+  )
+
   result <- get_mu_dyn_long_data(
     participants = .filter_state$participants,
     trials = .filter_state$trials,
@@ -510,7 +715,8 @@ get_current_mu_dyn_long <- function() {
     suspect = .filter_state$suspect,
     sides = .filter_state$sides,
     avg_feet = .filter_state$avg_feet,
-    add_diff = .filter_state$add_diff
+    add_diff = .filter_state$add_diff,
+    derived_metrics_defs = derived_metrics_defs
   )
 
   filter_manager_logger("DEBUG", sprintf("get_current_mu_dyn_long returning %d rows", nrow(result)))
@@ -522,21 +728,28 @@ get_current_mu_dyn_long <- function() {
 #' @return Filtered questionnaire data frame
 get_current_filtered_q_results <- function() {
   filter_manager_logger("DEBUG", "get_current_filtered_q_results called")
-  filter_manager_logger("DEBUG", sprintf("Filter state: participants=%s, conditions=%s, phases=%s", 
-    if(is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
-    if(is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions),
-    if(is.null(.filter_state$phases)) "NULL" else length(.filter_state$phases)
+  filter_manager_logger("DEBUG", sprintf(
+    "Filter state: participants=%s, conditions=%s, phases=%s",
+    if (is.null(.filter_state$participants)) "NULL" else length(.filter_state$participants),
+    if (is.null(.filter_state$conditions)) "NULL" else length(.filter_state$conditions),
+    if (is.null(.filter_state$phases)) "NULL" else length(.filter_state$phases)
   ))
-  
+
   # Log detailed filter state
   filter_manager_logger("DEBUG", sprintf("Detailed filter state for filtered_q_results:"))
-  filter_manager_logger("DEBUG", sprintf("  participants: %s", 
-    if(is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  conditions: %s", 
-    if(is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")))
-  filter_manager_logger("DEBUG", sprintf("  phases: %s", 
-    if(is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")))
-  
+  filter_manager_logger("DEBUG", sprintf(
+    "  participants: %s",
+    if (is.null(.filter_state$participants)) "NULL" else paste(.filter_state$participants, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  conditions: %s",
+    if (is.null(.filter_state$conditions)) "NULL" else paste(.filter_state$conditions, collapse = ", ")
+  ))
+  filter_manager_logger("DEBUG", sprintf(
+    "  phases: %s",
+    if (is.null(.filter_state$phases)) "NULL" else paste(.filter_state$phases, collapse = ", ")
+  ))
+
   # Validate availability of allQResults
   if (!exists("allQResults") || is.null(allQResults) || nrow(allQResults) == 0) {
     filter_manager_logger("WARN", "allQResults not available in get_current_filtered_q_results")

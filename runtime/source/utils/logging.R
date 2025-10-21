@@ -68,7 +68,10 @@ MODULE_LOG_LEVELS <- list(
   "UNIVERSAL-FILTER" = "WARN",
   "SUMMARIZE-GAITPARAMS" = "INFO",
   "TRACKER-CACHE" = "INFO",
-  "CACHE" = "INFO"
+  "CACHE" = "INFO",
+  "FILTER-MANAGER" = "DEBUG",
+  "STATS" = "INFO",
+  "PLOTTING" = "INFO"
 )
 
 # =============================================================================

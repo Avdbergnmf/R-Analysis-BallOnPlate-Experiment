@@ -151,6 +151,9 @@ observeEvent(input$global_derived_add, {
   new_defs <- rbind(defs, new_row)
   global_derived_metric_defs(new_defs)
   save_derived_metrics(new_defs)
+  
+  # Show success notification
+  showNotification(sprintf("Added derived metric: %s", colname), type = "message", duration = 3)
 })
 
 observeEvent(input$global_remove_derived_id, {
@@ -161,6 +164,9 @@ observeEvent(input$global_remove_derived_id, {
     new_defs <- defs[keep, , drop = FALSE]
     global_derived_metric_defs(new_defs)
     save_derived_metrics(new_defs)
+    
+    # Show removal notification
+    showNotification(sprintf("Removed derived metric: %s", id), type = "message", duration = 3)
   }
 }, ignoreInit = TRUE)
 
@@ -302,6 +308,9 @@ get_mu_dyn_long <- reactive({
   input$filterSide
   input$avg_feet
   input$add_diff
+  
+  # Depend on derived metrics to trigger re-computation when they change
+  global_derived_metric_defs()
   
   update_filter_state(input)  # Update filter state from current inputs
   get_current_mu_dyn_long()
