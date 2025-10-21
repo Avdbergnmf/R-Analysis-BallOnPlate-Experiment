@@ -66,7 +66,9 @@ MODULE_LOG_LEVELS <- list(
 
   # Active overrides (uncomment to enable):
   "UNIVERSAL-FILTER" = "WARN",
-  "SUMMARIZE-GAITPARAMS" = "INFO"
+  "SUMMARIZE-GAITPARAMS" = "INFO",
+  "TRACKER-CACHE" = "INFO",
+  "CACHE" = "INFO"
 )
 
 # =============================================================================

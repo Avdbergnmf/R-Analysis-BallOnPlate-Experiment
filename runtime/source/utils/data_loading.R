@@ -5,6 +5,40 @@ sanitize_trial_num <- function(trialNum) {
 tracker_cache_logger <- create_module_logger("TRACKER-CACHE")
 dataset_cache_logger <- create_module_logger("DATASET-CACHE")
 
+# Global variables for tracking loading progress
+.tracker_loading_stats <- new.env(parent = baseenv())
+.tracker_loading_stats$files_loaded <- 0
+.tracker_loading_stats$participants_loaded <- character(0)
+.tracker_loading_stats$last_summary_time <- Sys.time()
+
+# Function to log summary information about tracker loading
+log_tracker_loading_summary <- function(participant, trackerType, trialNum) {
+  # Update stats
+  .tracker_loading_stats$files_loaded <- .tracker_loading_stats$files_loaded + 1
+  if (!participant %in% .tracker_loading_stats$participants_loaded) {
+    .tracker_loading_stats$participants_loaded <- c(.tracker_loading_stats$participants_loaded, participant)
+  }
+
+  # No intermediate logging - just track stats for final summary
+}
+
+# Function to log final summary of tracker loading
+log_tracker_loading_final_summary <- function() {
+  if (.tracker_loading_stats$files_loaded > 0) {
+    tracker_cache_logger("INFO", sprintf(
+      "Completed loading %d tracker files for %d participants (%s)",
+      .tracker_loading_stats$files_loaded,
+      length(.tracker_loading_stats$participants_loaded),
+      paste(.tracker_loading_stats$participants_loaded, collapse = ", ")
+    ))
+
+    # Reset stats for next batch
+    .tracker_loading_stats$files_loaded <- 0
+    .tracker_loading_stats$participants_loaded <- character(0)
+    .tracker_loading_stats$last_summary_time <- Sys.time()
+  }
+}
+
 get_tracker_cache_key <- function(participant, trialNum, trackerType, apply_udp_trimming = TRUE) {
   sprintf("%s|%03d|%s|trim:%s", participant, sanitize_trial_num(trialNum), trackerType, ifelse(apply_udp_trimming, "1", "0"))
 }
@@ -19,13 +53,13 @@ get_simulation_cache_key <- function(participant, trial) {
 get_pretty_condition_labels <- function(conditions) {
   # Use the global condition mapping from initialization.R
   ensure_global_data_initialized()
-  
+
   # Apply the mapping, keeping original names if not found in map
   pretty_labels <- ifelse(conditions %in% names(condition_map),
     condition_map[conditions],
     conditions
   )
-  
+
   return(pretty_labels)
 }
 
@@ -104,12 +138,12 @@ get_trial_phase <- function(participant, trialNum) { # return phase name for tri
 
 task_num_lookup <- function(trialNum) {
   ensure_global_data_initialized()
-  
+
   # Handle vectorized input
   if (length(trialNum) > 1) {
     return(sapply(trialNum, task_num_lookup))
   }
-  
+
   trial_key <- as.character(trialNum)
   if (trial_key %in% names(taskNum)) {
     return(as.numeric(taskNum[[trial_key]]))
@@ -264,45 +298,45 @@ has_simulation_data <- function(participant, trial) {
 #' @return Simulation data frame
 fetch_simulation_data <- function(participant, trial, use_cache = TRUE,
                                   cache_to_disk = TRUE, force_refresh = FALSE) {
-    cache_key <- get_simulation_cache_key(participant, trial)
-    tracker_cache_logger("DEBUG", sprintf(
-      "Simulation request: participant=%s trial=%03d force_refresh=%s",
-      participant, sanitize_trial_num(trial), force_refresh
+  cache_key <- get_simulation_cache_key(participant, trial)
+  tracker_cache_logger("DEBUG", sprintf(
+    "Simulation request: participant=%s trial=%03d force_refresh=%s",
+    participant, sanitize_trial_num(trial), force_refresh
+  ))
+
+  if (!exists("simulation", envir = .GlobalEnv)) {
+    stop("Simulation feature module is not loaded.")
+  }
+
+  load_function <- function() {
+    tracker_cache_logger("INFO", sprintf(
+      "Loading simulation data for P%s T%03d%s",
+      participant, sanitize_trial_num(trial),
+      if (force_refresh) " (forced refresh)" else ""
     ))
-  
-    if (!exists("simulation", envir = .GlobalEnv)) {
-      stop("Simulation feature module is not loaded.")
-    }
-  
-    load_function <- function() {
-      tracker_cache_logger("INFO", sprintf(
-        "Loading simulation data for P%s T%03d%s",
-        participant, sanitize_trial_num(trial),
-        if (force_refresh) " (forced refresh)" else ""
+    simulation$get_simulation_data(participant, trial)
+  }
+
+  force_rewrite <- isTRUE(force_refresh)
+  data <- NULL
+  if (use_cache && cache_to_disk && exists("load_with_cache")) {
+    cache_dir <- file.path("cache", "simulation")
+    data <- load_with_cache(
+      cache_key,
+      load_function,
+      cache_dir = cache_dir,
+      force_rewrite = force_rewrite
+    )
+  } else {
+    if (force_rewrite && (!use_cache || !cache_to_disk)) {
+      tracker_cache_logger("WARN", sprintf(
+        "Force refresh requested for simulation cache %s but caching disabled; loading fresh without persisting",
+        cache_key
       ))
-      simulation$get_simulation_data(participant, trial)
     }
-  
-    force_rewrite <- isTRUE(force_refresh)
-    data <- NULL
-    if (use_cache && cache_to_disk && exists("load_with_cache")) {
-      cache_dir <- file.path("cache", "simulation")
-      data <- load_with_cache(
-        cache_key,
-        load_function,
-        cache_dir = cache_dir,
-        force_rewrite = force_rewrite
-      )
-    } else {
-      if (force_rewrite && (!use_cache || !cache_to_disk)) {
-        tracker_cache_logger("WARN", sprintf(
-          "Force refresh requested for simulation cache %s but caching disabled; loading fresh without persisting",
-          cache_key
-        ))
-      }
-      data <- load_function()
-    }
-  
+    data <- load_function()
+  }
+
   data
 }
 
@@ -420,95 +454,103 @@ shift_trial_time_lookup <- function(data, participant, trialNum, time_column = "
 # get any type of data
 get_t_data <- function(participant, trackerType, trialNum, apply_udp_trimming = TRUE,
                        use_cache = TRUE, cache_to_disk = TRUE, force_refresh = FALSE) {
-    trialNum_numeric <- sanitize_trial_num(trialNum)
-    cache_key <- get_tracker_cache_key(participant, trialNum_numeric, trackerType, apply_udp_trimming)
-    tracker_cache_logger("DEBUG", sprintf(
-      "Tracker request: tracker=%s participant=%s trial=%03d trim=%s force_refresh=%s",
-      trackerType, participant, trialNum_numeric, apply_udp_trimming, force_refresh
+  trialNum_numeric <- sanitize_trial_num(trialNum)
+  cache_key <- get_tracker_cache_key(participant, trialNum_numeric, trackerType, apply_udp_trimming)
+  # Only log tracker requests at DEBUG level to reduce verbosity
+  tracker_cache_logger("DEBUG", sprintf(
+    "Tracker request: tracker=%s participant=%s trial=%03d trim=%s force_refresh=%s",
+    trackerType, participant, trialNum_numeric, apply_udp_trimming, force_refresh
+  ))
+
+  # Check if file exists
+  if (!check_file_exists(participant, trackerType, trialNum)) {
+    tracker_cache_logger("WARN", sprintf(
+      "Missing tracker CSV for %s P%s T%03d (cache_key=%s)",
+      trackerType, participant, trialNum_numeric, cache_key
     ))
-  
-    # Check if file exists
-    if (!check_file_exists(participant, trackerType, trialNum)) {
-      tracker_cache_logger("WARN", sprintf(
-        "Missing tracker CSV for %s P%s T%03d (cache_key=%s)",
-        trackerType, participant, trialNum_numeric, cache_key
-      ))
-      return(NULL)
-    }
-  
-    # Get the file prefix from the dictionary
-    prefix <- filenameDict[[trackerType]]
-    filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
-    filePath <- file.path(get_p_dir(participant), "trackers", filename)
-  
-    load_function <- function() {
-      tracker_cache_logger("INFO", sprintf(
-        "Loading tracker CSV for %s P%s T%03d%s",
-        trackerType, participant, trialNum_numeric,
-        if (force_refresh) " (forced refresh)" else ""
-      ))
-      data_local <- tryCatch(
-        {
-          data.table::fread(filePath)
-        },
-        error = function(e) {
-          message("Failed to read the file: ", filePath, " - ", e$message)
-          return(NULL)
-        }
-      )
-  
-      if (is.null(data_local)) {
+    return(NULL)
+  }
+
+  # Get the file prefix from the dictionary
+  prefix <- filenameDict[[trackerType]]
+  filename <- sprintf("%s_T%03d.csv", prefix, trialNum_numeric)
+  filePath <- file.path(get_p_dir(participant), "trackers", filename)
+
+  load_function <- function() {
+    tracker_cache_logger("DEBUG", sprintf(
+      "Loading tracker CSV for %s P%s T%03d%s",
+      trackerType, participant, trialNum_numeric,
+      if (force_refresh) " (forced refresh)" else ""
+    ))
+    data_local <- tryCatch(
+      {
+        data.table::fread(filePath)
+      },
+      error = function(e) {
+        message("Failed to read the file: ", filePath, " - ", e$message)
         return(NULL)
       }
-  
-      data_local <- as.data.frame(data_local)
-  
-      if (apply_udp_trimming) {
-        if (trackerType == "udp") {
-          data_local <- apply_udp_time_trimming(data_local, participant, trialNum, "time")
-        } else {
-          data_local <- tryCatch(
-            apply_udp_time_trimming(data_local, participant, trialNum, "time"),
-            error = function(e) {
-              message(sprintf("[WARN] Trimming skipped for %s P%s T%s: %s", trackerType, participant, trialNum, e$message))
-              data_local
-            }
-          )
-        }
-      }
-  
-      data_local
+    )
+
+    if (is.null(data_local)) {
+      return(NULL)
     }
-  
-    force_rewrite <- isTRUE(force_refresh)
-    data <- NULL
-    if (use_cache && cache_to_disk && exists("load_with_cache")) {
-      cache_dir <- file.path("cache", "trackers")
-      data <- load_with_cache(
-        cache_key,
-        load_function,
-        cache_dir = cache_dir,
-        force_rewrite = force_rewrite
-      )
-      if (!is.null(data)) {
-        data <- as.data.frame(data)
-        tracker_cache_logger("DEBUG", sprintf(
-          "Loaded tracker cache entry %s (%d rows)",
-          cache_key, nrow(data)
-        ))
+
+    data_local <- as.data.frame(data_local)
+
+    if (apply_udp_trimming) {
+      if (trackerType == "udp") {
+        data_local <- apply_udp_time_trimming(data_local, participant, trialNum, "time")
+      } else {
+        data_local <- tryCatch(
+          apply_udp_time_trimming(data_local, participant, trialNum, "time"),
+          error = function(e) {
+            message(sprintf("[WARN] Trimming skipped for %s P%s T%s: %s", trackerType, participant, trialNum, e$message))
+            data_local
+          }
+        )
       }
-    } else {
-      if (force_rewrite && (!use_cache || !cache_to_disk)) {
-        tracker_cache_logger("WARN", sprintf(
-          "Force refresh requested for %s but caching disabled; loading fresh without persisting",
-          cache_key
-        ))
-      }
-      data <- load_function()
     }
-  
-    return(data)
+
+    data_local
   }
+
+  force_rewrite <- isTRUE(force_refresh)
+  data <- NULL
+  if (use_cache && cache_to_disk && exists("load_with_cache")) {
+    cache_dir <- file.path("cache", "trackers")
+    data <- load_with_cache(
+      cache_key,
+      load_function,
+      cache_dir = cache_dir,
+      force_rewrite = force_rewrite
+    )
+    if (!is.null(data)) {
+      data <- as.data.frame(data)
+      # Only log cache entries at DEBUG level to reduce verbosity
+      tracker_cache_logger("DEBUG", sprintf(
+        "Loaded tracker cache entry %s (%d rows)",
+        cache_key, nrow(data)
+      ))
+      # Log summary information
+      log_tracker_loading_summary(participant, trackerType, trialNum_numeric)
+    }
+  } else {
+    if (force_rewrite && (!use_cache || !cache_to_disk)) {
+      tracker_cache_logger("WARN", sprintf(
+        "Force refresh requested for %s but caching disabled; loading fresh without persisting",
+        cache_key
+      ))
+    }
+    data <- load_function()
+    if (!is.null(data)) {
+      # Log summary information for fresh loads too
+      log_tracker_loading_summary(participant, trackerType, trialNum_numeric)
+    }
+  }
+
+  return(data)
+}
 
 get_q_file <- function(participant, qType) { # qType = IMI / SSQ / VEQ
   ensure_global_data_initialized()
@@ -951,7 +993,7 @@ preprocess_data <- function(participant, trialNum, dataName) {
 get_preprocessed_data <- function(participant, trialNum, dataList = c("leftfoot", "rightfoot", "hip")) {
   # Convert trialNum to numeric if it's not already
   trialNum <- as.numeric(trialNum)
-  
+
   result <- list()
   for (dataName in dataList) {
     # Use a more descriptive name for each element in the list
@@ -1000,7 +1042,7 @@ is_kinematic_data <- function(data) {
   # Check if the data has the required position columns for rotation
   required_pos_cols <- c("pos_x", "pos_y", "pos_z")
   has_position_data <- all(required_pos_cols %in% colnames(data))
-  
+
   return(has_position_data)
 }
 

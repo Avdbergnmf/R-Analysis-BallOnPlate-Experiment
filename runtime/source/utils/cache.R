@@ -113,9 +113,8 @@ write_cache_file <- function(data,
 #' @param compression_level Compression level for qs files (uses global config if NULL)
 #' @param ... Additional arguments passed to load_function
 #' @return Loaded data
-load_with_cache <- function(cache_key, load_function, cache_dir = "cache", 
-                           force_rewrite = NULL, compression_level = NULL, ...) {
-    
+load_with_cache <- function(cache_key, load_function, cache_dir = "cache",
+                            force_rewrite = NULL, compression_level = NULL, ...) {
     # Use global configuration if not specified
     if (is.null(force_rewrite)) {
         force_rewrite <- if (exists("CACHE_FORCE_REWRITE")) CACHE_FORCE_REWRITE else FALSE
@@ -123,50 +122,56 @@ load_with_cache <- function(cache_key, load_function, cache_dir = "cache",
     if (is.null(compression_level)) {
         compression_level <- if (exists("CACHE_COMPRESSION_LEVEL")) CACHE_COMPRESSION_LEVEL else 6
     }
-    
+
     # Ensure cache directory exists
     if (!dir.exists(cache_dir)) {
         dir.create(cache_dir, recursive = TRUE)
     }
-    
+
     # Create cache file path
     cache_file <- file.path(cache_dir, paste0(cache_key, ".qs"))
-    
+
     # Check if cache exists and we're not forcing rewrite
     if (file.exists(cache_file) && !force_rewrite) {
-        tryCatch({
-            cache_logger("INFO", sprintf("Loading %s from cache...", cache_key))
-            start_time <- Sys.time()
-            data <- qs::qread(cache_file)
-            load_time <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
-            cache_logger("INFO", sprintf("Loaded %s in %.2f seconds", cache_key, load_time))
-            return(data)
-        }, error = function(e) {
-            cache_logger("WARN", sprintf("Error loading cache file %s: %s", cache_file, e$message))
-            cache_logger("INFO", "Falling back to fresh load...")
-        })
+        tryCatch(
+            {
+                cache_logger("DEBUG", sprintf("Loading %s from cache...", cache_key))
+                start_time <- Sys.time()
+                data <- qs::qread(cache_file)
+                load_time <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+                cache_logger("DEBUG", sprintf("Loaded %s in %.2f seconds", cache_key, load_time))
+                return(data)
+            },
+            error = function(e) {
+                cache_logger("WARN", sprintf("Error loading cache file %s: %s", cache_file, e$message))
+                cache_logger("DEBUG", "Falling back to fresh load...")
+            }
+        )
     }
-    
+
     # Load data fresh
-    cache_logger("INFO", sprintf("Loading %s fresh...", cache_key))
+    cache_logger("DEBUG", sprintf("Loading %s fresh...", cache_key))
     start_time <- Sys.time()
     data <- load_function(...)
     load_time <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
-    cache_logger("INFO", sprintf("Loaded %s fresh in %.2f seconds", cache_key, load_time))
-    
+    cache_logger("DEBUG", sprintf("Loaded %s fresh in %.2f seconds", cache_key, load_time))
+
     # Save to cache
     if (!is.null(data)) {
-        tryCatch({
-            cache_logger("INFO", sprintf("Saving %s to cache...", cache_key))
-            save_start <- Sys.time()
-            qs::qsave(data, cache_file, preset = "high", compress_level = compression_level)
-            save_time <- as.numeric(difftime(Sys.time(), save_start, units = "secs"))
-            cache_logger("INFO", sprintf("Saved %s to cache in %.2f seconds", cache_key, save_time))
-        }, error = function(e) {
-            cache_logger("WARN", sprintf("Error saving cache file %s: %s", cache_file, e$message))
-        })
+        tryCatch(
+            {
+                cache_logger("DEBUG", sprintf("Saving %s to cache...", cache_key))
+                save_start <- Sys.time()
+                qs::qsave(data, cache_file, preset = "high", compress_level = compression_level)
+                save_time <- as.numeric(difftime(Sys.time(), save_start, units = "secs"))
+                cache_logger("DEBUG", sprintf("Saved %s to cache in %.2f seconds", cache_key, save_time))
+            },
+            error = function(e) {
+                cache_logger("WARN", sprintf("Error saving cache file %s: %s", cache_file, e$message))
+            }
+        )
     }
-    
+
     return(data)
 }
 
@@ -178,9 +183,8 @@ load_with_cache <- function(cache_key, load_function, cache_dir = "cache",
 #' @param compression_level Compression level for qs files (uses global config if NULL)
 #' @param ... Additional arguments passed to data.table::fread
 #' @return Loaded data
-load_csv_with_cache <- function(file_path, cache_key, cache_dir = "cache", 
-                               force_rewrite = NULL, compression_level = NULL, ...) {
-    
+load_csv_with_cache <- function(file_path, cache_key, cache_dir = "cache",
+                                force_rewrite = NULL, compression_level = NULL, ...) {
     load_function <- function() {
         if (!file.exists(file_path)) {
             warning("File not found: ", file_path)
@@ -188,7 +192,7 @@ load_csv_with_cache <- function(file_path, cache_key, cache_dir = "cache",
         }
         return(data.table::fread(file_path, ...))
     }
-    
+
     return(load_with_cache(cache_key, load_function, cache_dir, force_rewrite, compression_level))
 }
 
@@ -199,9 +203,8 @@ load_csv_with_cache <- function(file_path, cache_key, cache_dir = "cache",
 #' @param force_rewrite Whether to force cache rewrite (uses global config if NULL)
 #' @param compression_level Compression level for qs files (uses global config if NULL)
 #' @return Loaded data
-load_rds_with_cache <- function(file_path, cache_key, cache_dir = "cache", 
-                               force_rewrite = NULL, compression_level = NULL) {
-    
+load_rds_with_cache <- function(file_path, cache_key, cache_dir = "cache",
+                                force_rewrite = NULL, compression_level = NULL) {
     load_function <- function() {
         if (!file.exists(file_path)) {
             warning("File not found: ", file_path)
@@ -209,7 +212,7 @@ load_rds_with_cache <- function(file_path, cache_key, cache_dir = "cache",
         }
         return(readRDS(file_path))
     }
-    
+
     return(load_with_cache(cache_key, load_function, cache_dir, force_rewrite, compression_level))
 }
 
@@ -222,10 +225,9 @@ load_rds_with_cache <- function(file_path, cache_key, cache_dir = "cache",
 #' @param full_names Whether to return full names
 #' @param recursive Whether to list recursively
 #' @return Directory listing
-load_dir_with_cache <- function(dir_path, cache_key, cache_dir = "cache", 
-                               force_rewrite = NULL, compression_level = NULL,
-                               full_names = FALSE, recursive = FALSE) {
-    
+load_dir_with_cache <- function(dir_path, cache_key, cache_dir = "cache",
+                                force_rewrite = NULL, compression_level = NULL,
+                                full_names = FALSE, recursive = FALSE) {
     load_function <- function() {
         if (!dir.exists(dir_path)) {
             warning("Directory not found: ", dir_path)
@@ -233,7 +235,7 @@ load_dir_with_cache <- function(dir_path, cache_key, cache_dir = "cache",
         }
         return(list.dirs(path = dir_path, full.names = full_names, recursive = recursive))
     }
-    
+
     return(load_with_cache(cache_key, load_function, cache_dir, force_rewrite, compression_level))
 }
 
@@ -249,13 +251,13 @@ clear_cache <- function(cache_dir = "cache", pattern = "*.qs") {
         cache_logger("WARN", sprintf("Cache directory does not exist: %s", cache_dir))
         return(invisible(NULL))
     }
-    
+
     cache_files <- list.files(cache_dir, pattern = pattern, full.names = TRUE)
     if (length(cache_files) == 0) {
         cache_logger("INFO", "No cache files found to clear")
         return(invisible(NULL))
     }
-    
+
     cache_logger("INFO", sprintf("Clearing %d cache files...", length(cache_files)))
     file.remove(cache_files)
     cache_logger("INFO", "Cache cleared successfully")
@@ -268,16 +270,16 @@ get_cache_stats <- function(cache_dir = "cache") {
     if (!dir.exists(cache_dir)) {
         return(data.frame())
     }
-    
+
     cache_files <- list.files(cache_dir, pattern = "*.qs", full.names = TRUE)
     if (length(cache_files) == 0) {
         return(data.frame())
     }
-    
+
     file_info <- file.info(cache_files)
     file_info$file <- basename(cache_files)
     file_info$size_mb <- round(file_info$size / 1024^2, 2)
-    
+
     return(file_info[, c("file", "size_mb", "mtime")])
 }
 
@@ -289,15 +291,17 @@ print_cache_stats <- function(cache_dir = "cache") {
         cache_logger("INFO", "No cache files found")
         return(invisible(NULL))
     }
-    
+
     total_size <- sum(stats$size_mb)
     cache_logger("INFO", sprintf("Cache Statistics (%s):", cache_dir))
     cache_logger("INFO", sprintf("  Files: %d", nrow(stats)))
     cache_logger("INFO", sprintf("  Total size: %.2f MB", total_size))
     cache_logger("INFO", "  Files:")
     for (i in 1:nrow(stats)) {
-        cache_logger("INFO", sprintf("    %s: %.2f MB (%s)", 
-                   stats$file[i], stats$size_mb[i], 
-                   format(stats$mtime[i], "%Y-%m-%d %H:%M:%S")))
+        cache_logger("INFO", sprintf(
+            "    %s: %.2f MB (%s)",
+            stats$file[i], stats$size_mb[i],
+            format(stats$mtime[i], "%Y-%m-%d %H:%M:%S")
+        ))
     }
 }
