@@ -70,13 +70,13 @@ set_reference_level <- function(data, var_name, ref_level) {
 #' @return Processed statistical dataset
 prepare_stats_dataset <- function(data, average_across = FALSE) {
     stats_logger("DEBUG", sprintf("prepare_stats_dataset called: average_across=%s", average_across))
-    
+
     # Check if build_stats_data function exists
     if (!exists("build_stats_data")) {
         stats_logger("ERROR", "build_stats_data function not found in current environment")
         stop("build_stats_data function not found")
     }
-    
+
     stats_logger("DEBUG", "Calling build_stats_data with provided data")
     result <- build_stats_data(data, average_across)
     stats_logger("DEBUG", sprintf("build_stats_data returned %d rows", nrow(result)))
@@ -106,12 +106,12 @@ create_lmm_formula <- function(dep_var, indep_inter_vars, indep_vars) {
 fit_mixed_model <- function(data, formula, dep_var, do_centering = FALSE, do_scaling = FALSE) {
     # Validate data is ready for LMM
     validate_ready_for_lmm(data)
-    
+
     # Scale predictors if requested
     if (do_centering || do_scaling) {
         data <- scale_predictors(data, formula, dep_var, do_centering, do_scaling)
     }
-    
+
     # Fit the model
     fit_lmm(data, formula)
 }
@@ -130,12 +130,12 @@ fit_mixed_model <- function(data, formula, dep_var, do_centering = FALSE, do_sca
 #' @param filter_meaningful Whether to filter to meaningful comparisons only
 #' @param format_pvalues Whether to format p-values with bold significance
 #' @return List with post-hoc results and metadata
-run_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars, 
+run_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars,
                                  force_all = FALSE, adjust_method = "tukey",
                                  filter_meaningful = FALSE, format_pvalues = TRUE) {
     # Prepare post-hoc analysis
     posthoc_results <- prepare_posthoc_analysis(lmm, data, indep_inter_vars, indep_vars, force_all, adjust_method)
-    
+
     if (is.null(posthoc_results)) {
         return(list(
             message = "No significant effects found for post-hoc analysis.",
@@ -143,14 +143,14 @@ run_posthoc_analysis <- function(lmm, data, indep_inter_vars, indep_vars,
             metadata = NULL
         ))
     }
-    
+
     # Post-process results
     final_df <- postprocess_posthoc_results(
-        posthoc_results$combined$df, 
-        filter_meaningful, 
+        posthoc_results$combined$df,
+        filter_meaningful,
         if (format_pvalues) c("p.value", "p_adjusted") else NULL
     )
-    
+
     return(list(
         results = final_df,
         metadata = list(
@@ -234,4 +234,65 @@ format_numeric_columns <- function(df, digits = 4) {
 #' @return Formatted data frame with bold significant p-values
 format_with_bold_pvalues <- function(df, p_value_column, digits = 4, alpha = 0.05) {
     set_digits_with_bold_pvalues(df, p_value_column, digits, alpha)
+}
+
+# =============================================================================
+# PCA ANALYSIS API
+# =============================================================================
+
+#' Run Principal Component Analysis
+#' @param data The dataset to analyze
+#' @param variables Vector of variable names to include in PCA (if NULL, uses all numeric variables)
+#' @param exclude_cols Columns to exclude from PCA analysis
+#' @return List containing PCA results and plots
+run_pca_analysis <- function(data, variables = NULL, exclude_cols = c("participant", "condition", "trialNum", "phase", "foot")) {
+    perform_pca_analysis(data, variables, exclude_cols)
+}
+
+# VARIABLE SELECTION API
+# =============================================================================
+
+#' Match variables using advanced pattern matching
+#' @param pattern String pattern to match against variable names
+#' @param variables Vector of variable names to search in
+#' @return Vector of matching variable names
+match_variables <- function(pattern, variables) {
+    match_variables(pattern, variables)
+}
+
+#' Add variables by pattern to existing selection
+#' @param pattern String pattern to match
+#' @param available_vars Vector of all available variables
+#' @param current_selected Vector of currently selected variables
+#' @return Vector of updated selected variables
+add_variables_by_pattern <- function(pattern, available_vars, current_selected = character(0)) {
+    add_variables_by_pattern(pattern, available_vars, current_selected)
+}
+
+#' Remove variables by pattern from existing selection
+#' @param pattern String pattern to match
+#' @param current_selected Vector of currently selected variables
+#' @return Vector of updated selected variables
+remove_variables_by_pattern <- function(pattern, current_selected) {
+    remove_variables_by_pattern(pattern, current_selected)
+}
+
+#' Get common variable groups for quick selection
+#' @param variables Vector of all available variables
+#' @return List of variable groups with their patterns
+get_variable_groups <- function(variables) {
+    get_variable_groups(variables)
+}
+
+#' Validate pattern syntax
+#' @param pattern String pattern to validate
+#' @return List with validation results
+validate_pattern <- function(pattern) {
+    validate_pattern(pattern)
+}
+
+#' Get pattern matching examples
+#' @return List of example patterns with descriptions
+get_pattern_examples <- function() {
+    get_pattern_examples()
 }

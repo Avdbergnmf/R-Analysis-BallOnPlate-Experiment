@@ -44,7 +44,7 @@ tags$hr(style = "margin-top: 10px; margin-bottom: 10px;")
 
 #### Model Settings
 ```{r}
-textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + task.taskNum | participant)")
+textInput("customModel", "Custom Model Formula: dependent_variable ~ ", value = "condition * phase + (1 + taskNum | participant)")
 
 checkboxInput("useCustomModel", "Use custom model (above)", value = TRUE)
 checkboxInput("doCentering", "Center numerical variables", value = TRUE)
@@ -144,6 +144,11 @@ uiOutput("lmm_assumption_button_ui")
 ```
 
 ```{r}
+# Static PCA button - no reactive dependencies
+uiOutput("pca_button_ui")
+```
+
+```{r}
 tableOutput("fixed_effects_table")
 ```
 
@@ -192,6 +197,8 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
+# Create stats page logger
+stats_page_logger <- create_module_logger("STATS-PAGE")
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())
@@ -199,20 +206,28 @@ ttest_assumption_state <- reactiveVal(NULL)
 
 ############ Getting and setting data
 get_stats_data <- reactive({
+  stats_page_logger("DEBUG", "Getting stats data...")
+
   # Get the data based on user selection
   data <- if (input$getSummarizedData_stats) {
+    stats_page_logger("DEBUG", "Using summarized data (get_mu_dyn_long)")
     get_mu_dyn_long()
   } else {
+    stats_page_logger("DEBUG", "Using filtered parameters data")
     filteredParams()
   }
 
+  stats_page_logger("DEBUG", "Raw data dimensions:", nrow(data), "x", ncol(data))
+
   # Handle empty data case
   if (!stats$validate_stats_data(data)) {
+    stats_page_logger("WARN", "Invalid data detected, returning empty dataset")
     return(stats$handle_invalid_data())
   }
 
   # Apply reference levels so the column names match what the selectors expect
   dt <- stats$prepare_stats_dataset(data, input$averageData_stats)
+  stats_page_logger("DEBUG", "Processed data dimensions:", nrow(dt), "x", ncol(dt))
   dt
 })
 
@@ -262,9 +277,11 @@ create_dynamic_variable_observer(
 # Dynamic observers for reference level selection
 observe({
   data <- get_stats_data()
+  stats_page_logger("DEBUG", "Updating reference level selectors...")
 
   if ("condition" %in% names(data)) {
     available_conditions <- unique(data$condition)
+    stats_page_logger("DEBUG", "Available conditions:", paste(available_conditions, collapse = ", "))
 
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "condition" %in% names(reference_levels)) {
@@ -274,6 +291,7 @@ observe({
       available_conditions[1]
     }
 
+    stats_page_logger("DEBUG", "Setting condition reference level to:", default_ref)
     updateSelectizeInput(session, "refLevelCondition",
       choices = available_conditions,
       selected = default_ref
@@ -282,6 +300,7 @@ observe({
 
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)
+    stats_page_logger("DEBUG", "Available phases:", paste(available_phases, collapse = ", "))
 
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "phase" %in% names(reference_levels)) {
@@ -291,6 +310,7 @@ observe({
       available_phases[1]
     }
 
+    stats_page_logger("DEBUG", "Setting phase reference level to:", default_ref)
     updateSelectizeInput(session, "refLevelPhase",
       choices = available_phases,
       selected = default_ref
@@ -301,34 +321,55 @@ observe({
 # ----------------  APPLY MODEL  ----------------
 get_lmer <- reactive({
   req(dep_var_valid()) # ← stop early but quietly if no dep-var
+  stats_page_logger("INFO", "Building LMM model...")
 
   data <- get_stats_data()
+  stats_page_logger("DEBUG", "Model data dimensions:", nrow(data), "x", ncol(data))
   # Validation is now handled in fit_mixed_model
 
   # Apply custom reference levels if specified
   if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
+    stats_page_logger("DEBUG", "Setting condition reference level to:", input$refLevelCondition)
     data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
   }
   if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
+    stats_page_logger("DEBUG", "Setting phase reference level to:", input$refLevelPhase)
     data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
   }
 
   # Apply transformation to dependent variable if selected
+  if (input$depVarTransform != "none") {
+    stats_page_logger("DEBUG", "Applying transformation:", input$depVarTransform, "to", input$depVar)
+  }
   data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
   if (is.null(data)) {
+    stats_page_logger("ERROR", "Data transformation failed")
     return(NULL)
   }
 
   doCustom <- input$useCustomModel && !is.null(input$customModel) && nzchar(input$customModel)
   if (doCustom) {
+    stats_page_logger("INFO", "Using custom model formula:", input$customModel)
     formula <- as.formula(paste(input$depVar, "~", input$customModel))
   } else {
+    stats_page_logger(
+      "INFO", "Using standard LMM formula with variables:",
+      paste(c(input$indepInterVars, input$indepVars), collapse = ", ")
+    )
     formula <- stats$create_lmm_formula(input$depVar, input$indepInterVars, input$indepVars)
   }
 
   # Centering is now handled in fit_mixed_model
+  stats_page_logger("INFO", "Fitting mixed model...")
+  result <- stats$fit_mixed_model(data, formula, input$depVar, input$doCentering, input$doScaling)
 
-  stats$fit_mixed_model(data, formula, input$depVar, input$doCentering, input$doScaling)
+  if (is.null(result)) {
+    stats_page_logger("ERROR", "Model fitting failed")
+  } else {
+    stats_page_logger("INFO", "Model fitted successfully")
+  }
+
+  result
 })
 
 # ----------------  LMM OUTPUTS ----------------
@@ -488,7 +529,7 @@ output$post_hoc_table <- renderTable(
     if (is.null(posthoc_results$results)) {
       return(data.frame(Message = "No significant main or interaction effects found."))
     }
-    
+
     # Create lmm_posthoc structure for compatibility with existing code
     lmm_posthoc <- list(
       combined = list(df = posthoc_results$results),
@@ -526,15 +567,19 @@ output$post_hoc_table <- renderTable(
 
 # T-test assumption checking observer
 observeEvent(input$ttest_assumption_row, {
+  stats_page_logger("INFO", "T-test assumption checking for row:", input$ttest_assumption_row)
+
   lookup <- ttest_assumption_lookup()
   info <- lookup[[input$ttest_assumption_row]]
   if (is.null(info)) {
+    stats_page_logger("ERROR", "Assumption diagnostics unavailable for row:", input$ttest_assumption_row)
     if (exists("showNotification")) {
       showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
     }
     return()
   }
 
+  stats_page_logger("DEBUG", "Showing assumption diagnostics for:", info$effect, "-", info$contrast)
   ttest_assumption_state(info)
 
   showModal(modalDialog(
@@ -561,14 +606,328 @@ output$lmm_assumption_button_ui <- renderUI({
   HTML(stats$create_lmm_assumption_button())
 })
 
+# PCA button UI - using proper Shiny actionButton
+output$pca_button_ui <- renderUI({
+  stats_page_logger("DEBUG", "Rendering PCA button...")
+  actionButton("show_pca_analysis",
+    "Run PCA Analysis",
+    class = "btn-primary",
+    style = "margin-top: 10px;",
+    icon = icon("chart-line")
+  )
+})
+
+# Test observer to see if button clicks are being registered at all
+observeEvent(input$show_pca_analysis,
+  {
+    stats_page_logger("INFO", "PCA button click detected!")
+  },
+  ignoreInit = TRUE
+)
+
+# PCA analysis observer
+observeEvent(input$show_pca_analysis, {
+  stats_page_logger("INFO", "PCA button clicked! Starting PCA analysis...")
+
+  data <- get_stats_data()
+  stats_page_logger("INFO", "Data retrieved. Dimensions:", nrow(data), "x", ncol(data))
+
+  if (is.null(data) || nrow(data) == 0) {
+    stats_page_logger("ERROR", "No data available")
+    showNotification("No data available for PCA analysis.", type = "error")
+    return()
+  }
+
+  # Get available variables
+  stats_page_logger("INFO", "Getting available variables...")
+  available_vars <- stats$get_pca_variables(data)
+  stats_page_logger("INFO", "Available variables:", length(available_vars), "variables found")
+  stats_page_logger("DEBUG", "Variables:", paste(available_vars, collapse = ", "))
+
+  if (length(available_vars) < 2) {
+    stats_page_logger("ERROR", "Not enough variables (", length(available_vars), ")")
+    showNotification("Need at least 2 numeric variables for PCA analysis.", type = "warning")
+    return()
+  }
+
+  # Show variable selection modal first
+  stats_page_logger("INFO", "Showing variable selection modal...")
+  showModal(modalDialog(
+    title = "Select Variables for PCA Analysis",
+    tags$div(
+      tags$p("Select variables for PCA analysis. Use the string input below to add/remove variables by name pattern."),
+      tags$hr(),
+
+      # String input for variable selection
+      textInput("pca_string",
+        "Variable name pattern:",
+        placeholder = "e.g., 'task', '_sd', 'task AND _sd', 'task OR step', '!_sd'",
+        width = "100%"
+      ),
+
+      # Action buttons
+      tags$div(
+        tags$h5("Actions:"),
+        tags$div(
+          actionButton("add_vars_by_string", "Add Variables", class = "btn-primary", style = "margin: 2px;"),
+          actionButton("remove_vars_by_string", "Remove Variables", class = "btn-warning", style = "margin: 2px;"),
+          actionButton("add_all_vars", "Add All Variables", class = "btn-success", style = "margin: 2px;"),
+          actionButton("clear_all_vars", "Clear All", class = "btn-danger", style = "margin: 2px;")
+        )
+      ),
+      tags$hr(),
+
+      # Variable selection display
+      selectizeInput("pca_variables",
+        "Selected variables:",
+        choices = available_vars,
+        selected = NULL,
+        multiple = TRUE,
+        options = list(
+          placeholder = "No variables selected - use buttons above to add variables"
+        )
+      ),
+      tags$hr(),
+      tags$p(tags$strong("Selected:"), textOutput("pca_selected_count", inline = TRUE), "variables")
+    ),
+    footer = tagList(
+      modalButton("Cancel"),
+      actionButton("run_pca", "Run PCA Analysis", class = "btn-primary")
+    ),
+    size = "l"
+  ))
+  stats_page_logger("INFO", "Modal displayed successfully")
+})
+
+# Store available variables for PCA in a reactive value
+pca_available_vars <- reactiveVal(NULL)
+
+# Variable selection now handled by stats module
+
+# Update available variables when PCA modal opens
+observeEvent(input$show_pca_analysis, {
+  data <- get_stats_data()
+  available_vars <- stats$get_pca_variables(data)
+  pca_available_vars(available_vars)
+
+  # Set default selected variables
+  default_vars <- c(
+    "task.dist_to_escape_ratio_mean", "complexity.pelvisPos_raw_sd", "complexity.hipPos_raw_sd",
+    "questionnaire.IMI.total", "questionnaire.UserExperience.total", "age", "weight", "height_meters",
+    "task.n_ball_falls", "task.final_work_world", "task.pAccAbsolute_mean", "task.absqd_mean",
+    "task.pVelAbsolute_mean", "task.drop_risk_1s_mean", "task.drop_risk_bin_mean",
+    "task.drop_risk_1s_sd", "treadmillSpeed.mean", "task.total_score"
+  )
+
+  # Filter to only include variables that are actually available
+  selected_defaults <- default_vars[default_vars %in% available_vars]
+
+  # Update the selectizeInput with default selection
+  updateSelectizeInput(session, "pca_variables",
+    choices = available_vars,
+    selected = selected_defaults
+  )
+
+  stats_page_logger("INFO", "Set default PCA variables:", length(selected_defaults), "out of", length(default_vars), "requested")
+})
+
+# Add variables by string pattern
+observeEvent(input$add_vars_by_string, {
+  if (is.null(input$pca_string) || nchar(input$pca_string) == 0) {
+    showNotification("Please enter a string pattern to search for variables.", type = "warning")
+    return()
+  }
+
+  current_selected <- input$pca_variables
+  matching_vars <- stats$match_variables(input$pca_string, pca_available_vars())
+  new_selected <- unique(c(current_selected, matching_vars))
+  updateSelectizeInput(session, "pca_variables", selected = new_selected)
+  stats_page_logger("INFO", "Added", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+})
+
+# Remove variables by string pattern
+observeEvent(input$remove_vars_by_string, {
+  if (is.null(input$pca_string) || nchar(input$pca_string) == 0) {
+    showNotification("Please enter a string pattern to search for variables.", type = "warning")
+    return()
+  }
+
+  current_selected <- input$pca_variables
+  if (is.null(current_selected) || length(current_selected) == 0) {
+    showNotification("No variables selected to remove.", type = "message")
+    return()
+  }
+
+  matching_vars <- stats$match_variables(input$pca_string, current_selected)
+  new_selected <- current_selected[!current_selected %in% matching_vars]
+  updateSelectizeInput(session, "pca_variables", selected = new_selected)
+  stats_page_logger("INFO", "Removed", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+})
+
+# Add all variables
+observeEvent(input$add_all_vars, {
+  updateSelectizeInput(session, "pca_variables", selected = pca_available_vars())
+  stats_page_logger("INFO", "Added all", length(pca_available_vars()), "variables")
+})
+
+# Clear all variables
+observeEvent(input$clear_all_vars, {
+  stats_page_logger("INFO", "Clear all button clicked")
+  updateSelectizeInput(session, "pca_variables", selected = character(0))
+  stats_page_logger("INFO", "Cleared all selected variables")
+})
+
+# Display count of selected variables
+output$pca_selected_count <- renderText({
+  if (is.null(input$pca_variables)) {
+    "0"
+  } else {
+    length(input$pca_variables)
+  }
+})
+
+# Run PCA analysis after variable selection
+observeEvent(input$run_pca, {
+  stats_page_logger("INFO", "Run PCA button clicked! Starting analysis...")
+
+  data <- get_stats_data()
+  stats_page_logger("INFO", "Data retrieved for PCA analysis. Dimensions:", nrow(data), "x", ncol(data))
+
+  # Get selected variables (NULL means use all)
+  selected_vars <- input$pca_variables
+  if (length(selected_vars) == 0) {
+    selected_vars <- NULL
+    stats_page_logger("INFO", "No variables selected, will use all numeric variables")
+  } else {
+    stats_page_logger("INFO", "Selected variables:", length(selected_vars), "variables")
+    stats_page_logger("DEBUG", "Selected variables:", paste(selected_vars, collapse = ", "))
+  }
+
+  # Run PCA analysis
+  stats_page_logger("INFO", "Running PCA analysis...")
+  pca_results <- stats$run_pca_analysis(data, selected_vars)
+
+  # Check for errors
+  if (!is.null(pca_results$error)) {
+    stats_page_logger("ERROR", "PCA analysis failed:", pca_results$error)
+
+    # Provide more helpful error messages
+    error_msg <- pca_results$error
+    if (grepl("Not enough complete cases", error_msg)) {
+      error_msg <- paste(
+        error_msg,
+        "\n\nTip: Try selecting fewer variables or check for missing data. With many variables relative to observations, you may need to select a subset of the most relevant variables."
+      )
+    }
+
+    showNotification(error_msg, type = "error", duration = 15)
+    removeModal()
+    return()
+  }
+
+  stats_page_logger("INFO", "PCA analysis completed successfully")
+
+  # Close variable selection modal
+  removeModal()
+
+  # Show results modal
+  showModal(
+    modalDialog(
+      tags$head(tags$style(HTML("
+        .modal-dialog { max-width: 95%; width: 95%; }
+        .modal-body { overflow-x: auto; }
+      "))),
+      title = "Principal Component Analysis Results",
+      tags$div(
+        tags$h4("Overview:"),
+        tags$p("Principal Component Analysis (PCA) reduces the dimensionality of your data by finding the principal components that explain the most variance."),
+        tags$p(tags$strong("Number of observations:"), pca_results$metadata$n_observations),
+        tags$p(tags$strong("Number of variables:"), pca_results$metadata$n_variables),
+        if (pca_results$metadata$excluded_rows > 0) {
+          tags$p(tags$em(paste("Note:", pca_results$metadata$excluded_rows, "rows with missing data were excluded.")))
+        },
+        tags$hr(),
+
+        # Summary statistics
+        tags$h4("Variance Explained by Components:"),
+        tags$p(paste("Components needed for 80% variance:", pca_results$summary_stats$n_components_80_percent)),
+        tags$p(paste("Components needed for 95% variance:", pca_results$summary_stats$n_components_95_percent)),
+        renderTable({
+          head(pca_results$summary_stats$summary_table, 10)
+        }),
+        tags$hr(),
+
+        # Scree plot
+        tags$h4("Scree Plot:"),
+        tags$p("Shows the proportion of variance explained by each principal component. Look for the 'elbow' to determine how many components to retain."),
+        renderPlot(
+          {
+            print(pca_results$plot_scree)
+          },
+          height = 400
+        ),
+        tags$hr(),
+
+        # Correlation matrix
+        tags$h4("Correlation Matrix:"),
+        tags$p("Shows correlations between all variables. Strong correlations (red/blue) indicate redundancy that PCA can capture."),
+        renderPlot(
+          {
+            print(pca_results$cor_matrix_plot)
+          },
+          height = 500
+        ),
+        tags$hr(),
+
+        # Biplot
+        tags$h4("Principal Components Biplot (PC1 vs PC2):"),
+        tags$p("Each point represents an observation projected onto the first two principal components."),
+        renderPlot(
+          {
+            print(pca_results$PCA12)
+          },
+          height = 500
+        ),
+        tags$hr(),
+
+        # Factor loadings
+        tags$h4("Factor Loadings (PC1 and PC2):"),
+        tags$p("Shows how much each variable contributes to PC1 and PC2. Variables with high loadings are important for that component."),
+        renderPlot(
+          {
+            print(pca_results$PlotLoadings)
+          },
+          height = 600
+        ),
+        tags$hr(),
+
+        # Interpretation guide
+        tags$h4("How to Interpret:"),
+        tags$ul(
+          tags$li(tags$strong("Scree Plot:"), " Components before the 'elbow' are typically retained."),
+          tags$li(tags$strong("Loadings:"), " High absolute values indicate variables that contribute strongly to that component."),
+          tags$li(tags$strong("Biplot:"), " Clusters of points suggest groups with similar characteristics."),
+          tags$li(tags$strong("PC1:"), " Captures the most variance in the data."),
+          tags$li(tags$strong("PC2:"), " Captures the second most variance, orthogonal to PC1.")
+        )
+      ),
+      size = "l",
+      easyClose = TRUE,
+      footer = modalButton("Close")
+    )
+  )
+})
+
 # DiD analysis observer
 observeEvent(input$show_did_analysis, {
   req(dep_var_valid())
+  stats_page_logger("INFO", "DiD analysis button clicked!")
 
   lmm <- get_lmer()
   data <- get_stats_data()
 
   if (is.null(lmm)) {
+    stats_page_logger("ERROR", "Model could not be fitted for DiD analysis")
     if (exists("showNotification")) {
       showNotification("Model could not be fitted. Please check your model settings.", type = "error")
     }
@@ -576,6 +935,7 @@ observeEvent(input$show_did_analysis, {
   }
 
   # Compute DiD analysis (uses Kenward-Roger df and selected correction method)
+  stats_page_logger("INFO", "Running DiD analysis with correction method:", input$correctionMethod)
   did_results <- stats$run_did_analysis(lmm, data, input$correctionMethod)
 
   # Check if we have valid results
@@ -682,6 +1042,7 @@ observeEvent(input$show_did_analysis, {
 # LMM assumption checking observer
 observeEvent(input$show_lmm_assumptions, {
   req(dep_var_valid())
+  stats_page_logger("INFO", "LMM assumption checking button clicked!")
 
   showModal(modalDialog(
     title = "Linear Mixed Model (LMM) Assumption Diagnostics",

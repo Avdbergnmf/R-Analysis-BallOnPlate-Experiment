@@ -162,19 +162,41 @@ add_energy_cols <- function(df, g = 9.81) {
 
 #  Specific mechanical power and cumulative work  - assumes postprocess already ran
 add_power_cols <- function(df) {
-  df %>% mutate(
-    # Plate power and work
-    power_plate = pAcc * pVel, # W kg⁻¹ plate power
-    work_plate = cumsum(abs(power_plate) * dt), # J kg⁻¹ cumulative work in world frame
+  # Create logger for this function
+  power_logger <- create_module_logger("POWER-WORK")
 
-    # World power (includes plate motion effects)
-    power_world = ax_world * vx_world + ay * vy, # W kg⁻¹ in world frame
-    work_world = cumsum(abs(power_world) * dt), # J kg⁻¹ cumulative work in world frame
+  # Log basic info
+  n_rows <- nrow(df)
+  power_logger("INFO", "Calculating power and work for", n_rows, "rows")
 
-    # Local power (plate-relative, more physically meaningful)
-    power = ax * vx + ay * vy, # W kg⁻¹ relative to plate
-    work = cumsum(abs(power) * dt) # J kg⁻¹ cumulative work relative to plate
-  )
+  # Vectorized power calculations
+  result <- df
+  result$power_plate <- result$pAcc * result$pVel # W kg⁻¹ plate power
+  result$power_world <- result$ax_world * result$vx_world + result$ay * result$vy # W kg⁻¹ in world frame
+  result$power <- result$ax * result$vx + result$ay * result$vy # W kg⁻¹ relative to plate
+
+  # Check for NA values that could break cumsum()
+  na_count <- sum(is.na(result$power_plate)) + sum(is.na(result$power_world)) + sum(is.na(result$power)) + sum(is.na(result$dt))
+  if (na_count > 0) {
+    power_logger("WARN", "Found", na_count, "NA values - handling them to prevent cumsum failure")
+  }
+
+  # Vectorized work calculation with NA handling
+  work_plate_increment <- abs(result$power_plate) * result$dt
+  work_world_increment <- abs(result$power_world) * result$dt
+  work_increment <- abs(result$power) * result$dt
+
+  # Handle NA values by setting them to 0
+  work_plate_increment[is.na(work_plate_increment)] <- 0
+  work_world_increment[is.na(work_world_increment)] <- 0
+  work_increment[is.na(work_increment)] <- 0
+
+  # Calculate cumulative work
+  result$work_plate <- cumsum(work_plate_increment)
+  result$work_world <- cumsum(work_world_increment)
+  result$work <- cumsum(work_increment)
+
+  return(result)
 }
 
 #  Safety margin: energy distance to escape  - assumes postprocess already ran

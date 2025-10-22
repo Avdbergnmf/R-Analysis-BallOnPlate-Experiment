@@ -62,12 +62,12 @@ if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv) &&
   cat("Task data was calculated in this session, which causes a known bug\n")
   cat("when running complexity calculation immediately after.\n")
   cat("\n")
-  cat("SOLUTION: Restart the R session to reset the flag:\n")
-  cat("1. Click the broom icon in RStudio (Clear Workspace)\n")
-  cat("2. OR restart R session (Session -> Restart R)\n")
-  cat("3. Then run the complexity calculation again\n")
+  cat("SOLUTION: restart the R session to reset the flag:\n")
+  # cat("1. Click the broom icon in RStudio (Clear Workspace)\n")
+  cat("restart the R session\n")
+  cat("then run the complexity calculation again\n")
   cat("\n")
-  cat("This clears the .TASK_DATA_JUST_CALCULATED flag and allows complexity calculation.\n")
+  cat("This will clear the .TASK_DATA_JUST_CALCULATED flag and allow complexity calculation.\n")
   cat("=== END SKIP MESSAGE ===\n")
   allComplexityMetrics <<- NULL
 } else {
