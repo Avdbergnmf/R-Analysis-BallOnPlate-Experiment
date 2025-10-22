@@ -60,4 +60,56 @@ Adjust these values per environment (`default`, `development`, `production`) and
 - `calculation_wrappers.R` — declarative entry points called from R Markdown, mapping wrappers to feature modules.
 - `parallel_processing.R` — parallel loop engine with consolidated logging and cache priming.
 
-This structure keeps feature logic modular while letting shared infrastructure be reused across the pipeline. Callers only interact with the wrappers; everything else is composed under the hood.***
+This structure keeps feature logic modular while letting shared infrastructure be reused across the pipeline. Callers only interact with the wrappers; everything else is composed under the hood.
+
+## Derived Metrics System
+
+The system includes a sophisticated **derived metrics** feature that allows users to create reference variables from specific phases or trials. This is particularly useful for statistical analysis where you need to include baseline performance or specific trial data as fixed effects in linear mixed models.
+
+### **How Derived Metrics Work**
+
+1. **Definition**: Users define derived metrics through the UI interface, specifying:
+   - **Variable**: The source variable to extract (e.g., `task_drop_risk_1s_mean`)
+   - **Scope**: Whether to extract from `phase` or `trial`
+   - **Level**: The specific phase/trial to use as reference (e.g., `baseline_task`, `trial_5`)
+   - **Label**: Human-readable name for the metric
+   - **Column Name**: The final variable name in the dataset
+
+2. **Processing**: The system automatically:
+   - Loads the source variable from the full dataset
+   - Filters to the specified phase/trial level
+   - Extracts the values for each participant
+   - Merges the result back into the main dataset as a new column
+
+3. **Caching**: Derived metrics are cached efficiently:
+   - **Memory cache**: Stored in global variables for fast access
+   - **File persistence**: Saved to `data_extra/derived_metrics.csv`
+   - **Smart invalidation**: Only reloads when the CSV file changes
+   - **Session persistence**: Cache survives within the same R session
+
+### **Example Use Cases**
+
+- **Baseline Performance**: Create `task_drop_risk_1s_mean_phase_baseline_task` to include baseline performance as a fixed effect in LMMs
+- **Trial-Specific Reference**: Create `complexity_hipPos_raw_sd_trial_5` to use specific trial data as a covariate
+- **Statistical Modeling**: Include participant-specific reference values as fixed effects in linear mixed models
+- **Cross-Condition Analysis**: Use baseline or training performance to control for individual differences
+
+### **Technical Implementation**
+
+- **UI Integration**: Derived metrics are managed through the sidebar interface
+- **Reactive Updates**: Changes automatically trigger data refresh and cache invalidation
+- **Formula Compatibility**: Variable names are automatically quoted for R formula compatibility
+- **Error Handling**: Robust error handling with detailed logging for debugging
+- **Performance**: Efficient caching prevents repeated CSV loading and processing
+
+### **File Structure**
+
+```
+runtime/
+├── data_extra/
+│   └── derived_metrics.csv          # Persistent storage of metric definitions
+├── source/utils/filter_manager.R     # Core processing logic
+└── pages/sidebar_dynamicDataFiltering.Rmd  # UI interface
+```
+
+This system provides a flexible way to extend the dataset with custom variables while maintaining performance and data integrity.***

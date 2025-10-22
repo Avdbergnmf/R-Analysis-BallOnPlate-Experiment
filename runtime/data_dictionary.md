@@ -636,7 +636,112 @@ These files track the disturbances applied to foot positions during the experime
 
 ---
 
-## **13. Data Processing Pipeline**
+## **13. Derived Metrics System**
+
+The system includes a sophisticated **derived metrics** feature that allows users to create reference variables from specific phases or trials. This is particularly useful for statistical analysis where you need to include baseline performance or specific trial data as fixed effects in linear mixed models.
+
+### **How Derived Metrics Work**
+
+**Definition Process:**
+1. **Variable Selection**: Choose a source variable from the existing dataset (e.g., `task_drop_risk_1s_mean`)
+2. **Scope Definition**: Specify whether to extract from `phase` or `trial`
+3. **Level Selection**: Choose the specific phase/trial to use as reference (e.g., `baseline_task`, `trial_5`)
+4. **Naming**: Provide a human-readable label and column name for the final variable
+
+**Processing Pipeline:**
+1. **Data Extraction**: The system loads the source variable from the full dataset
+2. **Filtering**: Filters data to the specified phase/trial level
+3. **Value Extraction**: Extracts the values for each participant from that specific phase/trial
+4. **Merging**: Merges the result back into the main dataset as a new column
+
+**Caching System:**
+- **Memory Cache**: Stored in global variables for fast access within the same session
+- **File Persistence**: Saved to `data_extra/derived_metrics.csv` for persistence
+- **Smart Invalidation**: Only reloads when the CSV file changes
+- **Session Persistence**: Cache survives within the same R session
+
+### **Example Derived Metrics**
+
+#### **Baseline Reference Variables**
+Extract baseline performance values to use as fixed effects in statistical models:
+
+| Variable Name | Source Variable | Scope | Level | Description |
+|---------------|-----------------|-------|-------|-------------|
+| `task_drop_risk_1s_mean_phase_baseline_task` | `task_drop_risk_1s_mean` | phase | baseline_task | Drop risk value from baseline task phase (for LMM fixed effects) |
+| `complexity_hipPos_raw_sd_phase_baseline_task` | `complexity_hipPos_raw_sd` | phase | baseline_task | Hip position variability from baseline (for LMM fixed effects) |
+| `task_final_score_phase_baseline_task` | `task_final_score` | phase | baseline_task | Final score from baseline (for LMM fixed effects) |
+
+#### **Trial-Specific Reference Variables**
+Extract values from specific trials to use as covariates:
+
+| Variable Name | Source Variable | Scope | Level | Description |
+|---------------|-----------------|-------|-------|-------------|
+| `task_drop_risk_1s_mean_trial_5` | `task_drop_risk_1s_mean` | trial | 5 | Drop risk value from trial 5 (for LMM fixed effects) |
+| `complexity_hipPos_raw_sd_trial_10` | `complexity_hipPos_raw_sd` | trial | 10 | Hip position variability from trial 10 (for LMM fixed effects) |
+| `task_total_score_trial_11` | `task_total_score` | trial | 11 | Total score from trial 11 (for LMM fixed effects) |
+
+#### **Phase Reference Variables**
+Extract values from specific phases to control for individual differences:
+
+| Variable Name | Source Variable | Scope | Level | Description |
+|---------------|-----------------|-------|-------|-------------|
+| `task_drop_risk_1s_mean_phase_training` | `task_drop_risk_1s_mean` | phase | training | Drop risk value from training phase (for LMM fixed effects) |
+| `complexity_hipPos_raw_sd_phase_retention` | `complexity_hipPos_raw_sd` | phase | retention | Hip position variability from retention phase (for LMM fixed effects) |
+| `task_final_score_phase_transfer` | `task_final_score` | phase | transfer | Final score from transfer phase (for LMM fixed effects) |
+
+### **Technical Implementation**
+
+**UI Integration:**
+- Derived metrics are managed through the sidebar interface
+- Real-time validation and error checking
+- Immediate feedback on metric creation
+
+**Reactive Updates:**
+- Changes automatically trigger data refresh
+- Cache invalidation ensures data consistency
+- Formula compatibility with R statistical functions
+
+**Error Handling:**
+- Robust error handling with detailed logging
+- Graceful fallbacks for missing data
+- Clear error messages for debugging
+
+**Performance:**
+- Efficient caching prevents repeated processing
+- Memory-optimized storage and retrieval
+- Fast access to frequently used metrics
+
+### **File Structure**
+
+```
+runtime/
+├── data_extra/
+│   └── derived_metrics.csv          # Persistent storage of metric definitions
+├── source/utils/filter_manager.R     # Core processing logic
+└── pages/sidebar_dynamicDataFiltering.Rmd  # UI interface
+```
+
+### **Usage in Statistical Analysis**
+
+Derived metrics are particularly useful for:
+
+1. **Baseline Control**: Include baseline performance as a fixed effect to control for individual differences
+2. **Covariate Analysis**: Use specific trial or phase values as covariates in linear mixed models
+3. **Individual Differences**: Control for participant-specific characteristics in statistical models
+4. **Reference Values**: Use specific phase/trial performance as reference points for analysis
+5. **Fixed Effects**: Include participant-specific values as fixed effects in LMMs
+
+### **Best Practices**
+
+1. **Naming Convention**: Use descriptive names that indicate the source variable, scope, and level
+2. **Scope Selection**: Use `phase` for experimental phases, `trial` for specific trials
+3. **Level Selection**: Choose meaningful reference points (e.g., `baseline_task` for baseline comparisons)
+4. **Validation**: Always verify that derived metrics contain expected data ranges
+5. **Documentation**: Keep track of derived metrics for reproducibility
+
+---
+
+## **14. Data Processing Pipeline**
 
 The data processing pipeline has been completely restructured with the following key features:
 
