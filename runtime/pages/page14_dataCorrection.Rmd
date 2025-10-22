@@ -1,9 +1,5 @@
 ### Plot Options
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE14-DATA-CORRECTION")
-page_logger("DEBUG", "Initializing data correction page options")
-
 numericInput("rotationCorrection", "Rotation Correction (degrees)",
   min = -360, max = 360, value = 0, step = 0.1
 )
@@ -72,6 +68,9 @@ tableOutput("rotationTable")
 ```
 
 ```{r, context="server"}
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE14-DATA-CORRECTION")
+
 # Initialize rotation dataframe
 rotationDF <- reactiveVal(data.frame(
   participant = character(),

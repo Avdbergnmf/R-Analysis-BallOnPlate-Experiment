@@ -2,10 +2,6 @@
 
 ### Plot Options
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE1-FEET-TRAJ")
-page_logger("DEBUG", "Initializing feet trajectories page options")
-
 checkboxInput("filter", "Show filtered data",
   value = FALSE
 )
@@ -23,8 +19,6 @@ selectizeInput("xplot", "xplot",
 selectizeInput("yplot", "yplot",
   choices = xOptions, selected = "pos_z", multiple = FALSE
 ) # xOptions[3]
-
-page_logger("DEBUG", "Feet trajectories page options initialized")
 ```
 
 
@@ -37,6 +31,8 @@ plotlyOutput("FeetTraj_interactive")
 ```
 
 ```{r, context="server"}
+page_logger <- create_module_logger("PAGE1-FEET-TRAJ")
+
 output$FeetTraj_interactive <- renderPlotly({
   page_logger("DEBUG", "Rendering feet trajectories plot for participant:", input$participant, "trial:", input$trialNum)
 

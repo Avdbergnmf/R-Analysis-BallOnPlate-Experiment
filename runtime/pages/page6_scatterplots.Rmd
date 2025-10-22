@@ -1,9 +1,5 @@
 ### Options
 ```{r,echo=FALSE}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE6-SCATTERPLOTS")
-page_logger("DEBUG", "Initializing scatterplots page options")
-
 # Data mode selection
 selectizeInput("dataMode", "Data Mode",
   choices = list(
@@ -61,6 +57,9 @@ conditionalPanel(
 ```
 
 ```{r, context="server"}
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE6-SCATTERPLOTS")
+
 # Function to get the appropriate data based on mode
 get_scatter_data <- reactive({
   if (input$dataMode == "trials") {
@@ -138,21 +137,21 @@ create_dynamic_category_observer(
 get_plot_data <- reactive({
   # Wait for inputs to be initialized
   req(input$dataMode, input$xscatter, input$yscatter, input$groupScatter)
-  
+
   data <- get_scatter_data()
   group_var <- input$groupScatter
   x_var <- input$xscatter
   y_var <- input$yscatter
-  
+
   # Validate inputs
   if (is.null(data) || nrow(data) == 0) {
     return(list(error = "No data available for plotting"))
   }
-  
+
   if (is.null(x_var) || is.null(y_var) || is.null(group_var)) {
     return(list(error = "Please select variables for plotting"))
   }
-  
+
   return(list(
     data = data,
     group_var = group_var,
@@ -162,24 +161,24 @@ get_plot_data <- reactive({
 })
 
 # Render the static scatterplot
-output$scatter_plot <- renderSVG({ 
+output$scatter_plot <- renderSVG({
   reactive({
     page_logger("DEBUG", "Rendering static scatterplot")
     plot_data <- get_plot_data()
-    
+
     # Check for errors
     if (!is.null(plot_data$error)) {
       page_logger("WARN", "Error in plot data:", plot_data$error)
       return(plotting$create_error_plot(plot_data$error))
     }
-    
+
     # Create the plot (with marginal plots for static version)
     plotting$make_scatter_plot_steps(
-      plot_data$data, 
-      plot_data$group_var, 
-      plot_data$x_var, 
-      plot_data$y_var, 
-      show_legend = TRUE, 
+      plot_data$data,
+      plot_data$group_var,
+      plot_data$x_var,
+      plot_data$y_var,
+      show_legend = TRUE,
       baseSize = input$baseSize
     )
   })
@@ -189,19 +188,19 @@ output$scatter_plot <- renderSVG({
 output$scatter_plot_interactive <- renderPlotly({
   page_logger("DEBUG", "Rendering interactive scatterplot")
   plot_data <- get_plot_data()
-  
+
   # Check for errors
   if (!is.null(plot_data$error)) {
     page_logger("WARN", "Error in plot data:", plot_data$error)
     return(plot_ly() %>% add_annotations(text = plot_data$error, showarrow = FALSE))
   }
-  
+
   # Create simple hover text
   plot_data$data$hover_text <- paste0(
     plot_data$x_var, ": ", round(plot_data$data[[plot_data$x_var]], 3), "<br>",
     plot_data$y_var, ": ", round(plot_data$data[[plot_data$y_var]], 3)
   )
-  
+
   # Create the base ggplot with simple hover text
   if (plot_data$group_var == "None") {
     p <- ggplot(plot_data$data, aes_string(x = plot_data$x_var, y = plot_data$y_var, text = "hover_text")) +
@@ -212,14 +211,14 @@ output$scatter_plot_interactive <- renderPlotly({
       geom_point(alpha = 0.5, size = input$baseSize / 4) +
       theme_minimal(base_size = input$baseSize)
   }
-  
+
   # Add equal coordinates if both axes contain "pos"
   x_contains_pos <- grepl("pos", plot_data$x_var, ignore.case = TRUE)
   y_contains_pos <- grepl("pos", plot_data$y_var, ignore.case = TRUE)
   if (x_contains_pos && y_contains_pos) {
     p <- p + coord_equal()
   }
-  
+
   # Convert to plotly
   ggplotly(p, tooltip = "text")
 })

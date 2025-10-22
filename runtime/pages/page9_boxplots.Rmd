@@ -1,10 +1,6 @@
 ### Options
 
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE9-BOXPLOTS")
-page_logger("DEBUG", "Initializing boxplots page options")
-
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("plotVarTransform", "Transform variable",
   choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
@@ -15,7 +11,6 @@ selectizeInput("varCategory", "Category", choices = NULL, selected = NULL, multi
 selectizeInput("colorCategory", "Color", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("shapeCategory", "Shape", choices = NULL, selected = NULL, multiple = FALSE)
 checkboxInput("useSVG", "Make SVG for saving", value = FALSE)
-page_logger("DEBUG", "Boxplots page options initialized")
 ```
 
 ```{r}
@@ -36,7 +31,8 @@ uiOutput("plotOutput")
 ```
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE9-BOXPLOTS")
 page_logger("DEBUG", "Setting up dynamic observers for boxplots page")
 
 # Create dynamic observers for variable selection

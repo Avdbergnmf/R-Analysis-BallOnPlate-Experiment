@@ -1,10 +1,6 @@
 
 ### Plot Options
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE3-RAW-TRACKER")
-page_logger("DEBUG", "Initializing raw tracker data page options")
-
 checkboxInput("plotlines", "plot lines", value = TRUE)
 checkboxInput("plotpoints", "plot points", value = FALSE)
 
@@ -39,7 +35,8 @@ plotlyOutput("TwoD_interactive")
 ```
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE3-RAW-TRACKER")
 
 # Helper function to update plot options while preserving selection
 updatePlotOptions <- function(tracker, target_x, target_y, current_x = NULL, current_y = NULL) {

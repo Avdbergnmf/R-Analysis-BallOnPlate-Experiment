@@ -1,10 +1,6 @@
 ### Options
 
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE12-PARTICIPANT-SUMMARY")
-page_logger("DEBUG", "Initializing participant summary page options")
-
 selectizeInput("participantSummary", "participant",
   choices = participants, selected = participants[1], multiple = TRUE
 )
@@ -24,7 +20,8 @@ tableOutput("participant_details_table")
 
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE12-PARTICIPANT-SUMMARY")
 
 observeEvent(input$addAllParticipants, {
   page_logger("DEBUG", "Adding all participants to summary")

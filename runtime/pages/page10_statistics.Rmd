@@ -2,10 +2,6 @@
 
 #### Dependent Variable
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE10-STATISTICS")
-page_logger("DEBUG", "Initializing statistics page options")
-
 selectizeInput("depVar", "Dependent variable",
   choices = NULL, selected = NULL, multiple = FALSE
 )
@@ -201,7 +197,8 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE10-STATISTICS")
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())

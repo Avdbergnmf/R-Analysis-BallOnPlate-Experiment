@@ -1,9 +1,5 @@
 ### Plot Options
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE2-REMOVED-STEPS")
-page_logger("DEBUG", "Initializing removed steps page options")
-
 checkboxInput("useFiltered", "Filter data",
   value = FALSE
 )
@@ -30,7 +26,8 @@ tableOutput("step_table")
 ```
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE2-REMOVED-STEPS")
 output$pie <- renderSVG({
   reactive({
     page_logger("DEBUG", "Rendering pie chart - filtered:", input$useFiltered)

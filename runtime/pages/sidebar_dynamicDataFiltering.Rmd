@@ -1,9 +1,5 @@
 #### Participant Filtering
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("SIDEBAR-FILTERING")
-page_logger("DEBUG", "Initializing sidebar dynamic data filtering options")
-
 selectizeInput("filterParticipants", "Participants", choices = participants, selected = participants, multiple = TRUE)
 div(
   style = "margin-top: 5px;",
@@ -13,6 +9,9 @@ div(
 ```
 
 ```{r, context="server"}
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("SIDEBAR-FILTERING")
+
 # Use the page logger already created in the options section
 observeEvent(input$selectAllParticipants,
   {

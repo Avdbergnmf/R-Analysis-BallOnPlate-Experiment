@@ -1,10 +1,6 @@
 ### Options
 
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE8-QUESTIONNAIRES")
-page_logger("DEBUG", "Initializing questionnaires page options")
-
 selectizeInput("plotQ", "Plot Questionnaire", choices = qTypes, selected = qTypes[1], multiple = FALSE)
 ```
 
@@ -18,6 +14,9 @@ imageOutput("q")
 ```
 
 ```{r, context="server"}
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE8-QUESTIONNAIRES")
+
 output$q <- renderSVG({
   reactive({
     page_logger("DEBUG", "Rendering questionnaire plot for:", input$plotQ)

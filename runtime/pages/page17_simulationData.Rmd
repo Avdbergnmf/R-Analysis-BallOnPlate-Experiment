@@ -1,9 +1,5 @@
 ### Plot Options
 ```{r}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE17-SIMULATION")
-page_logger("DEBUG", "Initializing simulation data page options")
-
 # Participant and trial selection
 selectizeInput("sim_participant", "Participant",
   choices = participants, selected = participants[1], multiple = FALSE
@@ -99,7 +95,8 @@ plotlyOutput("sim_tsPlot")
 ```
 
 ```{r, context="server"}
-# Use the page logger already created in the options section
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE17-SIMULATION")
 
 risk_analysis_state <- reactiveValues(
   pending = NULL,

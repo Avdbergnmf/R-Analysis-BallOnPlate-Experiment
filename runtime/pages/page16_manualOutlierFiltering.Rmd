@@ -1,10 +1,6 @@
 ### Actions
 
 ```{r, context="server"}
-# Create page-specific logger (logging system already loaded globally)
-page_logger <- create_module_logger("PAGE16-OUTLIER-FILTER")
-page_logger("DEBUG", "Initializing manual outlier filtering page")
-
 # Load shinyjs for enable/disable functionality
 library(shinyjs)
 useShinyjs()
@@ -250,6 +246,9 @@ DT::dataTableOutput("stepOutliersTable")
 
 
 ```{r, context="server"}
+# Create page logger for this server context (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE16-OUTLIER-FILTER")
+
 # Helper function to create consistent hover text for heel strikes
 create_heel_strike_hover_text <- function(data, x_axis, y_axis, hs_type = "normal", icon = "", status_text = "") {
   # Safety checks
