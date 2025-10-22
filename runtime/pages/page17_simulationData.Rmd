@@ -1,5 +1,9 @@
 ### Plot Options
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE17-SIMULATION")
+page_logger("DEBUG", "Initializing simulation data page options")
+
 # Participant and trial selection
 selectizeInput("sim_participant", "Participant",
   choices = participants, selected = participants[1], multiple = FALSE
@@ -95,6 +99,8 @@ plotlyOutput("sim_tsPlot")
 ```
 
 ```{r, context="server"}
+# Use the page logger already created in the options section
+
 risk_analysis_state <- reactiveValues(
   pending = NULL,
   latest_model_path = NULL,
@@ -201,21 +207,21 @@ load_risk_model_internal <- function(model_file, notify = TRUE, from_modal = FAL
       risk_analysis_state$latest_model_path <- model_path
       risk_analysis_state$model_modal_shown <- FALSE
 
-        if (notify) {
-          showRiskSuccessModal(
-            title = "Risk Model Loaded",
-            message = sprintf("Loaded %s (%s).", model_file, class(model)[1]),
-            details = formatOperationDetails(
-              context = "Risk model loaded",
-              extras = c(
-                paste0("Path: ", model_path),
-                paste0("Class: ", class(model)[1])
-              )
+      if (notify) {
+        showRiskSuccessModal(
+          title = "Risk Model Loaded",
+          message = sprintf("Loaded %s (%s).", model_file, class(model)[1]),
+          details = formatOperationDetails(
+            context = "Risk model loaded",
+            extras = c(
+              paste0("Path: ", model_path),
+              paste0("Class: ", class(model)[1])
             )
           )
-        }
-        risk_analysis_state$model_modal_shown <- FALSE
-        return(TRUE)
+        )
+      }
+      risk_analysis_state$model_modal_shown <- FALSE
+      return(TRUE)
     },
     error = function(e) {
       if (notify) {
@@ -563,12 +569,16 @@ sim_data <- reactive({
   participant <- input$sim_participant
   trial <- as.numeric(input$sim_trialNum)
 
+  page_logger("DEBUG", "Loading simulation data for participant:", participant, "trial:", trial)
+
   if (!exists("simulation", envir = .GlobalEnv)) {
+    page_logger("ERROR", "Simulation feature module is not available")
     stop("Simulation feature module is not available.")
   }
 
   # Check if simulation data exists
   if (!has_simulation_data(participant, trial)) {
+    page_logger("WARN", "No simulation data found for participant:", participant, "trial:", trial)
     return(NULL)
   }
 
@@ -754,13 +764,16 @@ observe({
 
 # Time series plot
 output$sim_tsPlot <- renderPlotly({
+  page_logger("DEBUG", "Rendering simulation time series plot")
   data <- sim_data()
   vars <- input$sim_vars
   if (is.null(data) || nrow(data) == 0 || length(vars) == 0) {
+    page_logger("WARN", "No data or variables selected for simulation plot")
     return(plotly::plot_ly() %>% layout(title = "No data/variables selected"))
   }
 
   if (!exists("simulation", envir = .GlobalEnv)) {
+    page_logger("ERROR", "Simulation module not available for plotting")
     return(plotly::plot_ly() %>% layout(title = "Simulation module not available"))
   }
   var_name_map <- simulation$get_simulation_variable_names()
@@ -884,15 +897,15 @@ output$current_model_info <- renderUI({
     class = "table table-sm table-borderless mb-0",
     tags$tbody(lapply(rows, function(r) tags$tr(tags$th(r[1]), tags$td(r[2]))))
   )
-  })
+})
 
-  observeEvent(input$enable_risk_predictions, {
-    if (!isTRUE(input$enable_risk_predictions)) {
-      risk_analysis_state$model_modal_shown <- FALSE
-    }
-  })
+observeEvent(input$enable_risk_predictions, {
+  if (!isTRUE(input$enable_risk_predictions)) {
+    risk_analysis_state$model_modal_shown <- FALSE
+  }
+})
 
-  # Risk model training
+# Risk model training
 observeEvent(input$train_risk_model, {
   selected_participants <- input$filterParticipants
   selected_trials <- input$filterTrials

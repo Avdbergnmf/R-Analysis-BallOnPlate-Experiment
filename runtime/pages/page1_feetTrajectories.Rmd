@@ -2,18 +2,29 @@
 
 ### Plot Options
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE1-FEET-TRAJ")
+page_logger("DEBUG", "Initializing feet trajectories page options")
+
 checkboxInput("filter", "Show filtered data",
-  value = FALSE)
+  value = FALSE
+)
 selectizeInput("participant", "participant",
-  choices = participants, selected = participants[1], multiple = FALSE)
+  choices = participants, selected = participants[1], multiple = FALSE
+)
 selectizeInput("trialNum", "Trial Number",
-  choices = allTrials, selected = allTrials[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+  choices = allTrials, selected = allTrials[2], multiple = FALSE
+) # set to trial 2 so that if practice is filtered out, it still plots
 
 
 selectizeInput("xplot", "xplot",
-  choices = xOptions, selected = "time", multiple = FALSE)#xOptions[2]
+  choices = xOptions, selected = "time", multiple = FALSE
+) # xOptions[2]
 selectizeInput("yplot", "yplot",
-  choices = xOptions, selected = "pos_z", multiple = FALSE) #xOptions[3]
+  choices = xOptions, selected = "pos_z", multiple = FALSE
+) # xOptions[3]
+
+page_logger("DEBUG", "Feet trajectories page options initialized")
 ```
 
 
@@ -27,16 +38,20 @@ plotlyOutput("FeetTraj_interactive")
 
 ```{r, context="server"}
 output$FeetTraj_interactive <- renderPlotly({
+  page_logger("DEBUG", "Rendering feet trajectories plot for participant:", input$participant, "trial:", input$trialNum)
+
   # Create the base ggplot
   # Get preprocessed data for plotting
   preprocessedData <- get_preprocessed_data(input$participant, input$trialNum)
-  
+  page_logger("DEBUG", "Preprocessed data retrieved for plotting")
+
   p <- plotting$plot_steps(
     filteredParams(), preprocessedData, input$participant, input$trialNum,
-    input$xplot, input$yplot, input$filter, 
-    baseSize=input$baseSize
+    input$xplot, input$yplot, input$filter,
+    baseSize = input$baseSize
   )
-  
+  page_logger("DEBUG", "Base plot created, converting to interactive plotly")
+
   # Convert to ggplotly for interactivity
   ggplotly(p, width = input$plotwidth, height = input$plotheight) %>%
     layout(autosize = F)

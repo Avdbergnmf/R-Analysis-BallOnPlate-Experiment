@@ -1,6 +1,10 @@
 ### Options
 
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE9-BOXPLOTS")
+page_logger("DEBUG", "Initializing boxplots page options")
+
 selectizeInput("plotVar", "Variable", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("plotVarTransform", "Transform variable",
   choices = c("None" = "none", "Log10" = "log10", "Logit" = "logit"),
@@ -11,6 +15,7 @@ selectizeInput("varCategory", "Category", choices = NULL, selected = NULL, multi
 selectizeInput("colorCategory", "Color", choices = NULL, selected = NULL, multiple = FALSE)
 selectizeInput("shapeCategory", "Shape", choices = NULL, selected = NULL, multiple = FALSE)
 checkboxInput("useSVG", "Make SVG for saving", value = FALSE)
+page_logger("DEBUG", "Boxplots page options initialized")
 ```
 
 ```{r}
@@ -31,6 +36,9 @@ uiOutput("plotOutput")
 ```
 
 ```{r, context="server"}
+# Use the page logger already created in the options section
+page_logger("DEBUG", "Setting up dynamic observers for boxplots page")
+
 # Create dynamic observers for variable selection
 create_dynamic_variable_observer(
   data_reactive = get_mu_dyn_long,
@@ -42,6 +50,7 @@ create_dynamic_variable_observer(
   multiple = FALSE,
   input = input
 )
+page_logger("DEBUG", "Dynamic variable observer created for plotVar")
 
 # Create dynamic observers for category selection
 create_dynamic_category_observer(
@@ -52,6 +61,7 @@ create_dynamic_category_observer(
   multiple = TRUE,
   input = input
 )
+page_logger("DEBUG", "Dynamic category observer created for varCategory")
 
 create_dynamic_category_observer(
   data_reactive = get_mu_dyn_long,
@@ -61,6 +71,7 @@ create_dynamic_category_observer(
   multiple = FALSE,
   input = input
 )
+page_logger("DEBUG", "Dynamic category observer created for colorCategory")
 
 create_dynamic_category_observer(
   data_reactive = get_mu_dyn_long,
@@ -70,6 +81,7 @@ create_dynamic_category_observer(
   multiple = FALSE,
   input = input
 )
+page_logger("DEBUG", "Dynamic category observer created for shapeCategory")
 
 create_dynamic_category_observer(
   data_reactive = get_mu_dyn_long,
@@ -79,66 +91,95 @@ create_dynamic_category_observer(
   multiple = FALSE,
   input = input
 )
+page_logger("DEBUG", "Dynamic category observer created for pairedCategory")
 
 # Shared function to generate the plot
 generate_boxplot <- function() {
-  tryCatch({
-    mu <- get_mu_dyn_long()
-    
-    # Validate data and inputs
-    if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
-      stop("No data available for plotting")
-    }
-    
-    if (is.null(input$plotVar) || input$plotVar == "" || 
-        !input$plotVar %in% colnames(mu)) {
-      stop("Invalid or missing plot variable")
-    }
-    
-    # Apply transformation to the plotting variable if selected
-    mu <- stats$transform_dependent_variable(mu, input$plotVar, input$plotVarTransform)
-    if (is.null(mu)) {
-      stop("Transformation failed. Check notification for details.")
-    }
-    
-    # Validate categories exist in data
-    available_cols <- colnames(mu)
-    if (!is.null(input$varCategory) && length(input$varCategory) > 0) {
-      invalid_cats <- input$varCategory[!input$varCategory %in% c(available_cols, "None")]
-      if (length(invalid_cats) > 0) {
-        warning("Invalid category variables: ", paste(invalid_cats, collapse = ", "))
+  page_logger("DEBUG", "Generating boxplot - variable:", input$plotVar, "transform:", input$plotVarTransform)
+
+  tryCatch(
+    {
+      mu <- get_mu_dyn_long()
+      page_logger("DEBUG", "Retrieved data for boxplot, rows:", nrow(mu))
+
+      # Validate data and inputs
+      if (is.null(mu) || !is.data.frame(mu) || nrow(mu) == 0) {
+        page_logger("ERROR", "No data available for plotting")
+        stop("No data available for plotting")
       }
+
+      if (is.null(input$plotVar) || input$plotVar == "" ||
+        !input$plotVar %in% colnames(mu)) {
+        page_logger("ERROR", "Invalid or missing plot variable:", input$plotVar)
+        stop("Invalid or missing plot variable")
+      }
+
+      # Apply transformation to the plotting variable if selected
+      if (input$plotVarTransform != "none") {
+        page_logger("DEBUG", "Applying transformation:", input$plotVarTransform, "to variable:", input$plotVar)
+      }
+      mu <- stats$transform_dependent_variable(mu, input$plotVar, input$plotVarTransform)
+      if (is.null(mu)) {
+        page_logger("ERROR", "Transformation failed for variable:", input$plotVar, "transform:", input$plotVarTransform)
+        stop("Transformation failed. Check notification for details.")
+      }
+
+      # Validate categories exist in data
+      available_cols <- colnames(mu)
+      if (!is.null(input$varCategory) && length(input$varCategory) > 0) {
+        invalid_cats <- input$varCategory[!input$varCategory %in% c(available_cols, "None")]
+        if (length(invalid_cats) > 0) {
+          page_logger("WARN", "Invalid category variables:", paste(invalid_cats, collapse = ", "))
+          warning("Invalid category variables: ", paste(invalid_cats, collapse = ", "))
+        }
+      }
+
+      page_logger(
+        "DEBUG", "Generating boxplot with categories - var:", paste(input$varCategory, collapse = ", "),
+        "color:", input$colorCategory, "shape:", input$shapeCategory
+      )
+
+      # Generate the plot with the (potentially transformed) data
+      plotting$plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
+    },
+    error = function(e) {
+      # Return a simple error plot instead of crashing
+      page_logger("ERROR", "Error generating boxplot:", e$message)
+      warning("Error generating boxplot: ", e$message)
+
+      # Create a simple error message plot
+      ggplot() +
+        annotate("text",
+          x = 0.5, y = 0.5,
+          label = paste("Error generating plot:\n", e$message),
+          hjust = 0.5, vjust = 0.5, size = 4, color = "red"
+        ) +
+        xlim(0, 1) +
+        ylim(0, 1) +
+        theme_void() +
+        ggtitle("Plot Generation Error")
     }
-    
-    # Generate the plot with the (potentially transformed) data
-    plotting$plot_boxplots(mu, input$plotVar, input$varCategory, input$colorCategory, input$shapeCategory, input$baseSize)
-  }, error = function(e) {
-    # Return a simple error plot instead of crashing
-    warning("Error generating boxplot: ", e$message)
-    
-    # Create a simple error message plot
-    ggplot() + 
-      annotate("text", x = 0.5, y = 0.5, 
-              label = paste("Error generating plot:\n", e$message), 
-              hjust = 0.5, vjust = 0.5, size = 4, color = "red") +
-      xlim(0, 1) + ylim(0, 1) +
-      theme_void() +
-      ggtitle("Plot Generation Error")
-  })
+  )
 }
 
 # Create a reactive plot generator
 plot_reactive <- reactive({
+  page_logger("DEBUG", "Plot reactive triggered")
   generate_boxplot()
 })
 
 # Render the plot based on SVG setting
 output$plotOutput <- renderUI({
+  page_logger("DEBUG", "Rendering plot output - SVG mode:", input$useSVG)
+
   if (input$useSVG) {
+    page_logger("DEBUG", "Rendering SVG boxplot")
     renderSVG(plot_reactive)
   } else {
+    page_logger("DEBUG", "Rendering interactive plotly boxplot")
     renderPlotly({
       p <- plot_reactive()
+      page_logger("DEBUG", "Converting ggplot to plotly with dimensions:", input$plotwidth, "x", input$plotheight)
       # Convert to plotly with hover text
       ggplotly(p, tooltip = "text", width = input$plotwidth, height = input$plotheight, source = "boxplot_page") %>%
         layout(dragmode = "pan") %>%
@@ -146,3 +187,4 @@ output$plotOutput <- renderUI({
     })
   }
 })
+```

@@ -4,6 +4,10 @@ Column
 ### Full Results Table {data-height=1200}
 
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE13-TABLE")
+page_logger("DEBUG", "Initializing data table page options")
+
 fluidRow(
   column(12, h3("Full Results Table")),
   column(12, "This table can be used to view the individual step data, and if the checkbox below is checked, the aggregated results of each trial of participant.")
@@ -13,26 +17,32 @@ fluidRow(
 fluidRow(
   column(2, checkboxInput("avgTable_13", "Summarize results (calc sd, mean, cv)", value = FALSE)),
   column(2, checkboxInput("enableFilter_13", "Enable participant/trial filter", value = FALSE)),
-  column(2, 
+  column(
+    2,
     conditionalPanel(
       condition = "input.enableFilter_13 == true",
-      selectizeInput("participant_13", "Participant", 
-                     choices = NULL, selected = NULL, multiple = TRUE,
-                     options = list(placeholder = "Select participant"))
+      selectizeInput("participant_13", "Participant",
+        choices = NULL, selected = NULL, multiple = TRUE,
+        options = list(placeholder = "Select participant")
+      )
     )
   ),
-  column(2,
+  column(
+    2,
     conditionalPanel(
       condition = "input.enableFilter_13 == true",
-      selectizeInput("trialNum_13", "Trial", 
-                     choices = NULL, selected = NULL, multiple = TRUE,
-                     options = list(placeholder = "Select trial"))
+      selectizeInput("trialNum_13", "Trial",
+        choices = NULL, selected = NULL, multiple = TRUE,
+        options = list(placeholder = "Select trial")
+      )
     )
   ),
   column(2, downloadButton("downloadRds_13", "Download Table as RDS", class = "btn-sm")),
-  column(2, 
-    div(style = "margin-top: 25px;",
-        textOutput("tableInfo_13", inline = TRUE)
+  column(
+    2,
+    div(
+      style = "margin-top: 25px;",
+      textOutput("tableInfo_13", inline = TRUE)
     )
   )
 )
@@ -50,6 +60,7 @@ div(
 ```{r, context="server"}
 # Initialize participant and trial choices
 observe({
+  page_logger("DEBUG", "Initializing participant and trial choices for table")
   # Get participants and trials from global environment
   participant_choices <- sort(participants)
   trial_choices <- sort(allTrials)
@@ -58,12 +69,14 @@ observe({
 })
 
 tableToUse_13 <- reactive({
+  page_logger("DEBUG", "Preparing table data - summarized:", input$avgTable_13, "filtered:", input$enableFilter_13)
+
   base_data <- if (input$avgTable_13) {
     get_mu_dyn_long()
   } else {
     filteredParams()
   }
-  
+
   # Apply participant/trial filter if enabled
   if (input$enableFilter_13) {
     if (!is.null(input$participant_13) && length(input$participant_13) > 0 && !all(input$participant_13 == "")) {
@@ -73,11 +86,13 @@ tableToUse_13 <- reactive({
       base_data <- base_data[base_data$trialNum %in% as.numeric(input$trialNum_13), ]
     }
   }
-  
+
+  page_logger("DEBUG", "Table data prepared, rows:", nrow(base_data))
   return(base_data)
 })
 
 output$full_results_table_interactive_13 <- DT::renderDataTable({
+  page_logger("DEBUG", "Rendering interactive data table")
   dt <- tableToUse_13()
   DT::datatable(
     dt,
@@ -89,14 +104,14 @@ output$full_results_table_interactive_13 <- DT::renderDataTable({
       fixedHeader = FALSE,
       autoWidth = TRUE,
       search = list(regex = TRUE, caseInsensitive = TRUE),
-      dom = 'Bfrtip',
+      dom = "Bfrtip",
       columnDefs = list()
     ),
-    selection = 'single',
-    filter = 'top',
+    selection = "single",
+    filter = "top",
     escape = FALSE
   ) %>%
-    DT::formatStyle(columns = 1:ncol(dt), fontSize = '12px')
+    DT::formatStyle(columns = 1:ncol(dt), fontSize = "12px")
 })
 
 # Table info display
@@ -132,7 +147,7 @@ output$downloadRds_13 <- downloadHandler(
     } else {
       ""
     }
-    
+
     table_type <- if (input$avgTable_13) "_summary" else "_full"
     paste0("table", table_type, filter_suffix, "_", Sys.Date(), ".rds")
   },

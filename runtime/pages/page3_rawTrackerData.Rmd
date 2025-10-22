@@ -1,6 +1,10 @@
 
 ### Plot Options
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE3-RAW-TRACKER")
+page_logger("DEBUG", "Initializing raw tracker data page options")
+
 checkboxInput("plotlines", "plot lines", value = TRUE)
 checkboxInput("plotpoints", "plot points", value = FALSE)
 
@@ -35,8 +39,11 @@ plotlyOutput("TwoD_interactive")
 ```
 
 ```{r, context="server"}
+# Use the page logger already created in the options section
+
 # Helper function to update plot options while preserving selection
 updatePlotOptions <- function(tracker, target_x, target_y, current_x = NULL, current_y = NULL) {
+  page_logger("DEBUG", "Updating plot options for tracker:", tracker)
   trialNum <- if (is.null(input$trialNum2d)) allTrials[2] else as.numeric(input$trialNum2d)
   choices <- get_tracker_options(tracker, trialNum)
 
@@ -66,20 +73,24 @@ observeEvent(
 
 output$TwoD <- renderSVG({
   reactive({
+    page_logger("DEBUG", "Rendering static 2D plot for participant:", input$participant2d, "trial:", input$trialNum2d, "tracker:", input$tracker)
+
     # Load data for both trackers
     xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
     yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
-    
+
     plotting$plot_2d(xData, yData, input$tracker, input$tracker, input$participant2d, as.numeric(input$trialNum2d), input$xplot2d, input$yplot2d, input$plotlines, input$plotpoints, baseSize = input$baseSize)
   })
 })
 
 
 output$TwoD_interactive <- renderPlotly({
+  page_logger("DEBUG", "Rendering interactive 2D plot for participant:", input$participant2d, "trial:", input$trialNum2d, "tracker:", input$tracker)
+
   # Load data for both trackers
   xData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
   yData <- get_t_data(input$participant2d, input$tracker, as.numeric(input$trialNum2d))
-  
+
   p <- plotting$plot_2d(
     xData, yData, input$tracker, input$tracker,
     input$participant2d,

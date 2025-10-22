@@ -22,6 +22,13 @@ rmarkdown::shiny_prerendered_clean("workspace/index.Rmd") # we need to clear els
 
 source("source/setup.R")
 
+# Create main application logger
+app_logger <- create_module_logger("APP")
+
+# Set up logging configuration for the application
+app_logger("INFO", "Initializing BallOnPlate Game Experiment dashboard...")
+app_logger("DEBUG", "Logging system loaded and configured")
+
 # Gait event detection is now loaded on-demand via the gait feature module
 
 # =============================================================================
@@ -29,8 +36,9 @@ source("source/setup.R")
 # =============================================================================
 # Ensure all global data and parameters are properly loaded
 # (This is now handled automatically by the loading process)
-cat("=== ENSURING INITIALIZATION IS COMPLETE ===\n")
+app_logger("INFO", "Ensuring global data initialization...")
 ensure_global_data_initialized()
+app_logger("DEBUG", "Global data initialization completed")
 
 # File paths (using centralized parameters)
 agpFile <- file.path(resultsFolder, "allGaitParams.rds")
@@ -42,41 +50,41 @@ complexityMetricsFile <- file.path(resultsFolder, "allComplexityMetrics.rds")
 
 
 # Create UDP time trim info for all participants and trials for improved performance
+app_logger("DEBUG", "Loading UDP time trim info...")
 udpTimeTrimInfoFile <- file.path(resultsFolder, "udpTimeTrimInfo.rds")
 udpTimeTrimInfo <<- load_or_calculate(udpTimeTrimInfoFile, load_or_create_udp_time_trim_info)
+app_logger("DEBUG", "UDP time trim info loaded")
 
 # Load or calculate the data using the global parallel setting
-cat("=== LOADING MAIN DATA OBJECTS ===\n")
+app_logger("INFO", "Loading main data objects...")
 allQResults <<- load_or_calculate(aqrFile, get_all_questionnaire_results, parallel = FALSE) # because its such a small operation, not running parallel is faster
+app_logger("DEBUG", "Questionnaire results loaded")
 allGaitParams <<- load_or_calculate(agpFile, calc_all_gait_params)
+app_logger("DEBUG", "Gait parameters loaded")
 
 dataTypes <- setdiff(getTypes(allGaitParams), categories)
 
 # Load remaining data objects
-cat("=== LOADING REMAINING DATA OBJECTS ===\n")
+app_logger("INFO", "Loading remaining data objects...")
 allTaskMetrics <<- load_or_calculate(taskMetricsFile, get_all_task_metrics)
+app_logger("DEBUG", "Task metrics loaded")
+
 # Check if task data was just calculated to prevent complexity calculation bug
 if (exists(".TASK_DATA_JUST_CALCULATED", envir = .GlobalEnv) &&
   isTRUE(.GlobalEnv$.TASK_DATA_JUST_CALCULATED)) {
-  cat("=== COMPLEXITY CALCULATION SKIPPED ===\n")
-  cat("Task data was calculated in this session, which causes a known bug\n")
-  cat("when running complexity calculation immediately after.\n")
-  cat("\n")
-  cat("SOLUTION: restart the R session to reset the flag:\n")
-  # cat("1. Click the broom icon in RStudio (Clear Workspace)\n")
-  cat("restart the R session\n")
-  cat("then run the complexity calculation again\n")
-  cat("\n")
-  cat("This will clear the .TASK_DATA_JUST_CALCULATED flag and allow complexity calculation.\n")
-  cat("=== END SKIP MESSAGE ===\n")
+  app_logger("WARN", "Complexity calculation skipped - task data was calculated in this session")
+  app_logger("WARN", "This causes a known bug when running complexity calculation immediately after")
+  app_logger("INFO", "SOLUTION: restart the R session to reset the flag, then run complexity calculation again")
   allComplexityMetrics <<- NULL
 } else {
+  app_logger("DEBUG", "Loading complexity metrics...")
   allComplexityMetrics <<- load_or_calculate(complexityMetricsFile, get_all_complexity_metrics, stop_cluster = TRUE)
+  app_logger("DEBUG", "Complexity metrics loaded")
 }
-cat("=== ALL DATA OBJECTS LOADED ===\n")
+app_logger("INFO", "All data objects loaded successfully")
 
 
-cat("=== INITIALIZATION COMPLETE ===\n")
+app_logger("INFO", "Dashboard initialization complete")
 
 # for testing combining of tables
 # mu_gait <- get_full_mu(allGaitParams, categories, TRUE, FALSE)

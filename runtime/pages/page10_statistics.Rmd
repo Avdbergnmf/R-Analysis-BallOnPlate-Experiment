@@ -2,6 +2,10 @@
 
 #### Dependent Variable
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE10-STATISTICS")
+page_logger("DEBUG", "Initializing statistics page options")
+
 selectizeInput("depVar", "Dependent variable",
   choices = NULL, selected = NULL, multiple = FALSE
 )
@@ -197,8 +201,7 @@ tableOutput("post_hoc_table")
 ```
 
 ```{r, context="server"}
-# Create stats page logger
-stats_page_logger <- create_module_logger("STATS-PAGE")
+# Use the page logger already created in the options section
 
 # Reactive values for t-test assumption checking
 ttest_assumption_lookup <- reactiveVal(list())
@@ -206,28 +209,28 @@ ttest_assumption_state <- reactiveVal(NULL)
 
 ############ Getting and setting data
 get_stats_data <- reactive({
-  stats_page_logger("DEBUG", "Getting stats data...")
+  page_logger("DEBUG", "Getting stats data...")
 
   # Get the data based on user selection
   data <- if (input$getSummarizedData_stats) {
-    stats_page_logger("DEBUG", "Using summarized data (get_mu_dyn_long)")
+    page_logger("DEBUG", "Using summarized data (get_mu_dyn_long)")
     get_mu_dyn_long()
   } else {
-    stats_page_logger("DEBUG", "Using filtered parameters data")
+    page_logger("DEBUG", "Using filtered parameters data")
     filteredParams()
   }
 
-  stats_page_logger("DEBUG", "Raw data dimensions:", nrow(data), "x", ncol(data))
+  page_logger("DEBUG", "Raw data dimensions:", nrow(data), "x", ncol(data))
 
   # Handle empty data case
   if (!stats$validate_stats_data(data)) {
-    stats_page_logger("WARN", "Invalid data detected, returning empty dataset")
+    page_logger("WARN", "Invalid data detected, returning empty dataset")
     return(stats$handle_invalid_data())
   }
 
   # Apply reference levels so the column names match what the selectors expect
   dt <- stats$prepare_stats_dataset(data, input$averageData_stats)
-  stats_page_logger("DEBUG", "Processed data dimensions:", nrow(dt), "x", ncol(dt))
+  page_logger("DEBUG", "Processed data dimensions:", nrow(dt), "x", ncol(dt))
   dt
 })
 
@@ -277,11 +280,11 @@ create_dynamic_variable_observer(
 # Dynamic observers for reference level selection
 observe({
   data <- get_stats_data()
-  stats_page_logger("DEBUG", "Updating reference level selectors...")
+  page_logger("DEBUG", "Updating reference level selectors...")
 
   if ("condition" %in% names(data)) {
     available_conditions <- unique(data$condition)
-    stats_page_logger("DEBUG", "Available conditions:", paste(available_conditions, collapse = ", "))
+    page_logger("DEBUG", "Available conditions:", paste(available_conditions, collapse = ", "))
 
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "condition" %in% names(reference_levels)) {
@@ -291,7 +294,7 @@ observe({
       available_conditions[1]
     }
 
-    stats_page_logger("DEBUG", "Setting condition reference level to:", default_ref)
+    page_logger("DEBUG", "Setting condition reference level to:", default_ref)
     updateSelectizeInput(session, "refLevelCondition",
       choices = available_conditions,
       selected = default_ref
@@ -300,7 +303,7 @@ observe({
 
   if ("phase" %in% names(data)) {
     available_phases <- unique(data$phase)
-    stats_page_logger("DEBUG", "Available phases:", paste(available_phases, collapse = ", "))
+    page_logger("DEBUG", "Available phases:", paste(available_phases, collapse = ", "))
 
     # Get default from reference_levels or use first value
     default_ref <- if (exists("reference_levels") && "phase" %in% names(reference_levels)) {
@@ -310,7 +313,7 @@ observe({
       available_phases[1]
     }
 
-    stats_page_logger("DEBUG", "Setting phase reference level to:", default_ref)
+    page_logger("DEBUG", "Setting phase reference level to:", default_ref)
     updateSelectizeInput(session, "refLevelPhase",
       choices = available_phases,
       selected = default_ref
@@ -321,38 +324,38 @@ observe({
 # ----------------  APPLY MODEL  ----------------
 get_lmer <- reactive({
   req(dep_var_valid()) # ← stop early but quietly if no dep-var
-  stats_page_logger("INFO", "Building LMM model...")
+  page_logger("INFO", "Building LMM model...")
 
   data <- get_stats_data()
-  stats_page_logger("DEBUG", "Model data dimensions:", nrow(data), "x", ncol(data))
+  page_logger("DEBUG", "Model data dimensions:", nrow(data), "x", ncol(data))
   # Validation is now handled in fit_mixed_model
 
   # Apply custom reference levels if specified
   if (!is.null(input$refLevelCondition) && nzchar(input$refLevelCondition)) {
-    stats_page_logger("DEBUG", "Setting condition reference level to:", input$refLevelCondition)
+    page_logger("DEBUG", "Setting condition reference level to:", input$refLevelCondition)
     data <- stats$set_reference_level(data, "condition", input$refLevelCondition)
   }
   if (!is.null(input$refLevelPhase) && nzchar(input$refLevelPhase)) {
-    stats_page_logger("DEBUG", "Setting phase reference level to:", input$refLevelPhase)
+    page_logger("DEBUG", "Setting phase reference level to:", input$refLevelPhase)
     data <- stats$set_reference_level(data, "phase", input$refLevelPhase)
   }
 
   # Apply transformation to dependent variable if selected
   if (input$depVarTransform != "none") {
-    stats_page_logger("DEBUG", "Applying transformation:", input$depVarTransform, "to", input$depVar)
+    page_logger("DEBUG", "Applying transformation:", input$depVarTransform, "to", input$depVar)
   }
   data <- stats$transform_dependent_variable(data, input$depVar, input$depVarTransform)
   if (is.null(data)) {
-    stats_page_logger("ERROR", "Data transformation failed")
+    page_logger("ERROR", "Data transformation failed")
     return(NULL)
   }
 
   doCustom <- input$useCustomModel && !is.null(input$customModel) && nzchar(input$customModel)
   if (doCustom) {
-    stats_page_logger("INFO", "Using custom model formula:", input$customModel)
+    page_logger("INFO", "Using custom model formula:", input$customModel)
     formula <- as.formula(paste(input$depVar, "~", input$customModel))
   } else {
-    stats_page_logger(
+    page_logger(
       "INFO", "Using standard LMM formula with variables:",
       paste(c(input$indepInterVars, input$indepVars), collapse = ", ")
     )
@@ -360,13 +363,13 @@ get_lmer <- reactive({
   }
 
   # Centering is now handled in fit_mixed_model
-  stats_page_logger("INFO", "Fitting mixed model...")
+  page_logger("INFO", "Fitting mixed model...")
   result <- stats$fit_mixed_model(data, formula, input$depVar, input$doCentering, input$doScaling)
 
   if (is.null(result)) {
-    stats_page_logger("ERROR", "Model fitting failed")
+    page_logger("ERROR", "Model fitting failed")
   } else {
-    stats_page_logger("INFO", "Model fitted successfully")
+    page_logger("INFO", "Model fitted successfully")
   }
 
   result
@@ -567,19 +570,19 @@ output$post_hoc_table <- renderTable(
 
 # T-test assumption checking observer
 observeEvent(input$ttest_assumption_row, {
-  stats_page_logger("INFO", "T-test assumption checking for row:", input$ttest_assumption_row)
+  page_logger("INFO", "T-test assumption checking for row:", input$ttest_assumption_row)
 
   lookup <- ttest_assumption_lookup()
   info <- lookup[[input$ttest_assumption_row]]
   if (is.null(info)) {
-    stats_page_logger("ERROR", "Assumption diagnostics unavailable for row:", input$ttest_assumption_row)
+    page_logger("ERROR", "Assumption diagnostics unavailable for row:", input$ttest_assumption_row)
     if (exists("showNotification")) {
       showNotification("Assumption diagnostics unavailable for this comparison.", type = "error")
     }
     return()
   }
 
-  stats_page_logger("DEBUG", "Showing assumption diagnostics for:", info$effect, "-", info$contrast)
+  page_logger("DEBUG", "Showing assumption diagnostics for:", info$effect, "-", info$contrast)
   ttest_assumption_state(info)
 
   showModal(modalDialog(
@@ -608,7 +611,7 @@ output$lmm_assumption_button_ui <- renderUI({
 
 # PCA button UI - using proper Shiny actionButton
 output$pca_button_ui <- renderUI({
-  stats_page_logger("DEBUG", "Rendering PCA button...")
+  page_logger("DEBUG", "Rendering PCA button...")
   actionButton("show_pca_analysis",
     "Run PCA Analysis",
     class = "btn-primary",
@@ -620,38 +623,38 @@ output$pca_button_ui <- renderUI({
 # Test observer to see if button clicks are being registered at all
 observeEvent(input$show_pca_analysis,
   {
-    stats_page_logger("INFO", "PCA button click detected!")
+    page_logger("INFO", "PCA button click detected!")
   },
   ignoreInit = TRUE
 )
 
 # PCA analysis observer
 observeEvent(input$show_pca_analysis, {
-  stats_page_logger("INFO", "PCA button clicked! Starting PCA analysis...")
+  page_logger("INFO", "PCA button clicked! Starting PCA analysis...")
 
   data <- get_stats_data()
-  stats_page_logger("INFO", "Data retrieved. Dimensions:", nrow(data), "x", ncol(data))
+  page_logger("INFO", "Data retrieved. Dimensions:", nrow(data), "x", ncol(data))
 
   if (is.null(data) || nrow(data) == 0) {
-    stats_page_logger("ERROR", "No data available")
+    page_logger("ERROR", "No data available")
     showNotification("No data available for PCA analysis.", type = "error")
     return()
   }
 
   # Get available variables
-  stats_page_logger("INFO", "Getting available variables...")
+  page_logger("INFO", "Getting available variables...")
   available_vars <- stats$get_pca_variables(data)
-  stats_page_logger("INFO", "Available variables:", length(available_vars), "variables found")
-  stats_page_logger("DEBUG", "Variables:", paste(available_vars, collapse = ", "))
+  page_logger("INFO", "Available variables:", length(available_vars), "variables found")
+  page_logger("DEBUG", "Variables:", paste(available_vars, collapse = ", "))
 
   if (length(available_vars) < 2) {
-    stats_page_logger("ERROR", "Not enough variables (", length(available_vars), ")")
+    page_logger("ERROR", "Not enough variables (", length(available_vars), ")")
     showNotification("Need at least 2 numeric variables for PCA analysis.", type = "warning")
     return()
   }
 
   # Show variable selection modal first
-  stats_page_logger("INFO", "Showing variable selection modal...")
+  page_logger("INFO", "Showing variable selection modal...")
   showModal(modalDialog(
     title = "Select Variables for PCA Analysis",
     tags$div(
@@ -696,7 +699,7 @@ observeEvent(input$show_pca_analysis, {
     ),
     size = "l"
   ))
-  stats_page_logger("INFO", "Modal displayed successfully")
+  page_logger("INFO", "Modal displayed successfully")
 })
 
 # Store available variables for PCA in a reactive value
@@ -728,7 +731,7 @@ observeEvent(input$show_pca_analysis, {
     selected = selected_defaults
   )
 
-  stats_page_logger("INFO", "Set default PCA variables:", length(selected_defaults), "out of", length(default_vars), "requested")
+  page_logger("INFO", "Set default PCA variables:", length(selected_defaults), "out of", length(default_vars), "requested")
 })
 
 # Add variables by string pattern
@@ -742,7 +745,7 @@ observeEvent(input$add_vars_by_string, {
   matching_vars <- stats$match_variables(input$pca_string, pca_available_vars())
   new_selected <- unique(c(current_selected, matching_vars))
   updateSelectizeInput(session, "pca_variables", selected = new_selected)
-  stats_page_logger("INFO", "Added", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+  page_logger("INFO", "Added", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
 })
 
 # Remove variables by string pattern
@@ -761,20 +764,20 @@ observeEvent(input$remove_vars_by_string, {
   matching_vars <- stats$match_variables(input$pca_string, current_selected)
   new_selected <- current_selected[!current_selected %in% matching_vars]
   updateSelectizeInput(session, "pca_variables", selected = new_selected)
-  stats_page_logger("INFO", "Removed", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+  page_logger("INFO", "Removed", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
 })
 
 # Add all variables
 observeEvent(input$add_all_vars, {
   updateSelectizeInput(session, "pca_variables", selected = pca_available_vars())
-  stats_page_logger("INFO", "Added all", length(pca_available_vars()), "variables")
+  page_logger("INFO", "Added all", length(pca_available_vars()), "variables")
 })
 
 # Clear all variables
 observeEvent(input$clear_all_vars, {
-  stats_page_logger("INFO", "Clear all button clicked")
+  page_logger("INFO", "Clear all button clicked")
   updateSelectizeInput(session, "pca_variables", selected = character(0))
-  stats_page_logger("INFO", "Cleared all selected variables")
+  page_logger("INFO", "Cleared all selected variables")
 })
 
 # Display count of selected variables
@@ -788,28 +791,28 @@ output$pca_selected_count <- renderText({
 
 # Run PCA analysis after variable selection
 observeEvent(input$run_pca, {
-  stats_page_logger("INFO", "Run PCA button clicked! Starting analysis...")
+  page_logger("INFO", "Run PCA button clicked! Starting analysis...")
 
   data <- get_stats_data()
-  stats_page_logger("INFO", "Data retrieved for PCA analysis. Dimensions:", nrow(data), "x", ncol(data))
+  page_logger("INFO", "Data retrieved for PCA analysis. Dimensions:", nrow(data), "x", ncol(data))
 
   # Get selected variables (NULL means use all)
   selected_vars <- input$pca_variables
   if (length(selected_vars) == 0) {
     selected_vars <- NULL
-    stats_page_logger("INFO", "No variables selected, will use all numeric variables")
+    page_logger("INFO", "No variables selected, will use all numeric variables")
   } else {
-    stats_page_logger("INFO", "Selected variables:", length(selected_vars), "variables")
-    stats_page_logger("DEBUG", "Selected variables:", paste(selected_vars, collapse = ", "))
+    page_logger("INFO", "Selected variables:", length(selected_vars), "variables")
+    page_logger("DEBUG", "Selected variables:", paste(selected_vars, collapse = ", "))
   }
 
   # Run PCA analysis
-  stats_page_logger("INFO", "Running PCA analysis...")
+  page_logger("INFO", "Running PCA analysis...")
   pca_results <- stats$run_pca_analysis(data, selected_vars)
 
   # Check for errors
   if (!is.null(pca_results$error)) {
-    stats_page_logger("ERROR", "PCA analysis failed:", pca_results$error)
+    page_logger("ERROR", "PCA analysis failed:", pca_results$error)
 
     # Provide more helpful error messages
     error_msg <- pca_results$error
@@ -825,7 +828,7 @@ observeEvent(input$run_pca, {
     return()
   }
 
-  stats_page_logger("INFO", "PCA analysis completed successfully")
+  page_logger("INFO", "PCA analysis completed successfully")
 
   # Close variable selection modal
   removeModal()
@@ -921,13 +924,13 @@ observeEvent(input$run_pca, {
 # DiD analysis observer
 observeEvent(input$show_did_analysis, {
   req(dep_var_valid())
-  stats_page_logger("INFO", "DiD analysis button clicked!")
+  page_logger("INFO", "DiD analysis button clicked!")
 
   lmm <- get_lmer()
   data <- get_stats_data()
 
   if (is.null(lmm)) {
-    stats_page_logger("ERROR", "Model could not be fitted for DiD analysis")
+    page_logger("ERROR", "Model could not be fitted for DiD analysis")
     if (exists("showNotification")) {
       showNotification("Model could not be fitted. Please check your model settings.", type = "error")
     }
@@ -935,7 +938,7 @@ observeEvent(input$show_did_analysis, {
   }
 
   # Compute DiD analysis (uses Kenward-Roger df and selected correction method)
-  stats_page_logger("INFO", "Running DiD analysis with correction method:", input$correctionMethod)
+  page_logger("INFO", "Running DiD analysis with correction method:", input$correctionMethod)
   did_results <- stats$run_did_analysis(lmm, data, input$correctionMethod)
 
   # Check if we have valid results
@@ -1042,7 +1045,7 @@ observeEvent(input$show_did_analysis, {
 # LMM assumption checking observer
 observeEvent(input$show_lmm_assumptions, {
   req(dep_var_valid())
-  stats_page_logger("INFO", "LMM assumption checking button clicked!")
+  page_logger("INFO", "LMM assumption checking button clicked!")
 
   showModal(modalDialog(
     title = "Linear Mixed Model (LMM) Assumption Diagnostics",

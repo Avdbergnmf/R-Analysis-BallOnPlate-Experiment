@@ -1,6 +1,10 @@
 ### Options
 
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE18-POWER-SPECTRUM")
+page_logger("DEBUG", "Initializing power spectrum page options")
+
 selectizeInput("psTracker", "Tracker",
   choices = trackers, selected = "udp", multiple = FALSE
 )
@@ -73,6 +77,8 @@ plotOutput("powerSpectrumPlot", height = "auto")
 
 
 ```{r, context="server"}
+# Use the page logger already created in the options section
+
 # Create power spectrum data cache manager (with parallel processing disabled by default)
 ps_cache_manager <- create_shiny_cache_manager("power_spectrum", use_parallel = FALSE)
 
@@ -176,6 +182,7 @@ create_dynamic_category_observer(
 
 # Trigger power spectrum data update when button is clicked
 observeEvent(input$psUpdateTrackerData, {
+  page_logger("INFO", "Power spectrum data update requested")
   # Flag that power spectrum data should be (re)loaded
   ps_cache_manager$request_data()
 })
@@ -237,8 +244,11 @@ psPlotHeight <- reactive({
 # Main power spectrum plot
 output$powerSpectrumPlot <- renderPlot(
   {
+    page_logger("DEBUG", "Rendering power spectrum plot - enabled:", input$psEnablePlotting)
+
     # Check if plotting is enabled
     if (!input$psEnablePlotting) {
+      page_logger("DEBUG", "Power spectrum plotting disabled")
       return(ggplot() +
         annotate("text",
           x = 0.5, y = 0.5,

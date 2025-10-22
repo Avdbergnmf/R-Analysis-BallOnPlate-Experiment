@@ -1,10 +1,15 @@
 ### Plot Options
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE2-REMOVED-STEPS")
+page_logger("DEBUG", "Initializing removed steps page options")
+
 checkboxInput("useFiltered", "Filter data",
   value = FALSE
 )
 
 selectizeInput("groupStatsCategory", "Category", choices = categoriesExtra, selected = "participant", multiple = TRUE)
+page_logger("DEBUG", "Removed steps page options initialized")
 ```
 
 Column
@@ -25,28 +30,44 @@ tableOutput("step_table")
 ```
 
 ```{r, context="server"}
-output$pie <- renderSVG({ reactive({
+# Use the page logger already created in the options section
+output$pie <- renderSVG({
+  reactive({
+    page_logger("DEBUG", "Rendering pie chart - filtered:", input$useFiltered)
+
     if (input$useFiltered) {
       data <- filteredParams()
+      page_logger("DEBUG", "Using filtered data for pie chart, rows:", nrow(data))
     } else {
       data <- allGaitParams
+      page_logger("DEBUG", "Using all gait parameters for pie chart, rows:", nrow(data))
     }
-    
-    return(plotting$make_pie_chart(data, baseSize = input$baseSize)) })
-  }
+
+    page_logger("DEBUG", "Creating pie chart with base size:", input$baseSize)
+    return(plotting$make_pie_chart(data, baseSize = input$baseSize))
+  })
+})
+
+output$step_table <- renderTable(
+  {
+    page_logger("DEBUG", "Rendering step statistics table - filtered:", input$useFiltered, "categories:", paste(input$groupStatsCategory, collapse = ", "))
+
+    if (input$useFiltered) {
+      data <- filteredParams()
+      page_logger("DEBUG", "Using filtered data for step statistics, rows:", nrow(data))
+    } else {
+      data <- allGaitParams
+      page_logger("DEBUG", "Using all gait parameters for step statistics, rows:", nrow(data))
+    }
+
+    # Gait feature is loaded globally in initialization
+    page_logger("DEBUG", "Calculating step statistics with categories:", paste(input$groupStatsCategory, collapse = ", "))
+    step_stats <- gait$calculate_step_statistics(data, input$groupStatsCategory)
+    page_logger("DEBUG", "Step statistics calculated, dimensions:", nrow(step_stats), "x", ncol(step_stats))
+
+    return(step_stats)
+  },
+  rownames = TRUE,
+  options = list(pageLength = 100, scrollY = "500px")
 )
-
-output$step_table <- renderTable({
-  if (input$useFiltered) {
-    data <- filteredParams()
-  } else {
-    data <- allGaitParams
-  }
-  
-  # Gait feature is loaded globally in initialization
-  step_stats <- gait$calculate_step_statistics(data, input$groupStatsCategory)
-  
-  return(step_stats)
-}, rownames = TRUE, options = list(pageLength = 100, scrollY = "500px"))
-
 ```

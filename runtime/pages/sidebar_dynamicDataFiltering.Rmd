@@ -1,27 +1,44 @@
 #### Participant Filtering
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("SIDEBAR-FILTERING")
+page_logger("DEBUG", "Initializing sidebar dynamic data filtering options")
+
 selectizeInput("filterParticipants", "Participants", choices = participants, selected = participants, multiple = TRUE)
-div(style = "margin-top: 5px;",
+div(
+  style = "margin-top: 5px;",
   actionButton("selectAllParticipants", "all", class = "btn-xs btn-success", style = "padding:2px 6px; font-size:10px; line-height:1.2;"),
   actionButton("clearAllParticipants", "clear", class = "btn-xs btn-danger", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;")
 )
 ```
 
 ```{r, context="server"}
-observeEvent(input$selectAllParticipants, {
-  updateSelectizeInput(session, "filterParticipants", selected = participants)
-}, ignoreInit = TRUE)
+# Use the page logger already created in the options section
+observeEvent(input$selectAllParticipants,
+  {
+    page_logger("DEBUG", "Select all participants button clicked")
+    updateSelectizeInput(session, "filterParticipants", selected = participants)
+    page_logger("DEBUG", "All participants selected:", length(participants))
+  },
+  ignoreInit = TRUE
+)
 
-observeEvent(input$clearAllParticipants, {
-  updateSelectizeInput(session, "filterParticipants", selected = character(0))
-}, ignoreInit = TRUE)
+observeEvent(input$clearAllParticipants,
+  {
+    page_logger("DEBUG", "Clear all participants button clicked")
+    updateSelectizeInput(session, "filterParticipants", selected = character(0))
+    page_logger("DEBUG", "All participants cleared")
+  },
+  ignoreInit = TRUE
+)
 ```
 
 #### Trial Filtering
 ```{r}
-defaultTrials <- c(5,10,11)
+defaultTrials <- c(5, 10, 11)
 selectizeInput("filterTrials", "Trials", choices = allTrials, selected = defaultTrials, multiple = TRUE)
-div(style = "margin-top: 5px;",
+div(
+  style = "margin-top: 5px;",
   actionButton("selectAllTrials", "all", class = "btn-xs btn-success", style = "padding:2px 6px; font-size:10px; line-height:1.2;"),
   actionButton("selectDefaultTrials", "default", class = "btn-xs btn-info", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;"),
   actionButton("clearAllTrials", "clear", class = "btn-xs btn-danger", style = "margin-left: 6px; padding:2px 6px; font-size:10px; line-height:1.2;")
@@ -32,17 +49,35 @@ selectizeInput("filterPhase", "Phase", choices = phaseChoices, selected = phaseC
 ```
 
 ```{r, context="server"}
-observeEvent(input$selectAllTrials, {
-  updateSelectizeInput(session, "filterTrials", selected = allTrials)
-}, ignoreInit = TRUE)
+# Use the page logger already created in the options section
+observeEvent(input$selectAllTrials,
+  {
+    page_logger("DEBUG", "Select all trials button clicked")
+    updateSelectizeInput(session, "filterTrials", selected = allTrials)
+    page_logger("DEBUG", "All trials selected:", length(allTrials))
+  },
+  ignoreInit = TRUE
+)
 
-observeEvent(input$clearAllTrials, {
-  updateSelectizeInput(session, "filterTrials", selected = character(0))
-}, ignoreInit = TRUE)
+observeEvent(input$clearAllTrials,
+  {
+    page_logger("DEBUG", "Clear all trials button clicked")
+    updateSelectizeInput(session, "filterTrials", selected = character(0))
+    page_logger("DEBUG", "All trials cleared")
+  },
+  ignoreInit = TRUE
+)
 
-observeEvent(input$selectDefaultTrials, {
-  updateSelectizeInput(session, "filterTrials", selected = c(5, 10, 11))
-}, ignoreInit = TRUE)
+observeEvent(input$selectDefaultTrials,
+  {
+    page_logger("DEBUG", "Select default trials button clicked")
+    default_trials <- c(5, 10, 11)
+    updateSelectizeInput(session, "filterTrials", selected = default_trials)
+    page_logger("DEBUG", "Default trials selected:", paste(default_trials, collapse = ", "))
+  },
+  ignoreInit = TRUE
+)
+```
  
 #### Derived Metrics (global)
 ```{r}
@@ -55,16 +90,29 @@ actionButton("open_global_derived_modal", "Derived Metrics", class = "btn btn-sm
 # Load from saved file if available
 derived_metrics_file <- "data_extra/derived_metrics.csv"
 load_derived_metrics <- function() {
+  page_logger("DEBUG", "Loading derived metrics from file:", derived_metrics_file)
+
   if (file.exists(derived_metrics_file)) {
-    tryCatch({
-      defs <- read.csv(derived_metrics_file, stringsAsFactors = FALSE)
-      if (nrow(defs) > 0 && all(c("var", "scope", "level", "label", "colname") %in% names(defs))) {
-        return(defs)
+    tryCatch(
+      {
+        defs <- read.csv(derived_metrics_file, stringsAsFactors = FALSE)
+        if (nrow(defs) > 0 && all(c("var", "scope", "level", "label", "colname") %in% names(defs))) {
+          page_logger("INFO", "Successfully loaded", nrow(defs), "derived metrics from file")
+          return(defs)
+        } else {
+          page_logger("WARN", "Derived metrics file exists but has invalid format or is empty")
+        }
+      },
+      error = function(e) {
+        page_logger("ERROR", "Failed to load derived metrics:", e$message)
+        warning("Failed to load derived metrics: ", e$message)
       }
-    }, error = function(e) {
-      warning("Failed to load derived metrics: ", e$message)
-    })
+    )
+  } else {
+    page_logger("DEBUG", "Derived metrics file does not exist, returning empty data frame")
   }
+
+  page_logger("DEBUG", "Returning empty derived metrics data frame")
   return(data.frame(
     var = character(0),
     scope = character(0),
@@ -76,19 +124,28 @@ load_derived_metrics <- function() {
 }
 
 save_derived_metrics <- function(defs) {
-  tryCatch({
-    write.csv(defs, derived_metrics_file, row.names = FALSE)
-  }, error = function(e) {
-    warning("Failed to save derived metrics: ", e$message)
-  })
+  page_logger("DEBUG", "Saving derived metrics to file:", derived_metrics_file, "- count:", nrow(defs))
+
+  tryCatch(
+    {
+      write.csv(defs, derived_metrics_file, row.names = FALSE)
+      page_logger("INFO", "Successfully saved", nrow(defs), "derived metrics to file")
+    },
+    error = function(e) {
+      page_logger("ERROR", "Failed to save derived metrics:", e$message)
+      warning("Failed to save derived metrics: ", e$message)
+    }
+  )
 }
 
 global_derived_metric_defs <- reactiveVal(load_derived_metrics())
 
 observeEvent(input$open_global_derived_modal, {
+  page_logger("DEBUG", "Opening global derived metrics modal")
   # Get numeric columns from global cache (updated by get_mu_dyn_long)
   numeric_choices <- if (exists("mu_numeric_choices")) mu_numeric_choices else character(0)
-  
+  page_logger("DEBUG", "Available numeric choices:", length(numeric_choices))
+
   showModal(modalDialog(
     title = "Derived Metrics (Global)",
     size = "m",
@@ -112,12 +169,16 @@ observeEvent(input$open_global_derived_modal, {
 
 output$global_derived_level_ui <- renderUI({
   scope <- input$global_derived_scope %||% "phase"
+  page_logger("DEBUG", "Rendering global derived level UI for scope:", scope)
+
   if (identical(scope, "phase")) {
     ensure_global_data_initialized()
     lvls <- if (exists("allPhases")) allPhases else character(0)
+    page_logger("DEBUG", "Phase levels available:", length(lvls))
   } else {
     ensure_global_data_initialized()
     lvls <- if (exists("allTrials")) sort(allTrials) else numeric(0)
+    page_logger("DEBUG", "Trial levels available:", length(lvls))
   }
   selectizeInput("global_derived_level", "Level (from full dataset)",
     choices = lvls, selected = if (length(lvls) > 0) lvls[[1]] else NULL, multiple = FALSE
@@ -128,11 +189,15 @@ observeEvent(input$global_derived_add, {
   var <- input$global_derived_var
   scope <- input$global_derived_scope
   level <- input$global_derived_level
+  page_logger("DEBUG", "Adding derived metric - var:", var, "scope:", scope, "level:", level)
+
   if (is.null(var) || !nzchar(var)) {
+    page_logger("WARN", "Cannot add derived metric: no base metric selected")
     showNotification("Select a base metric first.", type = "error")
     return()
   }
   if (is.null(scope) || is.null(level) || !nzchar(as.character(level))) {
+    page_logger("WARN", "Cannot add derived metric: no phase/trial level selected")
     showNotification("Select a phase/trial level.", type = "error")
     return()
   }
@@ -142,8 +207,11 @@ observeEvent(input$global_derived_add, {
   var_safe <- gsub("\\.", "_", var)
   colname <- sprintf("%s_%s_%s", var_safe, scope_key, level_str)
   label <- sprintf("%s at %s = %s", var, scope_key, level_str)
+  page_logger("DEBUG", "Generated derived metric - colname:", colname, "label:", label)
+
   defs <- global_derived_metric_defs()
   if (nrow(defs) > 0 && any(defs$colname == colname)) {
+    page_logger("WARN", "Derived metric already exists:", colname)
     showNotification("Metric already added.", type = "message")
     return()
   }
@@ -151,28 +219,44 @@ observeEvent(input$global_derived_add, {
   new_defs <- rbind(defs, new_row)
   global_derived_metric_defs(new_defs)
   save_derived_metrics(new_defs)
-  
+  page_logger("INFO", "Successfully added derived metric:", colname)
+
   # Show success notification
   showNotification(sprintf("Added derived metric: %s", colname), type = "message", duration = 3)
 })
 
-observeEvent(input$global_remove_derived_id, {
-  id <- input$global_remove_derived_id
-  defs <- global_derived_metric_defs()
-  if (!is.null(defs) && nrow(defs) > 0) {
-    keep <- defs$colname != id
-    new_defs <- defs[keep, , drop = FALSE]
-    global_derived_metric_defs(new_defs)
-    save_derived_metrics(new_defs)
-    
-    # Show removal notification
-    showNotification(sprintf("Removed derived metric: %s", id), type = "message", duration = 3)
-  }
-}, ignoreInit = TRUE)
+observeEvent(input$global_remove_derived_id,
+  {
+    id <- input$global_remove_derived_id
+    page_logger("DEBUG", "Removing derived metric:", id)
+
+    defs <- global_derived_metric_defs()
+    if (!is.null(defs) && nrow(defs) > 0) {
+      keep <- defs$colname != id
+      new_defs <- defs[keep, , drop = FALSE]
+      global_derived_metric_defs(new_defs)
+      save_derived_metrics(new_defs)
+      page_logger("INFO", "Successfully removed derived metric:", id)
+
+      # Show removal notification
+      showNotification(sprintf("Removed derived metric: %s", id), type = "message", duration = 3)
+    } else {
+      page_logger("WARN", "No derived metrics to remove or definitions not found")
+    }
+  },
+  ignoreInit = TRUE
+)
 
 output$global_derived_metric_defs_ui <- renderUI({
   defs <- global_derived_metric_defs()
-  if (is.null(defs) || nrow(defs) == 0) return(tags$em("No derived metrics defined yet."))
+  page_logger("DEBUG", "Rendering derived metrics UI - definitions count:", if (is.null(defs)) 0 else nrow(defs))
+
+  if (is.null(defs) || nrow(defs) == 0) {
+    page_logger("DEBUG", "No derived metrics defined, showing empty message")
+    return(tags$em("No derived metrics defined yet."))
+  }
+
+  page_logger("DEBUG", "Rendering", nrow(defs), "derived metrics")
   tags$div(
     tags$strong("Current derived metrics:"),
     tags$ul(lapply(seq_len(nrow(defs)), function(i) {
@@ -196,8 +280,8 @@ selectizeInput("filterOutliers", "Outliers", choices = c(TRUE, FALSE), selected 
 selectizeInput("filterSuspect", "Suspect Steps", choices = c(TRUE, FALSE), selected = c(TRUE, FALSE), multiple = TRUE) # INCLUDE suspect steps (TRUE), INCLUDE non-suspect steps (FALSE)
 
 checkboxInput("do_slicing", "Slice data", value = FALSE)
-numericInput("slice_length", "Slice data (seconds)",  min = 0, max = 180, value = 9999, step = 10)
-checkboxInput("remove_middle_slices", "Only keep first and last slice", value=FALSE)
+numericInput("slice_length", "Slice data (seconds)", min = 0, max = 180, value = 9999, step = 10)
+checkboxInput("remove_middle_slices", "Only keep first and last slice", value = FALSE)
 ```
 
 #### Left vs Right Steps
@@ -205,22 +289,26 @@ Note: you can also average across feet here, this takes the result of both feet 
 ```{r}
 selectizeInput("filterSide", "Side", choices = c("Left", "Right"), selected = c("Left", "Right"), multiple = TRUE)
 checkboxInput("avg_feet", "Average across feet", value = TRUE)
-checkboxInput("add_diff", "add diffFeet columns",value = FALSE)
-bsTooltip("add_diff", 
-          "Calculate difference of calculated metrics (mean, sd, cv) between left and right foot and add to summary table.", 
-          placement = "right", 
-          trigger = "hover")
+checkboxInput("add_diff", "add diffFeet columns", value = FALSE)
+bsTooltip("add_diff",
+  "Calculate difference of calculated metrics (mean, sd, cv) between left and right foot and add to summary table.",
+  placement = "right",
+  trigger = "hover"
+)
 ```
 
 #### Figure Options
 ```{r}
 numericInput("plotheight", "Plot Height (pixels)",
-  min = 50, max = Inf, value = 500, step = 50)
+  min = 50, max = Inf, value = 500, step = 50
+)
 numericInput("plotwidth", "Plot Width (pixels)",
-  min = 50, max = Inf, value = 1000, step = 50)
+  min = 50, max = Inf, value = 1000, step = 50
+)
 
 numericInput("baseSize", "Base Size",
-  min = 1, max = Inf, value = 10, step = 1)
+  min = 1, max = Inf, value = 10, step = 1
+)
 ```
 
 #### Universal Data Filtering Function
@@ -228,21 +316,21 @@ numericInput("baseSize", "Base Size",
 # Universal filter function that can be used by any caching system
 get_universal_filters <- function() {
   filter_logger <- create_module_logger("UNIVERSAL-FILTER")
-  
+
   filter_logger("DEBUG", "get_universal_filters() called")
-  
+
   # Check if required inputs exist
   if (any(is.null(input$filterParticipants), is.null(input$filterTrials))) {
     filter_logger("WARN", "Missing required inputs - participants or trials is NULL")
-    filter_logger("DEBUG", "filterParticipants:", if(is.null(input$filterParticipants)) "NULL" else paste(input$filterParticipants, collapse = ", "))
-    filter_logger("DEBUG", "filterTrials:", if(is.null(input$filterTrials)) "NULL" else paste(input$filterTrials, collapse = ", "))
+    filter_logger("DEBUG", "filterParticipants:", if (is.null(input$filterParticipants)) "NULL" else paste(input$filterParticipants, collapse = ", "))
+    filter_logger("DEBUG", "filterTrials:", if (is.null(input$filterTrials)) "NULL" else paste(input$filterTrials, collapse = ", "))
     return(NULL)
   }
-  
+
   filter_logger("DEBUG", "Raw participants:", paste(input$filterParticipants, collapse = ", "))
   filter_logger("DEBUG", "Raw trials:", paste(input$filterTrials, collapse = ", "))
-  filter_logger("DEBUG", "Raw conditions:", if(is.null(input$filterCondition)) "NULL" else paste(input$filterCondition, collapse = ", "))
-  
+  filter_logger("DEBUG", "Raw conditions:", if (is.null(input$filterCondition)) "NULL" else paste(input$filterCondition, collapse = ", "))
+
   # Pre-filter participants by condition if specified
   filtered_participants <- input$filterParticipants
   if (!is.null(input$filterCondition) && length(input$filterCondition) > 0) {
@@ -260,19 +348,21 @@ get_universal_filters <- function() {
   } else {
     filter_logger("DEBUG", "No condition filtering applied")
   }
-  
+
   # Return universal filter state
   result <- list(
     participants = filtered_participants,
     trials = input$filterTrials,
     condition = input$filterCondition
   )
-  
-  filter_logger("DEBUG", "Returning filters:", length(result$participants), "participants,", length(result$trials), "trials,", 
-                if(is.null(result$condition)) 0 else length(result$condition), "conditions")
+
+  filter_logger(
+    "DEBUG", "Returning filters:", length(result$participants), "participants,", length(result$trials), "trials,",
+    if (is.null(result$condition)) 0 else length(result$condition), "conditions"
+  )
   filter_logger("DEBUG", "Final participants:", paste(result$participants, collapse = ", "))
   filter_logger("DEBUG", "Final trials:", paste(result$trials, collapse = ", "))
-  
+
   return(result)
 }
 
@@ -291,8 +381,8 @@ filteredParams <- reactive({
   input$filterOutliers
   input$filterSuspect
   input$filterSide
-  
-  update_filter_state(input)  # Update filter state from current inputs
+
+  update_filter_state(input) # Update filter state from current inputs
   get_current_filtered_params()
 })
 
@@ -308,11 +398,11 @@ get_mu_dyn_long <- reactive({
   input$filterSide
   input$avg_feet
   input$add_diff
-  
+
   # Depend on derived metrics to trigger re-computation when they change
   global_derived_metric_defs()
-  
-  update_filter_state(input)  # Update filter state from current inputs
+
+  update_filter_state(input) # Update filter state from current inputs
   get_current_mu_dyn_long()
 })
 
@@ -322,8 +412,8 @@ filteredQResults <- reactive({
   input$filterParticipants
   input$filterCondition
   input$filterPhase
-  
-  update_filter_state(input)  # Update filter state from current inputs
+
+  update_filter_state(input) # Update filter state from current inputs
   get_current_filtered_q_results()
 })
 ```

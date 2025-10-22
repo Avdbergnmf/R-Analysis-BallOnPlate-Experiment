@@ -1,6 +1,10 @@
 ### Options
 
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE11-CORRELATIONS")
+page_logger("DEBUG", "Initializing correlations page options")
+
 selectizeInput("par", "Parametric data",
   choices = c("parametric", "nonparametric", "bayes", "robust"),
   selected = "parametric", multiple = FALSE
@@ -71,8 +75,11 @@ imageOutput("homoscedasticity_plot")
 ```
 
 ```{r, context="server"}
+# Use the page logger already created in the options section
+
 # Helper function to apply transformations to correlation data
 apply_correlation_transforms <- function(data, x_var, y_var, x_transform, y_transform) {
+  page_logger("DEBUG", "Applying transformations - X:", x_transform, "Y:", y_transform)
   # Apply transformation to X variable
   if (x_transform != "none" && x_var %in% colnames(data)) {
     data <- stats$transform_dependent_variable(data, x_var, x_transform)
@@ -106,9 +113,11 @@ create_axis_label <- function(var_name, transform_type) {
 }
 
 get_correlation_data <- reactive({
+  page_logger("DEBUG", "Getting correlation data - summarized:", input$getSummarizedData, "averaged:", input$averageData)
   if (input$getSummarizedData) {
     data <- get_mu_dyn_long()
     if (input$averageData) {
+      page_logger("DEBUG", "Summarizing data across conditions")
       data <- gait$summarize_across_conditions(data)
     }
     if (input$diffData) {
@@ -278,11 +287,13 @@ output$correlation_assumptions <- renderPrint({
 
 output$homoscedasticity_plot <- renderSVG({
   reactive({
+    page_logger("DEBUG", "Rendering homoscedasticity plot")
     dt <- get_correlation_data()
 
     # Apply transformations
     dt <- apply_correlation_transforms(dt, input$xVar, input$yVar, input$xVarTransform, input$yVarTransform)
     if (is.null(dt)) {
+      page_logger("WARN", "Transformation failed for homoscedasticity plot")
       plot.new()
       text(0.5, 0.5, "Transformation failed. Check notifications for details.",
         cex = 1.2, col = "red", adj = 0.5

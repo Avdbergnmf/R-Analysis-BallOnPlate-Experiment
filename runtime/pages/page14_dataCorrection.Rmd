@@ -1,7 +1,12 @@
 ### Plot Options
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE14-DATA-CORRECTION")
+page_logger("DEBUG", "Initializing data correction page options")
+
 numericInput("rotationCorrection", "Rotation Correction (degrees)",
-  min = -360, max = 360, value = 0, step = 0.1)
+  min = -360, max = 360, value = 0, step = 0.1
+)
 
 # Add save rotation button
 actionButton("saveRotation", "Save Rotation")
@@ -11,31 +16,42 @@ downloadButton("exportRotations", "Export Rotations to CSV")
 
 # Add import from CSV button
 fileInput("importRotations", "Import Rotations from CSV",
-  accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv"))
+  accept = c("text/csv", "text/comma-separated-values,text/plain", ".csv")
+)
 
 checkboxInput("filter_15", "Show filtered data",
-  value = FALSE)
+  value = FALSE
+)
 checkboxInput("d_correction_15", "Show data correction",
-  value = FALSE)
+  value = FALSE
+)
 selectizeInput("participant_15", "participant",
-  choices = participants, selected = participants[1], multiple = FALSE)
+  choices = participants, selected = participants[1], multiple = FALSE
+)
 selectizeInput("trialNum_15", "Trial Number",
-  choices = allTrials, selected = allTrials[2], multiple = FALSE) # set to trial 2 so that if practice is filtered out, it still plots
+  choices = allTrials, selected = allTrials[2], multiple = FALSE
+) # set to trial 2 so that if practice is filtered out, it still plots
 
 selectizeInput("xplot_15", "xplot",
-  choices = xOptions, selected = "time", multiple = FALSE)
+  choices = xOptions, selected = "time", multiple = FALSE
+)
 selectizeInput("yplot_15", "yplot",
-  choices = xOptions, selected = "pos_x", multiple = FALSE)
+  choices = xOptions, selected = "pos_x", multiple = FALSE
+)
 
 # Add x and y limits inputs
 numericInput("xlim_min_15", "X-axis minimum",
-  min = -Inf, max = Inf, value = NA, step = 0.1)
+  min = -Inf, max = Inf, value = NA, step = 0.1
+)
 numericInput("xlim_max_15", "X-axis maximum",
-  min = -Inf, max = Inf, value = NA, step = 0.1)
+  min = -Inf, max = Inf, value = NA, step = 0.1
+)
 numericInput("ylim_min_15", "Y-axis minimum",
-  min = -Inf, max = Inf, value = NA, step = 0.1)
+  min = -Inf, max = Inf, value = NA, step = 0.1
+)
 numericInput("ylim_max_15", "Y-axis maximum",
-  min = -Inf, max = Inf, value = NA, step = 0.1)
+  min = -Inf, max = Inf, value = NA, step = 0.1
+)
 ```
 
 Column
@@ -57,16 +73,18 @@ tableOutput("rotationTable")
 
 ```{r, context="server"}
 # Initialize rotation dataframe
-rotationDF <- reactiveVal(data.frame(participant = character(),
-                                     trial = numeric(),
-                                     rotation = numeric(),
-                                     stringsAsFactors = FALSE))
+rotationDF <- reactiveVal(data.frame(
+  participant = character(),
+  trial = numeric(),
+  rotation = numeric(),
+  stringsAsFactors = FALSE
+))
 
 # Function to get or set rotation
 getRotation <- function(participant, trial) {
   # Convert trial to numeric if it's not already
   trial <- as.numeric(trial)
-  
+
   df <- rotationDF()
   row <- df[df$participant == participant & df$trial == trial, ]
   if (nrow(row) > 0) {
@@ -77,7 +95,7 @@ getRotation <- function(participant, trial) {
   if (nrow(participantRow) > 0) {
     return(participantRow$rotation[1])
   }
-  return(0)  # Default to 0 if no rotation found
+  return(0) # Default to 0 if no rotation found
 }
 
 # Update rotation input when participant or trial changes
@@ -88,25 +106,27 @@ observe({
 
 # Save rotation when button is clicked
 observeEvent(input$saveRotation, {
+  page_logger("DEBUG", "Saving rotation correction for participant:", input$participant_15, "trial:", input$trialNum_15, "rotation:", input$rotationCorrection)
+
   df <- rotationDF()
   participant <- input$participant_15
   trial <- input$trialNum_15
   rotation <- input$rotationCorrection
-  
+
   # Update or add new row
   if (nrow(df[df$participant == participant & df$trial == trial, ]) > 0) {
     df[df$participant == participant & df$trial == trial, "rotation"] <- rotation
   } else {
     df <- rbind(df, data.frame(participant = participant, trial = trial, rotation = rotation))
   }
-  
+
   rotationDF(df)
 })
 
 # Export rotations to CSV
 output$exportRotations <- downloadHandler(
   filename = function() {
-    paste("rotations-", Sys.Date(), ".csv", sep="")
+    paste("rotations-", Sys.Date(), ".csv", sep = "")
   },
   content = function(file) {
     write.csv(rotationDF(), file, row.names = FALSE)
@@ -138,11 +158,14 @@ output$rotationTable <- renderTable({
 })
 
 output$FeetTraj_15 <- renderPlotly({
+  page_logger("DEBUG", "Rendering data correction plot for participant:", input$participant_15, "trial:", input$trialNum_15)
+
   # Gait feature is loaded globally in initialization
-  preprocessedData <- get_preprocessed_data(input$participant_15, input$trialNum_15) 
+  preprocessedData <- get_preprocessed_data(input$participant_15, input$trialNum_15)
   rotation <- getRotation(input$participant_15, input$trialNum_15)
-  
+
   if (input$d_correction_15) {
+    page_logger("DEBUG", "Applying rotation correction:", rotation, "degrees")
     # Apply rotation to each dataset in the preprocessed data
     for (dataName in names(preprocessedData)) {
       # Only rotate if the data contains kinematic columns
@@ -153,15 +176,21 @@ output$FeetTraj_15 <- renderPlotly({
   }
 
   # Prepare axis limits
-  xlim <- if (!is.na(input$xlim_min_15) && !is.na(input$xlim_max_15)) 
-            c(input$xlim_min_15, input$xlim_max_15) else NULL
-  ylim <- if (!is.na(input$ylim_min_15) && !is.na(input$ylim_max_15)) 
-            c(input$ylim_min_15, input$ylim_max_15) else NULL
+  xlim <- if (!is.na(input$xlim_min_15) && !is.na(input$xlim_max_15)) {
+    c(input$xlim_min_15, input$xlim_max_15)
+  } else {
+    NULL
+  }
+  ylim <- if (!is.na(input$ylim_min_15) && !is.na(input$ylim_max_15)) {
+    c(input$ylim_min_15, input$ylim_max_15)
+  } else {
+    NULL
+  }
 
   # Create the base ggplot
   p <- plotting$plot_steps(
     filteredParams(), preprocessedData, input$participant_15, input$trialNum_15,
-    input$xplot_15, input$yplot_15, input$filter_15, 
+    input$xplot_15, input$yplot_15, input$filter_15,
     baseSize = input$baseSize,
     xlim = xlim,
     ylim = ylim

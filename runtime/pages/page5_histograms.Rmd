@@ -1,6 +1,10 @@
 ### Options
 
 ```{r}
+# Create page-specific logger (logging system already loaded globally)
+page_logger <- create_module_logger("PAGE5-HISTOGRAMS")
+page_logger("DEBUG", "Initializing histograms page options")
+
 # Data type selection
 selectizeInput("dataType", "Data Type",
   choices = c("Summarized Data" = "summarized", "Gait Data" = "gait", "Simulation Data" = "simulation", "Raw Tracker Data" = "raw_tracker"),
@@ -115,9 +119,6 @@ tableOutput("overallMeanTable")
 
 
 ```{r, context="server"}
-# Create logger for this page
-page_logger <- create_module_logger("PAGE5-HISTOGRAMS")
-
 # Define cacheable data types and their configurations
 cacheable_data_types <- list(
   "raw_tracker" = list(
