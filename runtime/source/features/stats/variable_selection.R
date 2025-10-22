@@ -33,7 +33,13 @@
 #' match_variables("task AND _sd", variables) # Returns task variables containing _sd
 #' match_variables("task OR step", variables) # Returns task or step variables
 #' match_variables("!_sd", variables) # Returns all except _sd variables
-match_variables <- function(pattern, variables) {
+match_variables <- function(pattern, variables, depth = 0) {
+    # Prevent infinite recursion
+    if (depth > 10) {
+        warning("Maximum recursion depth reached in match_variables")
+        return(character(0))
+    }
+
     if (is.null(pattern) || nchar(pattern) == 0) {
         return(character(0))
     }
@@ -49,7 +55,7 @@ match_variables <- function(pattern, variables) {
         # Apply each pattern (intersection)
         for (p in patterns) {
             if (nchar(p) > 0) {
-                pattern_matches <- match_variables(p, result_vars)
+                pattern_matches <- match_variables(p, result_vars, depth + 1)
                 result_vars <- intersect(result_vars, pattern_matches)
             }
         }
@@ -67,7 +73,7 @@ match_variables <- function(pattern, variables) {
         # Apply each pattern (union)
         for (p in patterns) {
             if (nchar(p) > 0) {
-                pattern_matches <- match_variables(p, variables)
+                pattern_matches <- match_variables(p, variables, depth + 1)
                 result_vars <- union(result_vars, pattern_matches)
             }
         }
@@ -88,8 +94,16 @@ match_variables <- function(pattern, variables) {
     # Convert wildcards to regex
     regex_pattern <- gsub("\\*", ".*", pattern)
     # By default, match substrings (not full strings) - more intuitive
-    matches <- grepl(regex_pattern, variables, ignore.case = TRUE)
-    return(variables[matches])
+    tryCatch(
+        {
+            matches <- grepl(regex_pattern, variables, ignore.case = TRUE)
+            return(variables[matches])
+        },
+        error = function(e) {
+            warning("Error in pattern matching: ", e$message)
+            return(character(0))
+        }
+    )
 }
 
 #' Add variables by pattern to existing selection

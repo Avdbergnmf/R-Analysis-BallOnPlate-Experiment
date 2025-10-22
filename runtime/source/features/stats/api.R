@@ -257,7 +257,7 @@ run_pca_analysis <- function(data, variables = NULL, exclude_cols = c("participa
 #' @param variables Vector of variable names to search in
 #' @return Vector of matching variable names
 match_variables <- function(pattern, variables) {
-    match_variables(pattern, variables)
+    variable_selection$match_variables(pattern, variables)
 }
 
 #' Add variables by pattern to existing selection

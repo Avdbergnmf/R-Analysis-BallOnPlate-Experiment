@@ -219,9 +219,11 @@ my_pca_function <- function(X, original_data = NULL) {
         Variable = colnames(X)
     )
 
-    # Calculate arrow scaling factor
+    # Calculate arrow scaling factor - make arrows more visible
     max_radius <- max(sqrt(cormat[, 1]^2 + cormat[, 2]^2))
-    arrow_scale <- 0.8 / max_radius
+    # Use a more generous scaling factor to make arrows larger
+    # Scale to use most of the plot area while leaving room for labels
+    arrow_scale <- 0.7 / max_radius
 
     # Create the biplot with observations and variable arrows
     PCA12 <- ggplot2::ggplot() +
@@ -230,7 +232,7 @@ my_pca_function <- function(X, original_data = NULL) {
             x = obs_firstplane[, 1],
             y = obs_firstplane[, 2]
         ), size = 1.5, alpha = 0.6, color = "gray50") +
-        # Add variable arrows
+        # Add variable arrows - make them thicker and more visible
         ggplot2::geom_segment(
             data = biplot_data,
             ggplot2::aes(
@@ -238,27 +240,35 @@ my_pca_function <- function(X, original_data = NULL) {
                 xend = PC1 * arrow_scale,
                 yend = PC2 * arrow_scale
             ),
-            arrow = ggplot2::arrow(length = ggplot2::unit(0.1, "inches")),
-            color = "blue", alpha = 0.7, size = 0.5
+            arrow = ggplot2::arrow(length = ggplot2::unit(0.2, "inches"), type = "closed"),
+            color = "red", alpha = 0.9, size = 1.2
         ) +
-        # Add variable labels
+        # Add variable labels - make them larger and more readable
         ggplot2::geom_text(
             data = biplot_data,
             ggplot2::aes(
-                x = PC1 * arrow_scale * 1.1,
-                y = PC2 * arrow_scale * 1.1,
+                x = PC1 * arrow_scale * 1.2,
+                y = PC2 * arrow_scale * 1.2,
                 label = Variable
             ),
-            size = 3, hjust = 0, vjust = 0.5, color = "darkblue"
+            size = 3.5, hjust = 0, vjust = 0.5, color = "darkred", fontface = "bold"
         ) +
         # Add reference lines
         ggplot2::geom_hline(yintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.5) +
         ggplot2::geom_vline(xintercept = 0, linetype = "dashed", color = "gray50", alpha = 0.5) +
+        # Add correlation circle for reference (using geom_path)
+        ggplot2::geom_path(
+            data = data.frame(
+                x = 0.7 * cos(seq(0, 2 * pi, length.out = 100)),
+                y = 0.7 * sin(seq(0, 2 * pi, length.out = 100))
+            ), ggplot2::aes(x = x, y = y),
+            color = "lightblue", alpha = 0.3, size = 0.5
+        ) +
         # Styling
         ggplot2::theme_minimal() +
         ggplot2::labs(
             title = "Principal Components Biplot (PC1 vs PC2)",
-            subtitle = "Points = observations, Arrows = variable loadings",
+            subtitle = paste0("Points = observations (", nrow(obs_firstplane), "), Arrows = variable loadings (", nrow(biplot_data), ")"),
             x = paste0("PC1 (", round(res_pca$values[1] / sum(res_pca$values) * 100, 1), "% variance)"),
             y = paste0("PC2 (", round(res_pca$values[2] / sum(res_pca$values) * 100, 1), "% variance)")
         ) +
@@ -269,7 +279,7 @@ my_pca_function <- function(X, original_data = NULL) {
             plot.title = ggplot2::element_text(size = 14, face = "bold"),
             plot.subtitle = ggplot2::element_text(size = 10, color = "gray60")
         ) +
-        ggplot2::coord_fixed(ratio = 1)
+        ggplot2::coord_fixed(ratio = 1, xlim = c(-1.1, 1.1), ylim = c(-1.1, 1.1))
 
     # 4- Correlation circle
     val_plus <- res_pca$values * as.numeric(res_pca$values >= 0)
@@ -303,10 +313,33 @@ my_pca_function <- function(X, original_data = NULL) {
     # 7- Summary statistics
     summary_stats <- create_pca_summary(res_pca, cormat)
 
+    # Convert biplot to interactive plotly version
+    PCA12_interactive <- plotly::ggplotly(PCA12, tooltip = c("text", "x", "y")) %>%
+        plotly::layout(
+            title = list(text = "Principal Components Biplot (PC1 vs PC2)", font = list(size = 16)),
+            xaxis = list(
+                title = paste0("PC1 (", round(res_pca$values[1] / sum(res_pca$values) * 100, 1), "% variance)"),
+                scaleanchor = "y",
+                scaleratio = 1,
+                range = c(-1.2, 1.2)
+            ),
+            yaxis = list(
+                title = paste0("PC2 (", round(res_pca$values[2] / sum(res_pca$values) * 100, 1), "% variance)"),
+                scaleanchor = "x",
+                scaleratio = 1,
+                range = c(-1.2, 1.2)
+            ),
+            hovermode = "closest",
+            showlegend = FALSE,
+            # Enable zoom and pan
+            dragmode = "zoom"
+        )
+
     return(list(
         res_pca = res_pca,
         plot_scree = plot_scree,
         PCA12 = PCA12,
+        PCA12_interactive = PCA12_interactive,
         cor.factors = cor.factors,
         PlotLoadings = PlotLoadings,
         cormat = cormat,

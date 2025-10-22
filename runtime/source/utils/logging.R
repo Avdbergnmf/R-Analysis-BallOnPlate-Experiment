@@ -12,7 +12,7 @@
 
 # Global logging configuration
 GLOBAL_LOGGING_ENABLED <- TRUE
-GLOBAL_LOG_LEVEL <- "INFO" # DEBUG, INFO, WARN, ERROR
+GLOBAL_LOG_LEVEL <- "DEBUG" # DEBUG, INFO, WARN, ERROR
 GLOBAL_COLORED_LOGGING <- TRUE # Enable colored output
 
 # Log level priority mapping (higher number = higher priority)

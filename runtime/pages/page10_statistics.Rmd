@@ -51,7 +51,7 @@ checkboxInput("doCentering", "Center numerical variables", value = TRUE)
 checkboxInput("doScaling", "Also scale (standardize) variables", value = FALSE)
 
 selectizeInput("correctionMethod", "Multiple comparison correction (fixed effects)",
-  choices = general_correction_choices,
+  choices = if (exists("general_correction_choices")) general_correction_choices else c("holm", "bonferroni", "BH", "fdr", "none"),
   selected = "holm", multiple = FALSE
 )
 ```
@@ -181,7 +181,7 @@ conditionalPanel(
 conditionalPanel(
   condition = "input.paired_ttest == false",
   selectizeInput("posthoc_correction", "Post-hoc correction method",
-    choices = c("tukey", "scheffe", "sidak", general_correction_choices),
+    choices = c("tukey", "scheffe", "sidak", if (exists("general_correction_choices")) general_correction_choices else character(0)),
     selected = "tukey", multiple = FALSE
   ),
   helpText("Tukey's HSD is recommended for pairwise comparisons. Other methods may be more or less conservative.")
@@ -715,8 +715,8 @@ observeEvent(input$show_pca_analysis, {
     "task.dist_to_escape_ratio_mean", "complexity.pelvisPos_raw_sd", "complexity.hipPos_raw_sd",
     "questionnaire.IMI.total", "questionnaire.UserExperience.total", "age", "weight", "height_meters",
     "task.n_ball_falls", "task.final_work_world", "task.pAccAbsolute_mean", "task.absqd_mean",
-    "task.pVelAbsolute_mean", "task.drop_risk_1s_mean", "task.drop_risk_bin_mean",
-    "task.drop_risk_1s_sd", "treadmillSpeed.mean", "task.total_score"
+    "task.pVelAbsolute_mean", "task.drop_risk_1s_mean", "treadmillSpeed.mean", "task.total_score",
+    "complexity.hipPos_power_high", "complexity.pelvisPos_power_mid", "complexity.pelvisPos_power_low"
   )
 
   # Filter to only include variables that are actually available
@@ -738,11 +738,33 @@ observeEvent(input$add_vars_by_string, {
     return()
   }
 
-  current_selected <- input$pca_variables
-  matching_vars <- stats$match_variables(input$pca_string, pca_available_vars())
-  new_selected <- unique(c(current_selected, matching_vars))
-  updateSelectizeInput(session, "pca_variables", selected = new_selected)
-  page_logger("INFO", "Added", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+  # Basic input validation to prevent problematic patterns
+  if (nchar(input$pca_string) > 200) {
+    showNotification("Pattern too long. Please use a shorter search pattern.", type = "warning")
+    return()
+  }
+
+  # Check for potentially problematic recursive patterns
+  if (grepl("(AND.*AND|OR.*OR)", input$pca_string, ignore.case = TRUE)) {
+    showNotification("Complex nested patterns detected. Please simplify your search pattern.", type = "warning")
+    return()
+  }
+
+  tryCatch(
+    {
+      current_selected <- input$pca_variables
+      if (is.null(current_selected)) current_selected <- character(0)
+      matching_vars <- stats$match_variables(input$pca_string, pca_available_vars())
+      if (is.null(matching_vars)) matching_vars <- character(0)
+      new_selected <- unique(c(current_selected, matching_vars))
+      updateSelectizeInput(session, "pca_variables", selected = new_selected)
+      page_logger("INFO", "Added", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+    },
+    error = function(e) {
+      page_logger("ERROR", "Error in variable matching:", e$message)
+      showNotification(paste("Error matching variables:", e$message), type = "error")
+    }
+  )
 })
 
 # Remove variables by string pattern
@@ -752,16 +774,37 @@ observeEvent(input$remove_vars_by_string, {
     return()
   }
 
+  # Basic input validation to prevent problematic patterns
+  if (nchar(input$pca_string) > 200) {
+    showNotification("Pattern too long. Please use a shorter search pattern.", type = "warning")
+    return()
+  }
+
+  # Check for potentially problematic recursive patterns
+  if (grepl("(AND.*AND|OR.*OR)", input$pca_string, ignore.case = TRUE)) {
+    showNotification("Complex nested patterns detected. Please simplify your search pattern.", type = "warning")
+    return()
+  }
+
   current_selected <- input$pca_variables
   if (is.null(current_selected) || length(current_selected) == 0) {
     showNotification("No variables selected to remove.", type = "message")
     return()
   }
 
-  matching_vars <- stats$match_variables(input$pca_string, current_selected)
-  new_selected <- current_selected[!current_selected %in% matching_vars]
-  updateSelectizeInput(session, "pca_variables", selected = new_selected)
-  page_logger("INFO", "Removed", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+  tryCatch(
+    {
+      matching_vars <- stats$match_variables(input$pca_string, current_selected)
+      if (is.null(matching_vars)) matching_vars <- character(0)
+      new_selected <- current_selected[!current_selected %in% matching_vars]
+      updateSelectizeInput(session, "pca_variables", selected = new_selected)
+      page_logger("INFO", "Removed", length(matching_vars), "variables matching pattern '", input$pca_string, "'")
+    },
+    error = function(e) {
+      page_logger("ERROR", "Error in variable matching:", e$message)
+      showNotification(paste("Error matching variables:", e$message), type = "error")
+    }
+  )
 })
 
 # Add all variables
@@ -879,15 +922,12 @@ observeEvent(input$run_pca, {
         ),
         tags$hr(),
 
-        # Biplot
+        # Interactive Biplot
         tags$h4("Principal Components Biplot (PC1 vs PC2):"),
-        tags$p("Each point represents an observation projected onto the first two principal components."),
-        renderPlot(
-          {
-            print(pca_results$PCA12)
-          },
-          height = 500
-        ),
+        tags$p("Each point represents an observation projected onto the first two principal components. Use mouse to zoom and pan."),
+        renderPlotly({
+          pca_results$PCA12_interactive
+        }),
         tags$hr(),
 
         # Factor loadings
