@@ -7,8 +7,19 @@ The code used for the analysis of ... .
 With the files in this repository, you are able to run the code from any device that is able to install and run [Docker](https://docs.docker.com/desktop/install/windows-install/#install-interactively).
 
 Links:
-- [Zenodo data upload](https://zenodo.org/record/14017075)
-> This repository already contains the calculated step parameters datasets (`./runtime/results/*.rds`). If you want to recalculate step parameters, delete these files, and put participant data ([found on Zenodo](https://zenodo.org/record/14017075)) folders in `./runtime/data/` (in the same folder as the `index.Rmd`).
+- [Zenodo data upload](https://zenodo.org/uploads/17414638)
+> This repository already contains the calculated step parameters datasets (`./runtime/results/*.rds`). If you want to recalculate step parameters, delete these files, and put the participant data folders in the `./runtime/data/` folder, e.g. `runtime/data/101` for participant 1.
+
+### **Cache Management**
+The system uses a cache folder (`./runtime/cache/`) to store intermediate results and speed up subsequent runs. **You can safely delete the entire cache folder to save disk space** - all cached data will be automatically recalculated when needed.
+
+### **Data Requirements for Simulation Analysis**
+To use the **Simulation Data** page for plotting raw data or training risk models, you need:
+- **Raw simulation data**: Individual participant trial files in `./runtime/data/[participant]/trackers/` folders
+- **Risk model training**: Requires simulation data from multiple participants/trials to train predictive models
+- **Hazard prediction**: Needs both trained models and hazard sample data for risk analysis
+
+Without this raw data, the simulation page will show "No simulation data available" messages.
 - [GitHub Repo](https://github.com/Avdbergnmf/R-Analysis-BallOnPlate-Experiment.git)
 - [GitLab Repo](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2025-ball-on-plate-experiment)
 

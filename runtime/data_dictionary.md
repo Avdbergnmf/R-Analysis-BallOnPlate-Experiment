@@ -18,6 +18,23 @@ The data processing pipeline has been completely restructured into modular featu
 - **Questionnaire Data**: IMI, User Experience, and other subjective measures
 - **Statistical Analysis**: Linear mixed models, post-hoc tests, and difference-in-differences analysis
 
+## **Cache Management**
+
+The system uses a cache folder (`./runtime/cache/`) to store intermediate results and speed up subsequent runs. **You can safely delete the entire cache folder to save disk space** - all cached data will be automatically recalculated when needed. The cache contains:
+- Processed datasets (`.qs` files)
+- Outlier detection results
+- Intermediate calculation results
+- Filename mappings and metadata
+
+## **Data Requirements for Simulation Analysis**
+
+To use the **Simulation Data** page (`page17_simulationData.Rmd`) for plotting raw data or training risk models, you need:
+- **Raw simulation data**: Individual participant trial files in `./runtime/data/[participant]/trackers/` folders
+- **Risk model training**: Requires simulation data from multiple participants/trials to train predictive models
+- **Hazard prediction**: Needs both trained models and hazard sample data for risk analysis
+
+Without this raw data, the simulation page will show "No simulation data available" messages.
+
 ## **Outlier Processing**
 
 The system now includes sophisticated outlier detection and processing:

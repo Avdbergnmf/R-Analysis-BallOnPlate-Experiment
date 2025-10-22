@@ -1,9 +1,24 @@
 # Ball-on-Plate Game Experiment Analysis Code
 The code used for the analysis of the Ball-on-Plate Game Experiment investigating mechanical perturbations and their visualization to avatar foot position and their effects on learning this pelvis control task in immersive VR treadmill walking.
 
-> This repository already contains the calculated datasets (`./runtime/results/*.rds`). If you want to recalculate parameters, delete these files, and put participant data ([found on Zenodo](https://zenodo.org/record/14017075)) folders in `./runtime/data/` (in the same folder as the `index.Rmd`).
+> This repository already contains the calculated step parameters datasets (`./runtime/results/*.rds`). If you want to recalculate step parameters, delete these files, and put the participant data folders in the `./runtime/data/` folder, e.g. `runtime/data/101` for participant 1.
 > 
 > The analysis pipeline now includes sophisticated caching and parallel processing capabilities. Performance settings are controlled through the `config.yml` file. If running on a weaker CPU/low memory PC, you can modify the configuration to use sequential processing instead of parallel processing. Calculating the full parameter tables takes roughly 10 minutes when non-parallelized, and roughly 2-3 minutes when running parallel on a good PC.
+
+### **Cache Management**
+The system uses a cache folder (`./runtime/cache/`) to store intermediate results and speed up subsequent runs. **You can safely delete the entire cache folder to save disk space** - all cached data will be automatically recalculated when needed. The cache contains:
+- Processed datasets (`.qs` files)
+- Outlier detection results
+- Intermediate calculation results
+- Filename mappings and metadata
+
+### **Data Requirements for Simulation Analysis**
+To use the **Simulation Data** page (`page17_simulationData.Rmd`) for plotting raw data or training risk models, you need:
+- **Raw simulation data**: Individual participant trial files in `./runtime/data/[participant]/trackers/` folders
+- **Risk model training**: Requires simulation data from multiple participants/trials to train predictive models
+- **Hazard prediction**: Needs both trained models and hazard sample data for risk analysis
+
+Without this raw data, the simulation page will show "No simulation data available" messages.
 
 ## How to use
 To run this code with your local R-Studio installation:
