@@ -418,7 +418,10 @@ get_mu_dyn_long_data <- function(participants = NULL, trials = NULL, conditions 
   }
 
   # Get the regular gait mu data using gait feature module
-  mu_gait <- gait$get_full_mu(step_filtered_data, categories, avg_feet, add_diff)
+  filter_manager_logger("DEBUG", "columns_to_not_summarize:", paste(columns_to_not_summarize, collapse = ", "))
+  mu_gait <- gait$get_full_mu(step_filtered_data, categories, avg_feet, add_diff,
+    get_types_func = NULL, columns_to_not_summarize = columns_to_not_summarize
+  )
 
   # Check if all required data is available, return early if not
   if (!exists("allQResults") || !exists("allTaskMetrics") || !exists("allComplexityMetrics")) {

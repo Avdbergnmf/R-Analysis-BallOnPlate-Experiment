@@ -12,9 +12,6 @@ gait_logger <- create_module_logger("GAIT")
 #' @param categories Grouping categories
 #' @param operation_name Name for logging purposes
 #' @return List of summarized data frames
-summarize_columns_batch <- function(data, types, categories, operation_name = "batch") {
-  summarize_columns_batch(data, types, categories, operation_name)
-}
 
 # =============================================================================
 # MAIN GAIT EVENT DETECTION
@@ -125,7 +122,7 @@ add_step_differences <- function(relHeelStrikesData) {
   gait_logger <- create_module_logger("GAIT-API")
   gait_logger("DEBUG", "add_step_differences called")
   gait_logger("DEBUG", "Input data dimensions:", nrow(relHeelStrikesData), "x", ncol(relHeelStrikesData))
-  
+
   # Check if add_diff_per_foot function exists
   if (exists("add_diff_per_foot")) {
     gait_logger("DEBUG", "add_diff_per_foot function found, calling it")
@@ -182,7 +179,8 @@ apply_outlier_processing <- function(data,
                                      grouping_tolerance = 0.001,
                                      return_details = FALSE) {
   apply_outliers(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance,
-                 return_details = return_details)
+    return_details = return_details
+  )
 }
 
 #' Convenience wrapper mirroring legacy outliers API
@@ -194,7 +192,8 @@ process_outliers <- function(data,
                              grouping_tolerance = 0.001,
                              return_details = FALSE) {
   apply_outlier_processing(data, heel_outliers, step_outliers, tolerance, step_tolerance, grouping_tolerance,
-                           return_details = return_details)
+    return_details = return_details
+  )
 }
 
 #' Summarise simple outlier statistics
@@ -232,7 +231,7 @@ get_outlier_stats <- function(data) {
 get_gait_statistics <- function(gait_data) {
   heel_strikes <- gait_data$heelStrikes
   toe_offs <- gait_data$toeOffs
-  
+
   list(
     total_steps = nrow(heel_strikes),
     left_steps = sum(heel_strikes$foot == "Left", na.rm = TRUE),
@@ -285,8 +284,8 @@ average_over_feet <- function(data, types, categories, add_diff = FALSE) {
 #' @param get_types_func Function to get data types from data
 #' @param columns_to_not_summarize Columns to exclude from summarization
 #' @return Summarized data frame
-summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE, 
-                           get_types_func = NULL, columns_to_not_summarize = character(0)) {
+summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE,
+                            get_types_func = NULL, columns_to_not_summarize = character(0)) {
   summarize_table(data, categories, avg_feet, add_diff, get_types_func, columns_to_not_summarize)
 }
 
@@ -298,10 +297,6 @@ summarize_table <- function(data, categories, avg_feet = TRUE, add_diff = FALSE,
 #' @param get_types_func Function to get data types from data
 #' @param columns_to_not_summarize Columns to exclude from summarization
 #' @return Summarized gait data
-get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = FALSE,
-                       get_types_func = NULL, columns_to_not_summarize = character(0)) {
-  get_full_mu(allGaitParams, categories, avg_feet, add_diff, get_types_func, columns_to_not_summarize)
-}
 
 #' Generic function to merge gait data with any other dataset
 #' @param mu_gait Gait data (authoritative source for conditions)
@@ -309,9 +304,6 @@ get_full_mu <- function(allGaitParams, categories, avg_feet = TRUE, add_diff = F
 #' @param data_type_name Descriptive name for logging (e.g., "questionnaire", "task", "complexity")
 #' @param merge_by Vector of column names to merge by (default: c("participant", "trialNum"))
 #' @return Merged data frame with all data preserved (missing values filled with NA)
-merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", merge_by = c("participant", "trialNum")) {
-  merge_mu_with_data(mu_gait, other_data, data_type_name, merge_by)
-}
 
 
 #' Filter dataset to only include participant/trial combinations that exist in gait data
@@ -319,17 +311,11 @@ merge_mu_with_data <- function(mu_gait, other_data, data_type_name = "data", mer
 #' @param data_to_filter Dataset to filter (task, complexity, etc.)
 #' @param data_type_name Descriptive name for error messages
 #' @return Filtered dataset
-filter_by_gait_combinations <- function(mu_gait, data_to_filter, data_type_name = "data") {
-  filter_by_gait_combinations(mu_gait, data_to_filter, data_type_name)
-}
 
 #' Summarize data across conditions
 #' @param data Data frame to summarize
 #' @param columns_to_not_summarize Columns to exclude from summarization
 #' @return Summarized data frame
-summarize_across_conditions <- function(data, columns_to_not_summarize = character(0)) {
-  summarize_across_conditions(data, columns_to_not_summarize)
-}
 
 
 # =============================================================================
