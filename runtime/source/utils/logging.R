@@ -12,7 +12,7 @@
 
 # Global logging configuration
 GLOBAL_LOGGING_ENABLED <- TRUE
-GLOBAL_LOG_LEVEL <- "DEBUG" # DEBUG, INFO, WARN, ERROR
+GLOBAL_LOG_LEVEL <- "INFO" # DEBUG, INFO, WARN, ERROR
 GLOBAL_COLORED_LOGGING <- TRUE # Enable colored output
 
 # Log level priority mapping (higher number = higher priority)
@@ -26,44 +26,6 @@ LOG_LEVEL_PRIORITIES <- list(
 # Module-specific log level overrides
 # Set specific log levels for individual modules (overrides global level)
 MODULE_LOG_LEVELS <- list(
-  # "ANALYSIS" = "INFO",
-  # "CACHE" = "DEBUG",
-  # "CACHE-POWER_SPECTRUM" = "DEBUG",
-  # "CACHE-RAW_TRACKER" = "DEBUG",
-  # "CACHE-SIMULATION" = "DEBUG",
-  # "CALC-DATA" = "DEBUG",
-  # "CLUSTER" = "DEBUG",
-  # "COMBINATIONS" = "DEBUG",
-  # "COMPLEXITY" = "DEBUG",
-  # "GLOBAL" = "DEBUG",
-  # "HAZARD" = "DEBUG",
-  # "LOAD" = "DEBUG",
-  # "LOAD-MISSING" = "DEBUG",
-  # "LOAD-OR-CALC" = "DEBUG",
-  # "LOAD-OR-CALC-FROM-LOOP" = "DEBUG",
-  # "LOOP" = "DEBUG",
-  # "LOOP-FUNCTION-PARALLEL" = "DEBUG",
-  # "LOOP-FUNCTION-SEQUENTIAL" = "DEBUG",
-  # "MISSING-CHECK" = "DEBUG",
-  # "PAGE5-HISTOGRAMS" = "DEBUG",
-  # "PARALLEL" = "DEBUG",
-  # "PREDICT" = "DEBUG",
-  # "RAW-TRACKER-DATASETS" = "DEBUG",
-  # "RAW-TRACKER-LOADER" = "DEBUG",
-  # "RISK-MODEL" = "DEBUG",
-  # "SAVE" = "DEBUG",
-  # "SCORE" = "DEBUG",
-  # "SHINY-CACHE-POWER_SPECTRUM" = "DEBUG",
-  # "SHINY-CACHE-RAW_TRACKER" = "DEBUG",
-  # "SHINY-CACHE-SIMULATION" = "DEBUG",
-  # "SIMULATION-DATA" = "DEBUG",
-  # "STANDARDIZED" = "DEBUG",
-  # "SUMMARIZE-GAITPARAMS" = "DEBUG",
-  # "TEST" = "DEBUG",
-  # "TRAIN" = "DEBUG",
-  # "UNIVERSAL-FILTER" = "WARN",
-  # "VERIFICATION" = "DEBUG"
-
   # Active overrides (uncomment to enable):
   "UNIVERSAL-FILTER" = "WARN",
   "SUMMARIZE-GAITPARAMS" = "INFO",

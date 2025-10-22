@@ -5,7 +5,6 @@ checkboxInput("useFiltered", "Filter data",
 )
 
 selectizeInput("groupStatsCategory", "Category", choices = categoriesExtra, selected = "participant", multiple = TRUE)
-page_logger("DEBUG", "Removed steps page options initialized")
 ```
 
 Column
