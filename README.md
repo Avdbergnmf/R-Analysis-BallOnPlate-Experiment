@@ -1,6 +1,6 @@
 # Analysis Code - Rocker
 
-> NOTE: This is old code from [this repository/experiment](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2024-vfd-experiment), used as the basis for a new analysis code. The readme's and code right is the old version and will be edited to fit the new data / analyses.
+> NOTE: This code is modified/improved from old repo [this repository/experiment](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2024-vfd-experiment). Readme's etc still need some updating.
 
 The code used for the analysis of ... .
 
@@ -9,13 +9,13 @@ With the files in this repository, you are able to run the code from any device 
 Links:
 - [Zenodo data upload](https://zenodo.org/record/14017075)
 > This repository already contains the calculated step parameters datasets (`./runtime/results/*.rds`). If you want to recalculate step parameters, delete these files, and put participant data ([found on Zenodo](https://zenodo.org/record/14017075)) folders in `./runtime/data/` (in the same folder as the `index.Rmd`).
-- [GitHub Repo](https://github.com/Avdbergnmf/R-Analysis-VFD-Experiment-2024)
-- [GitLab Repo](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2024-vfd-experiment)
+- [GitHub Repo](https://github.com/Avdbergnmf/R-Analysis-BallOnPlate-Experiment.git)
+- [GitLab Repo](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2025-ball-on-plate-experiment)
 
 ## How to use
 
 **Additional information:**
-- [Specific readme for the runtime code](./runtime), ([GitLab specific link](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2024-vfd-experiment/-/tree/main/runtime?ref_type=heads))
+- [Specific readme for the runtime code](./runtime), ([GitLab specific link](https://gitlab.tudelft.nl/mln-lab-public/r-analysis-alex-van-den-berg-2025-ball-on-plate-experiment/-/tree/main/runtime?ref_type=heads))
 - [Supplementary Materials Note](./SUPPLEMENTARY_MATERIALS_INFO.md): This repository is part of the supplementary materials for the associated paper. The `SUPPLEMENTARY_MATERIALS_INFO.md` note provides addition details about this.
 
 ### License and usage
@@ -25,7 +25,7 @@ If used, please adequately cite this work:
 ```
 @inproceedings{WIP,
     author = {Alex van den Berg},
-    title = {PositionNoiseDisturbance},
+    title = {VizPert},
     year = {2024},
     publisher = {WIP},
     address = {Delft, Zuid-Holland, The Netherlands},

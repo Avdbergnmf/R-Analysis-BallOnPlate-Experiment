@@ -1,5 +1,5 @@
 # Ball-on-Plate Game Experiment Analysis Code
-The code used for the analysis of the Ball-on-Plate Game Experiment investigating visual disturbances to avatar foot position and their effects on step-width variability in immersive VR treadmill walking.
+The code used for the analysis of the Ball-on-Plate Game Experiment investigating mechanical perturbations and their visualization to avatar foot position and their effects on learning this pelvis control task in immersive VR treadmill walking.
 
 > This repository already contains the calculated datasets (`./runtime/results/*.rds`). If you want to recalculate parameters, delete these files, and put participant data ([found on Zenodo](https://zenodo.org/record/14017075)) folders in `./runtime/data/` (in the same folder as the `index.Rmd`).
 > 
